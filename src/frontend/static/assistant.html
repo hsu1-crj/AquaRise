@@ -34,7 +34,7 @@
 <script src="/static/sdk_integration.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
-const C={appId:'***REMOVED***',appSecret:'***REMOVED***',model:'qwen2:0.5b'};
+const C={model:'qwen2:0.5b'};
 const $=id=>document.getElementById(id);
 const ma=$('ma'),inp=$('inp'),sbb=$('sbb'),sd=$('sd'),st=$('st'),ap=$('ap'),tb=$('tbtn');
 let dh=null,on=true,busy=false;
@@ -52,7 +52,7 @@ async function llm(p){
 async function sd0(t){if(busy)return;t=t||inp.value.trim();if(!t)return;$('sk')?.remove();am('user',eh(t));inp.value='';ri();sbb.disabled=true;busy=true;ss('thinking');stk();const r=await llm(t);rtk();if(r){ss('speaking');const b=am('assistant',marked.parse(r));if(on&&dh?.isReady)dh.speak(r,{isStart:true,isEnd:true});ss('idle')}else{am('assistant','AI服务暂不可用。请确保Ollama已启动。<br><small>运行 <code>ollama serve</code></small>');ss('offline')}busy=false;sbb.disabled=false;inp.focus()}
 document.querySelectorAll('.qbtn').forEach(b=>{b.onclick=()=>{inp.value=b.dataset.q;sd0()}});
 tb.onclick=()=>{on=!on;if(!on){ap.classList.add('hidden');tb.textContent='◲ 数字人';ss('offline')}else{ap.classList.remove('hidden');tb.textContent='◧ 纯文本';ss(dh?.isReady?'idle':'offline')}};
-async function idh(){try{dh=new OceanDigitalHuman({appId:C.appId,appSecret:C.appSecret,containerId:'sdk'});dh.on('ready',()=>ss('idle'));dh.on('progress',p=>{st.textContent='加载中 '+p+'%'});dh.on('speakStart',()=>ss('speaking'));dh.on('speakEnd',()=>ss('idle'));dh.on('error',e=>{ss('offline');on=false;ap.classList.add('hidden');tb.textContent='◲ 数字人'});await dh.init()}catch(e){ss('offline')}}
+async function idh(){ss('offline');on=false;ap.classList.add('hidden');tb.textContent='数字人待后端鉴权接口接入'}
 function ri(){inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,100)+'px'}
 inp.addEventListener('input',ri);
 function eh(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}

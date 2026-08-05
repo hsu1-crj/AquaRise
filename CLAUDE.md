@@ -99,9 +99,9 @@ issedu_ysu2026_7439/
 |------|------|------|
 | 深度学习框架 | PyTorch | 模型训练底层框架 |
 | 视觉模型 | YOLO11/YOLOv12, OpenCV | 垃圾目标检测 + 图像/视频处理 |
-| 后端框架 | FastAPI | 单一服务（端口8000），同时承载：Jinja2管理页面SSR + `/api/v1/*` REST/SSE接口 |
+| 后端框架 | FastAPI | 单一服务（端口8000），生产环境承载 React 构建产物与 `/api/v1/*` REST/SSE接口 |
 | 数据库 | MySQL (结构化) + ChromaDB (向量) | 检测记录 + RAG知识库 |
-| 前端 | HTML5/CSS3/JavaScript + Jinja2 + Bootstrap 5 + ECharts 5 + Marked + DOMPurify | 管理页面 + 数据可视化大屏 + 安全的流式Markdown展示 |
+| 前端 | React 18 + TypeScript + Vite 6 + ECharts 5 + Marked + DOMPurify | 桌面端管理SPA + 数据可视化大屏 + 安全的流式Markdown展示 |
 | LLM微调 | LLaMA Factory + LoRA/PEFT | 海洋领域大模型微调 |
 | LLM部署 | Ollama (本地) | 模型私有化部署 |
 | LLM应用 | LangChain + RAG | 检索增强生成 |
@@ -193,9 +193,14 @@ python src/vision/detect.py --image test.jpg --model models/yolo/best.pt
 # 启动 FastAPI 服务（管理页面 + API 接口，端口8000）
 uvicorn src.backend.main:app --reload --port 8000
 
+# 启动前端开发服务器（另开终端，端口5173，/api代理到8000）
+cd src/frontend
+npm install
+npm run dev
+
 # 访问入口
-# 管理页面: http://localhost:8000/dashboard
-# API文档:  http://localhost:8000/docs
+# 前端开发页面: http://localhost:5173
+# API文档:      http://localhost:8000/docs
 ```
 
 ### LLM相关
@@ -238,10 +243,10 @@ pytest tests/test_llm.py -v
 - 每个功能模块需有对应的单元测试（放在 `tests/` 目录）
 
 ### 前端开发约定
-- 前端采用 **Jinja2服务端渲染 + 原生JavaScript渐进增强**；模板放在 `src/backend/templates/`，样式、脚本和图片放在 `src/frontend/static/`。未经团队技术评审，不引入SPA框架或额外构建链。
-- Marked、DOMPurify、Bootstrap和ECharts使用固定版本并存放于 `src/frontend/static/vendor/`，避免答辩或离线环境依赖公共CDN。
-- 页面统一继承 `base.html`；导航栏、侧边栏、页脚和表单反馈使用 Jinja2 `include`/宏复用。页面专属CSS/JS按页面拆分，禁止复制公共逻辑或堆叠内联脚本。
-- API地址、请求头、超时、401跳转和错误解析由统一请求模块管理。前端页面与API由同一FastAPI服务（端口8000）提供，同源访问，请求模块直接使用相对路径 `/api/v1/...`，无需配置跨域base URL。所有异步区域必须提供加载、空数据、失败和重试状态，页面不得静默失败。
+- 前端采用 **React 18 + TypeScript SPA**，由 Vite 6 提供开发构建链；源码放在 `src/frontend/src/`，生产构建产物输出到 `src/frontend/dist/` 并由 FastAPI 同源托管。现阶段只验收桌面网页版，不以移动端适配为交付目标。
+- React、Vite、ECharts、Marked、DOMPurify等依赖通过 `src/frontend/package.json` 固定主版本并由npm管理；生产构建不得依赖公共CDN，答辩环境应预先执行 `npm install` 和 `npm run build`。
+- 页面外壳、导航、图表与业务页面按 React 组件复用；路由采用Hash导航以兼容静态托管刷新。禁止复制公共逻辑或堆叠内联脚本。
+- API地址、请求头、超时和错误解析由 `src/frontend/src/services/api.ts` 统一管理。开发环境通过Vite代理访问同源相对路径 `/api/v1/...`，生产环境由FastAPI同源提供。后端未完成期间使用与正式契约同结构的显式Mock模式；所有异步区域必须提供加载、空数据、失败和重试状态，页面不得静默失败。
 - `POST /api/v1/chat` 的流式响应使用 `fetch` + `ReadableStream` 消费；`EventSource` 仅支持GET，禁止用于该POST接口。离开页面或重新提问时应使用 `AbortController` 终止旧请求。
 - LLM返回的Markdown先由 Marked 解析，再经 DOMPurify 清洗后写入DOM；禁止将用户输入、模型输出或接口错误直接赋给 `innerHTML`。前端文件类型/大小校验仅用于交互提示，服务端校验仍为最终依据。
 - ECharts实例按容器复用并在销毁时 `dispose()`；通过 `ResizeObserver` 或窗口 `resize` 触发自适应。30秒刷新定时器在页面隐藏时暂停、离开页面时清理，禁止每次刷新重新初始化图表。

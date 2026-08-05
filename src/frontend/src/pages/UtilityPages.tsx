@@ -1,0 +1,22 @@
+import { useState } from 'react';
+import { BookOpen, CheckCircle2, Database, FileText, LockKeyhole, Save, Search, UploadCloud, UserRound } from 'lucide-react';
+
+const documents = [
+  { name: '海洋塑料污染治理技术指南.pdf', type: 'PDF', chunks: 128, status: '已入库', date: '2026-08-05' },
+  { name: 'TrashCan 数据集类别说明.txt', type: 'TXT', chunks: 46, status: '已入库', date: '2026-08-04' },
+  { name: 'MARPOL 73-78 公约附件 V.pdf', type: 'PDF', chunks: 294, status: '已入库', date: '2026-08-03' },
+  { name: '渤海综合治理攻坚战行动方案.docx', type: 'DOCX', chunks: 82, status: '处理中', date: '2026-08-02' },
+];
+
+export function KnowledgePage() {
+  const [query, setQuery] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const upload = () => { setUploading(true); window.setTimeout(() => setUploading(false), 900); };
+  return <div className="page-stack"><section className="page-heading compact"><div><span className="eyebrow"><i /> OCEAN KNOWLEDGE</span><h1>海洋知识库</h1><p>管理 RAG 检索文档，为海洋小助手提供可信专业知识。</p></div><label className="primary-button file-button"><UploadCloud />{uploading ? '正在上传…' : '上传文档'}<input type="file" accept=".pdf,.doc,.docx,.txt" onChange={upload} disabled={uploading} /></label></section><section className="knowledge-stats"><article className="panel glass"><Database /><div><span>知识文档</span><strong>36</strong><small>共 1.82 GB</small></div></article><article className="panel glass"><BookOpen /><div><span>知识分片</span><strong>4,628</strong><small>今日新增 128</small></div></article><article className="panel glass"><CheckCircle2 /><div><span>向量化完成率</span><strong>97.2%</strong><small>1 个任务处理中</small></div></article></section><section className="panel glass data-panel"><div className="reports-toolbar"><div><h2>文档资源</h2><span>支持 PDF、Word、TXT，上传后自动分片与向量化</span></div><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索知识文档" /></label></div><div className="document-list">{documents.filter((item) => item.name.includes(query)).map((item) => <article key={item.name}><div className="document-icon"><FileText /></div><div><strong>{item.name}</strong><span>{item.type} · {item.chunks} 个知识分片 · {item.date}</span></div><em className={item.status === '处理中' ? 'processing' : ''}><i />{item.status}</em><button>查看分片</button></article>)}</div></section></div>;
+}
+
+export function ProfilePage() {
+  const [saved, setSaved] = useState(false);
+  const save = () => { setSaved(true); window.setTimeout(() => setSaved(false), 1800); };
+  return <div className="page-stack"><section className="page-heading compact"><div><span className="eyebrow"><i /> ACCOUNT CENTER</span><h1>个人中心</h1><p>管理个人资料、安全设置和通知偏好。</p></div></section><section className="profile-grid"><aside className="panel glass profile-card"><div className="profile-avatar">林<span><i /></span></div><h2>林海</h2><p>前端开发工程师</p><span className="admin-badge">项目管理员</span><dl><div><dt>参与项目</dt><dd>1</dd></div><div><dt>创建任务</dt><dd>46</dd></div><div><dt>生成报告</dt><dd>12</dd></div></dl></aside><article className="panel glass profile-form"><header><UserRound /><div><h2>基本信息</h2><span>用于项目协作与报告署名</span></div></header><div className="form-grid"><label>姓名<input defaultValue="林海" /></label><label>成员角色<select defaultValue="前端开发工程师"><option>前端开发工程师</option><option>后端开发工程师</option><option>视觉模型工程师</option></select></label><label>电子邮箱<input type="email" defaultValue="linhai@aquarise.local" /></label><label>团队编号<input defaultValue="第 8 组" readOnly /></label></div><header className="security-heading"><LockKeyhole /><div><h2>安全设置</h2><span>修改登录密码与会话安全配置</span></div></header><div className="form-grid"><label>当前密码<input type="password" placeholder="输入当前密码" /></label><label>新密码<input type="password" placeholder="至少 8 位字符" /></label></div><footer>{saved && <span className="save-success"><CheckCircle2 />修改已保存</span>}<button className="primary-button" onClick={save}><Save />保存修改</button></footer></article></section></div>;
+}
