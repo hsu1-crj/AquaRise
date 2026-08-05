@@ -1,0 +1,71 @@
+# LLaMA Factory LoRA 微调训练配置
+# 用于海洋领域专属模型训练
+
+# === 模型选择 ===
+# 基座模型选型（按项目规划文档W5评估确定）:
+#   候选: DeepSeek-R1-Distill-Qwen-7B / Llama-3-8B-Instruct / Qwen2-7B-Instruct
+#   评估维度: 中文领域效果、显存占用、推理时延、开源许可证
+#   当前推荐: Qwen2-7B-Instruct（中英双语强 + 消费级GPU可运行 + Apache 2.0许可）
+#   备选说明见 CLAUDE.md 技术栈章节
+model_name_or_path: Qwen/Qwen2-7B-Instruct
+# 备选1: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B (强推理能力)
+# 备选2: meta-llama/Llama-3-8B-Instruct (Meta开源，英文强)
+# 备选3: Qwen/Qwen2-1.5B-Instruct (轻量级，适合低显存环境)
+
+# === 训练方式 ===
+finetuning_type: lora                              # LoRA轻量微调
+# 备选: full (全量微调，需大显存)
+
+# === 数据集 ===
+dataset: ocean_trash_qa,ocean_knowledge_qa          # 使用 dataset_config.yaml 中定义的数据集
+template: qwen                                      # 对话模板名称，需与基座模型匹配
+cutoff_len: 2048                                    # 截断长度
+overwrite_cache: true
+preprocessing_num_workers: 4
+
+# === LoRA 参数 ===
+lora_rank: 8                                       # LoRA秩（推荐8-64，越大能力越强但越慢）
+lora_alpha: 16                                      # LoRA缩放因子（通常为rank的2倍）
+lora_dropout: 0.1                                  # Dropout防止过拟合
+lora_target: all                                    # 目标模块（all=所有线性层）
+
+# === 训练超参数 ===
+output_dir: ../../models/llm/ocean-lora             # 输出目录（LoRA权重保存位置）
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4                      # 等效batch_size = 4 × 4 × GPU数
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine                          # 余弦退火调度
+warmup_ratio: 0.1                                  # 预热比例
+num_train_epochs: 3                                # 训练轮数（小数据集可用5-10轮）
+logging_steps: 10
+save_steps: 100
+eval_steps: 100
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: loss
+
+# === 混合精度与加速 ===
+fp16: true                                          # 混合精度训练（非Ampere GPU）
+# bf16: true                                        # BF16（Ampere/Hopper GPU推荐）
+ddp_timeout: 180000000                              # DDP超时
+deepspeed: null                                     # DeepSpeed配置（多卡训练时指定配置）
+
+# === 验证与早停 ===
+val_size: 0.1                                       # 验证集比例
+per_device_eval_batch_size: 8
+do_eval: true
+evaluation_strategy: steps
+eval_steps: 100
+early_stopping_patience: 5                          # 早停耐心值
+
+# === Wandb日志（可选） ===
+report_to: none                                     # 设为 "wandb" 启用Wandb可视化
+# wandb_project: ocean-trash-detection
+# wandb_run_name: lora-qwen2-7b-v1
+
+# === 预测/推理配置 ===
+predict_with_generate: false
+max_new_tokens: 512
+temperature: 0.7
+top_p: 0.9
+do_sample: true

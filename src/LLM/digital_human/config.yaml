@@ -1,0 +1,52 @@
+# ============================================================
+# 魔珐星云数字人 SDK 配置文件
+# ============================================================
+# 平台: 魔珐星云（魔珐科技）- xingyun3d.com
+# SDK: XmovAvatar (CDN引入)
+# 文档: https://xingyun3d.com/developers/52-183
+# 安全: AppSecret为敏感凭证，生产环境应从后端API动态获取
+# ============================================================
+
+# === SDK 初始化参数 ===
+sdk:
+  # 应用凭证（从魔珐星云控制台获取: https://xingyun3d.com/workspace/application-manage）
+  appId: "***REMOVED***"
+  # appSecret 敏感凭证，生产环境通过后端接口获取，此处仅供开发测试
+  # 请勿提交包含真实appSecret的代码到公开仓库
+  appSecret: "${MOFA_APP_SECRET}"
+
+  # 魔珐星云网关
+  gatewayServer: "https://nebula-agent.xingyun3d.com/user/v1/ttsa/session"
+
+  # Web SDK CDN地址
+  sdk_cdn_url: "https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js"
+
+  # 连接配置
+  timeout: 30000
+  auto_reconnect: true
+  max_retries: 3
+
+# === 数字人形象配置 ===
+avatar:
+  # 形象在魔珐星云控制台创建应用时选择
+  scale: 1.0
+  background_color: "#0a1628"
+
+# === 交互行为配置 ===
+interaction:
+  sentence_split:
+    max_length: 200
+    punctuations: ["。", "！", "？", "；", "\n", "，"]
+    min_length: 10
+
+  ssml:
+    enabled: true
+    break_between_sentences: 500
+    break_after_punctuation: 300
+
+  welcome_message: "你好！我是海洋守护者，很高兴为你介绍海洋环保知识。"
+
+  fallback:
+    enabled: true
+    retry_interval: 5000
+    max_consecutive_failures: 3

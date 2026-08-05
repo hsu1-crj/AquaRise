@@ -1,0 +1,52 @@
+# LLaMA Factory 数据集配置
+# 海洋领域微调数据集 - 水下垃圾识别与海洋环保问答
+
+# === 数据集1: 水下垃圾分类问答 ===
+ocean_trash_qa:
+  # 数据集元信息
+  dataset_name: ocean_trash_qa
+  file_name: ocean_trash_qa.json       # 格式: [{"instruction": "...", "input": "...", "output": "..."}, ...]
+  file_sha1: null                       # 待数据集制作完成后填充
+  dataset_dir: fine_tune/data/          # 数据集存放目录
+
+  # 数据划分
+  split:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+
+  # 对话模板
+  formatting: sharegpt                   # 支持 sharegpt / alpaca 两种格式
+  columns:
+    prompt: instruction
+    query: input
+    response: output
+
+# === 数据集2: 海洋环保知识问答 ===
+ocean_knowledge_qa:
+  dataset_name: ocean_knowledge_qa
+  file_name: ocean_knowledge_qa.json
+  file_sha1: null
+  split:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+  formatting: sharegpt
+  columns:
+    prompt: instruction
+    query: input
+    response: output
+
+# === 数据集3: 水下垃圾分类多轮对话（可选） ===
+ocean_trash_multi_turn:
+  dataset_name: ocean_trash_multi_turn
+  file_name: ocean_trash_multi_turn.json
+  file_sha1: null
+  split:
+    train: 0.8
+    val: 0.2
+  formatting: sharegpt
+  columns:
+    prompt: instruction
+    query: input
+    response: output

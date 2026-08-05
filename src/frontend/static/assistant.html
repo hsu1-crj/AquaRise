@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>海洋守护者</title>
+<style>:root{--deep:#0F2038;--panel:#122744;--accent:#22B8E6;--ad:rgba(34,184,230,0.15);--tx:#dce8f5;--dim:#6b8aaa;--bai:rgba(34,184,230,0.1);--bus:rgba(15,32,56,0.6);--tr:250ms ease}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:var(--deep);color:var(--tx);height:100vh;overflow:hidden}.container{display:flex;height:100vh;transition:all var(--tr)}.avatar-panel{flex:0 0 40%;min-width:380px;position:relative;background:linear-gradient(180deg,#0a1a30 0%,#0F2038 50%,#0d2840 100%);display:flex;flex-direction:column;align-items:center;transition:all var(--tr);padding:20px 0 0}.avatar-panel.hidden{flex:0 0 0;min-width:0;opacity:0;pointer-events:none}.avatar-panel.hidden>*{display:none}.obg{position:absolute;inset:0;pointer-events:none;z-index:0}.wave{position:absolute;bottom:0;left:-10%;width:120%;height:60px;background:rgba(34,184,230,0.04);border-radius:50%;animation:wa 8s ease-in-out infinite}.wave:nth-child(2){bottom:20px;animation-delay:-3s;animation-duration:10s;opacity:.6}@keyframes wa{0%,100%{transform:translateX(0) scaleY(1)}50%{transform:translateX(3%) scaleY(1.4)}}.pts{position:absolute;inset:0;z-index:0}.pt{position:absolute;width:2px;height:2px;background:var(--accent);border-radius:50%;opacity:0;animation:fl 6s ease-in-out infinite}@keyframes fl{0%{opacity:0;transform:translateY(100%)}20%{opacity:.6}80%{opacity:.2}100%{opacity:0;transform:translateY(-100%)}}.atitle{position:relative;z-index:2;font-size:22px;font-weight:600;color:var(--accent);letter-spacing:3px;flex-shrink:0}.asub{position:relative;z-index:2;font-size:12px;color:var(--dim);margin-bottom:8px;flex-shrink:0}.awrap{position:relative;z-index:2;width:92%;flex:1;min-height:0;cursor:pointer;transition:transform var(--tr);margin:0 0 0 8%}.awrap:hover{transform:scale(1.02)}.awrap>div{width:100%;height:100%;position:relative}.awrap>div>div:last-child:not(canvas){background:rgba(0,0,0,0.2)!important;bottom:0!important;max-height:36px!important}.stl{position:relative;z-index:2;display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--dim);flex-shrink:0}.sd{width:8px;height:8px;border-radius:50%;background:var(--dim);transition:all var(--tr)}.sd.ready{background:#4ade80;box-shadow:0 0 6px #4ade80}.sd.thinking{background:#f59e0b;animation:pu .8s infinite}.sd.speaking{background:var(--accent);animation:pu .5s infinite}@keyframes pu{0%,100%{opacity:1}50%{opacity:.3}}.chat-panel{flex:1;min-width:420px;display:flex;flex-direction:column;background:var(--panel);border-left:1px solid rgba(255,255,255,.05)}.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}.topbar h3{font-size:17px;font-weight:600}.tbtn{font-size:12px;padding:5px 14px;border-radius:14px;border:1px solid var(--dim);background:none;color:var(--dim);cursor:pointer;transition:all var(--tr)}.tbtn:hover{color:var(--accent);border-color:var(--accent)}.quick{display:flex;gap:8px;padding:10px 16px;flex-shrink:0;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,.03)}.qbtn{font-size:12px;padding:7px 15px;border-radius:15px;border:1px solid rgba(34,184,230,.25);background:var(--ad);color:var(--accent);cursor:pointer;white-space:nowrap;transition:all var(--tr)}.qbtn:hover{background:rgba(34,184,230,.2);border-color:var(--accent);transform:translateY(-1px);box-shadow:0 2px 8px rgba(34,184,230,.15)}.qbtn:active{transform:scale(.96)}.msgs{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}.msgs::-webkit-scrollbar{width:4px}.msgs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:2px}.msg{max-width:82%;display:flex;gap:8px;animation:mi .25s ease}@keyframes mi{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}.msg.user{align-self:flex-end;flex-direction:row-reverse}.mav{width:30px;height:30px;border-radius:50%;background:var(--ad);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}.msg.user .mav{background:rgba(34,184,230,.2)}.mbub{padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.6;word-break:break-word}.msg.assistant .mbub{background:var(--bai);border-bottom-left-radius:4px}.msg.user .mbub{background:var(--bus);border-bottom-right-radius:4px}.mbub p{margin:0}.mbub p+p{margin-top:8px}.think{display:flex;align-items:center;gap:10px;padding:8px 0;color:var(--dim);font-size:13px;animation:mi .25s ease}.tdots{display:flex;gap:4px}.tdots span{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:tb 1.2s infinite}.tdots span:nth-child(2){animation-delay:.2s}.tdots span:nth-child(3){animation-delay:.4s}@keyframes tb{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1.2)}}.skel{padding:16px}.skel-line{height:14px;background:rgba(255,255,255,.04);border-radius:7px;margin-bottom:10px;animation:sh 1.5s infinite}.skel-line:nth-child(2){width:70%}.skel-line:nth-child(3){width:50%}@keyframes sh{0%{opacity:.3}50%{opacity:.6}100%{opacity:.3}}.input-row{padding:10px 16px;border-top:1px solid rgba(255,255,255,.05);display:flex;gap:8px;align-items:flex-end;flex-shrink:0}.input-row textarea{flex:1;padding:10px 16px;border-radius:22px;border:1px solid rgba(34,184,230,.2);background:rgba(0,0,0,.25);color:var(--tx);font-size:14px;font-family:inherit;resize:none;outline:none;max-height:100px;line-height:1.4}.input-row textarea:focus{border-color:var(--accent)}.input-row button{padding:10px 22px;border-radius:22px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:all var(--tr);white-space:nowrap}.input-row button:hover{opacity:.85;box-shadow:0 0 16px rgba(34,184,230,.3)}.input-row button:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}@media(max-width:850px){.container{flex-direction:column}.avatar-panel{flex:0 0 38vh;min-width:0}.avatar-panel.hidden{flex:0 0 0}.chat-panel{min-width:0}.msg{max-width:90%}}</style>
+</head>
+<body>
+
+<div class="container" id="ct">
+  <div class="avatar-panel" id="ap">
+    <div class="obg"><div class="wave"></div><div class="wave"></div><div class="pts" id="pts"></div></div>
+    <div class="atitle">海洋守护者</div><div class="asub">Ocean Guardian</div>
+    <div class="awrap" id="sdk"></div>
+    <div class="stl"><div class="sd" id="sd"></div><span id="st">空闲</span></div>
+  </div>
+  <div class="chat-panel">
+    <div class="topbar"><h3>海洋守护者</h3><button class="tbtn" id="tbtn">◧ 纯文本</button></div>
+    <div class="quick">
+      <button class="qbtn" data-q="塑料袋在海洋中多久能降解？">塑料袋降解周期</button>
+      <button class="qbtn" data-q="什么是幽灵渔网？有什么危害？">幽灵渔网危害</button>
+      <button class="qbtn" data-q="普通人怎么帮助减少海洋塑料？">怎么减少海洋塑料</button>
+    </div>
+    <div class="msgs" id="ma"><div class="skel" id="sk"><div class="skel-line"></div><div class="skel-line"></div><div class="skel-line"></div></div></div>
+    <div class="input-row">
+      <textarea id="inp" rows="1" placeholder="输入你的问题..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sd0()}"></textarea>
+      <button id="sbb" onclick="sd0()">发送</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js"></script>
+<script src="/static/sdk_integration.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const C={appId:'***REMOVED***',appSecret:'***REMOVED***',model:'qwen2:0.5b'};
+const $=id=>document.getElementById(id);
+const ma=$('ma'),inp=$('inp'),sbb=$('sbb'),sd=$('sd'),st=$('st'),ap=$('ap'),tb=$('tbtn');
+let dh=null,on=true,busy=false;
+// Particles
+for(let i=0;i<20;i++){const d=document.createElement('div');d.className='pt';d.style.left=Math.random()*100+'%';d.style.animationDelay=Math.random()*8+'s';d.style.animationDuration=(4+Math.random()*6)+'s';$('pts').appendChild(d)}
+function ss(s){sd.className='sd '+s;const m={idle:'空闲',listening:'正在倾听',thinking:'思考中',speaking:'播报中',offline:'纯文本模式'};st.textContent=m[s]||s}
+function am(r,h){const d=document.createElement('div');d.className='msg '+r;d.innerHTML='<div class="mav">'+(r==='assistant'?'🌊':'👤')+'</div><div class="mbub">'+h+'</div>';ma.appendChild(d);ma.scrollTop=ma.scrollHeight;return d}
+function stk(){const d=document.createElement('div');d.className='think';d.id='tk';d.innerHTML='🌊 海洋守护者正在思考… <div class="tdots"><span></span><span></span><span></span></div>';ma.appendChild(d);ma.scrollTop=ma.scrollHeight}
+function rtk(){const e=$('tk');if(e)e.remove()}
+async function llm(p){
+  try{const r=await fetch('/api/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'system',content:'你是海洋守护者，专注水下垃圾识别、海洋污染分析和环保教育。用专业积极语气回答，200字内。不确定的明确说明。'},{role:'user',content:p}],model:C.model,stream:false})});if(r.ok){const d=await r.json();const t=d.content||d.message?.content||'';if(t)return t}}catch(e){}
+  try{const r=await fetch('http://localhost:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:C.model,messages:[{role:'system',content:'你是海洋守护者。专业积极，200字内。'},{role:'user',content:p}],stream:false})});if(r.ok){const d=await r.json();const t=d.message?.content||'';if(t)return t}}catch(e){}
+  return null;
+}
+async function sd0(t){if(busy)return;t=t||inp.value.trim();if(!t)return;$('sk')?.remove();am('user',eh(t));inp.value='';ri();sbb.disabled=true;busy=true;ss('thinking');stk();const r=await llm(t);rtk();if(r){ss('speaking');const b=am('assistant',marked.parse(r));if(on&&dh?.isReady)dh.speak(r,{isStart:true,isEnd:true});ss('idle')}else{am('assistant','AI服务暂不可用。请确保Ollama已启动。<br><small>运行 <code>ollama serve</code></small>');ss('offline')}busy=false;sbb.disabled=false;inp.focus()}
+document.querySelectorAll('.qbtn').forEach(b=>{b.onclick=()=>{inp.value=b.dataset.q;sd0()}});
+tb.onclick=()=>{on=!on;if(!on){ap.classList.add('hidden');tb.textContent='◲ 数字人';ss('offline')}else{ap.classList.remove('hidden');tb.textContent='◧ 纯文本';ss(dh?.isReady?'idle':'offline')}};
+async function idh(){try{dh=new OceanDigitalHuman({appId:C.appId,appSecret:C.appSecret,containerId:'sdk'});dh.on('ready',()=>ss('idle'));dh.on('progress',p=>{st.textContent='加载中 '+p+'%'});dh.on('speakStart',()=>ss('speaking'));dh.on('speakEnd',()=>ss('idle'));dh.on('error',e=>{ss('offline');on=false;ap.classList.add('hidden');tb.textContent='◲ 数字人'});await dh.init()}catch(e){ss('offline')}}
+function ri(){inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,100)+'px'}
+inp.addEventListener('input',ri);
+function eh(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+idh().then(()=>$('sk').style.display='none');inp.focus();
+</script>
+</body>
+</html>
