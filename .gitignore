@@ -1,0 +1,69 @@
+# ==============================
+# Project-specific local data
+# ==============================
+# Raw, intermediate, and generated YOLO datasets are kept locally.
+dataset/
+
+# Personal work records (do not include in the shared repository).
+AI助手工作日志_视觉模型.md
+视觉模型工程师_工作流程清单.md
+
+# ==============================
+# YOLO / computer-vision outputs
+# ==============================
+# Ultralytics training runs, checkpoints, metrics, and visualizations.
+runs/
+models/yolo/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.torchscript
+*.weights
+
+# Prediction and evaluation outputs.
+predictions/
+results/
+inference_outputs/
+*_pred.jpg
+*_pred.png
+*_result.jpg
+*_result.png
+
+# ==============================
+# Python and local environments
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+!.env.example
+
+# ==============================
+# Logs, caches, and local tools
+# ==============================
+*.log
+*.tmp
+*.bak
+.cache/
+.tensorboard/
+tensorboard_logs/
+.idea/
+.vscode/
+
+# ==============================
+# OS files
+# ==============================
+.DS_Store
+Thumbs.db
+desktop.ini
