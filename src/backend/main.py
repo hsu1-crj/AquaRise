@@ -9,9 +9,10 @@ from pathlib import Path
 # 将项目根目录加入Python路径
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 import json
 import logging
 
@@ -50,6 +51,22 @@ async def list_models():
         return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
+
+
+@app.get("/api/v1/digital-human/config")
+async def digital_human_config():
+    """数字人 SDK 配置（appId/appSecret 从服务端环境变量注入，不写入仓库代码）"""
+    app_id = os.environ.get("DH_APP_ID", "***REMOVED***")
+    app_secret = os.environ.get("DH_APP_SECRET", "***REMOVED***")
+    if not app_id or not app_secret:
+        return JSONResponse({
+            "appId": app_id or "",
+            "note": "DH_APP_ID 或 DH_APP_SECRET 环境变量未配置",
+        }, status_code=200)
+    return JSONResponse({
+        "appId": app_id,
+        "appSecret": app_secret,
+    })
 
 
 # ==================== 静态文件 ====================
