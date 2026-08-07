@@ -7,6 +7,19 @@ dataset/
 # Personal work records (do not include in the shared repository).
 AI助手工作日志_视觉模型.md
 视觉模型工程师_工作流程清单.md
+# Local visual-engineering process ledgers; consolidate into official doc/ templates later.
+视觉问题与解决记录.md
+视觉代码检视记录.md
+视觉测试用例执行记录.md
+视觉风险跟踪记录.md
+视觉改进实验记录.md
+# Superseded local drafts; do not re-add them to the repository.
+模型评估与训练建议.md
+doc/02.设计说明书/视觉模型训练评估报告.md
+视觉模型实验记录.md
+视觉模型最终提交清单.md
+视觉模型测试与验收记录.md
+视觉模型详细设计填充稿.md
 
 # ==============================
 # YOLO / computer-vision outputs
