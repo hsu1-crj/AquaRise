@@ -102,3 +102,20 @@ src/frontend/dist/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+
+# ==============================
+# Frontend local files
+# ==============================
+# Installed packages and Vite/TypeScript build artifacts.
+src/frontend/node_modules/
+src/frontend/dist/
+src/frontend/.vite/
+src/frontend/*.tsbuildinfo
+
+# Developer-only frontend environment overrides.
+src/frontend/.env.local
+src/frontend/.env.*.local
+
+# Local Figma reference package; source is used for visual comparison only.
+AQUARISE Ocean Conservation Super-App (Community)/

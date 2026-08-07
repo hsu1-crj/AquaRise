@@ -77,6 +77,35 @@
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <script src="https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js"></script>
 <script src="/static/sdk_integration.js"></script>
+<<<<<<< HEAD
 <script src="/static/js/assistant.js?v=20260806"></script>
+=======
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const C={model:'qwen2:0.5b'};
+const $=id=>document.getElementById(id);
+const ma=$('ma'),inp=$('inp'),sbb=$('sbb'),sd=$('sd'),st=$('st'),ap=$('ap'),tb=$('tbtn');
+let dh=null,on=true,busy=false;
+// Particles
+for(let i=0;i<20;i++){const d=document.createElement('div');d.className='pt';d.style.left=Math.random()*100+'%';d.style.animationDelay=Math.random()*8+'s';d.style.animationDuration=(4+Math.random()*6)+'s';$('pts').appendChild(d)}
+function ss(s){sd.className='sd '+s;const m={idle:'空闲',listening:'正在倾听',thinking:'思考中',speaking:'播报中',offline:'纯文本模式'};st.textContent=m[s]||s}
+function am(r,h){const d=document.createElement('div');d.className='msg '+r;d.innerHTML='<div class="mav">'+(r==='assistant'?'🌊':'👤')+'</div><div class="mbub">'+h+'</div>';ma.appendChild(d);ma.scrollTop=ma.scrollHeight;return d}
+function stk(){const d=document.createElement('div');d.className='think';d.id='tk';d.innerHTML='🌊 海洋守护者正在思考… <div class="tdots"><span></span><span></span><span></span></div>';ma.appendChild(d);ma.scrollTop=ma.scrollHeight}
+function rtk(){const e=$('tk');if(e)e.remove()}
+async function llm(p){
+  try{const r=await fetch('/api/v1/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'system',content:'你是海洋守护者，专注水下垃圾识别、海洋污染分析和环保教育。用专业积极语气回答，200字内。不确定的明确说明。'},{role:'user',content:p}],model:C.model,stream:false})});if(r.ok){const d=await r.json();const t=d.content||d.message?.content||'';if(t)return t}}catch(e){}
+  try{const r=await fetch('http://localhost:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:C.model,messages:[{role:'system',content:'你是海洋守护者。专业积极，200字内。'},{role:'user',content:p}],stream:false})});if(r.ok){const d=await r.json();const t=d.message?.content||'';if(t)return t}}catch(e){}
+  return null;
+}
+async function sd0(t){if(busy)return;t=t||inp.value.trim();if(!t)return;$('sk')?.remove();am('user',eh(t));inp.value='';ri();sbb.disabled=true;busy=true;ss('thinking');stk();const r=await llm(t);rtk();if(r){ss('speaking');const b=am('assistant',marked.parse(r));if(on&&dh?.isReady)dh.speak(r,{isStart:true,isEnd:true});ss('idle')}else{am('assistant','AI服务暂不可用。请确保Ollama已启动。<br><small>运行 <code>ollama serve</code></small>');ss('offline')}busy=false;sbb.disabled=false;inp.focus()}
+document.querySelectorAll('.qbtn').forEach(b=>{b.onclick=()=>{inp.value=b.dataset.q;sd0()}});
+tb.onclick=()=>{on=!on;if(!on){ap.classList.add('hidden');tb.textContent='◲ 数字人';ss('offline')}else{ap.classList.remove('hidden');tb.textContent='◧ 纯文本';ss(dh?.isReady?'idle':'offline')}};
+async function idh(){ss('offline');on=false;ap.classList.add('hidden');tb.textContent='数字人待后端鉴权接口接入'}
+function ri(){inp.style.height='auto';inp.style.height=Math.min(inp.scrollHeight,100)+'px'}
+inp.addEventListener('input',ri);
+function eh(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+idh().then(()=>$('sk').style.display='none');inp.focus();
+</script>
+>>>>>>> a1f431889ddbd5e68991b50e2919bbb6356acdf2
 </body>
 </html>
