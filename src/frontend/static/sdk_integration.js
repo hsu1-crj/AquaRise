@@ -20,8 +20,8 @@
     /**
      * @param {Object} config
      * @param {string} config.appId          - 魔珐星云 App ID
-     * @param {string} config.appSecret      - 魔珐星云 App Secret (生产环境应从后端API获取)
-     * @param {string} config.containerId    - DOM 容器元素 ID (如 'sdk')
+     * @param {string} config.appSecret      - 魔珐星云 App Secret (从后端API获取)
+     * @param {string} config.containerId    - DOM 容器元素 ID
      * @param {string} [config.gatewayServer] - 网关地址
      */
     constructor(config) {
@@ -41,33 +41,57 @@
 
     /**
      * 初始化数字人 SDK
-     * 必须先调用此方法，等待 ready 事件后再调用 speak()
+     * 确保容器有有效尺寸后再初始化，避免黑屏
      */
     async init() {
       if (typeof XmovAvatar === 'undefined') {
-        throw new Error('魔珐星云SDK未加载，请在HTML中引入: <script src="https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js"></script>');
+        throw new Error('魔珐星云SDK未加载，请在HTML中引入SDK脚本');
       }
+
+      const container = document.getElementById(this.containerId);
+      if (!container) {
+        throw new Error('容器元素 #' + this.containerId + ' 不存在');
+      }
+
+      // 确保容器有有效尺寸（WebGL 需要 > 0 的宽高）
+      await this._waitForSize(container);
 
       const self = this;
 
       return new Promise((resolve, reject) => {
         try {
+          const rect = container.getBoundingClientRect();
+          console.log('[XmovAvatar] 容器尺寸:', rect.width + '×' + rect.height);
+
           self.sdk = new XmovAvatar({
             containerId: '#' + self.containerId,
             appId: self.appId,
             appSecret: self.appSecret,
             gatewayServer: self.gatewayServer,
+            orientation: 'portrait',
+            enableDebugger: false,
+            // 禁用 SDK 自带字幕弹窗：代理掉 subtitle_on/subtitle_off 事件，只保留语音+动作
+            proxyWidget: {
+              subtitle_on:  () => {},
+              subtitle_off: () => {},
+            },
 
             onMessage(message) {
-              console.log('[XmovAvatar] 消息:', message);
-              // 仅将真正错误码(>=10000)当作error，忽略info/warning级别消息
-              if (message && message.code && message.code >= 10000) {
-                console.error('[XmovAvatar] SDK错误 ' + message.code + ':', message.message || message);
-                self._emit('error', message);
+              const code = message && message.code;
+              const msg  = message && message.message;
+              console.log('[XmovAvatar] 消息 code=' + code + ':', msg || '');
+              // 50001-50004 为网络状态信息（离线/在线/重试/断开），属非致命状态，不触发 error
+              // 仅 10001-10005(初始化/会话错误) 与 20001-20003(视频抽帧错误) 视为致命错误
+              if (code && code >= 10000 && code < 50000) {
+                console.error('[XmovAvatar] SDK错误 ' + code + ':', msg || message);
+                self._emit('error', { code, message: msg });
+              } else if (code && code >= 50000) {
+                console.warn('[XmovAvatar] 网络状态 ' + code + ':', msg || '');
               }
             },
 
             onVoiceStateChange(status) {
+              console.log('[XmovAvatar] 语音状态:', status);
               if (status === 'voice_start' || status === 'start') {
                 self.isSpeaking = true;
                 self._emit('speakStart');
@@ -79,22 +103,54 @@
             },
           });
 
+          // 带超时的初始化
+          const TIMEOUT = 30000; // 30秒
+          let timedOut = false;
+          const timer = setTimeout(() => {
+            timedOut = true;
+            reject(new Error('SDK初始化超时(' + TIMEOUT/1000 + 's)，请检查网络或appId/appSecret'));
+          }, TIMEOUT);
+
           self.sdk.init({
             onDownloadProgress(progress) {
               console.log('[XmovAvatar] 加载进度:', progress + '%');
               self._emit('progress', progress);
             },
           }).then(() => {
+            if (timedOut) return;
+            clearTimeout(timer);
             self.isReady = true;
-            console.log('[XmovAvatar] 初始化完成');
+            console.log('[XmovAvatar] 初始化完成，数字人已就绪');
             self._emit('ready');
             resolve();
-          }).catch(reject);
+          }).catch((err) => {
+            if (timedOut) return;
+            clearTimeout(timer);
+            console.error('[XmovAvatar] 初始化失败:', err);
+            reject(err);
+          });
 
         } catch (e) {
           reject(e);
         }
       });
+    }
+
+    /**
+     * 等待容器拥有有效尺寸（WebGL 渲染需要 >0 的宽高）
+     * 最多等待 3 秒
+     */
+    async _waitForSize(container, timeoutMs = 3000) {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        const rect = container.getBoundingClientRect();
+        if (rect.width > 10 && rect.height > 10) return;
+        await new Promise(r => setTimeout(r, 100));
+      }
+      console.warn('[XmovAvatar] 容器尺寸仍然偏小，尝试强制设置');
+      // 强制给容器一个最小尺寸
+      if (container.offsetWidth < 100) container.style.width = '360px';
+      if (container.offsetHeight < 100) container.style.minHeight = '400px';
     }
 
     // ======================== 说话 ========================
@@ -125,6 +181,8 @@
       const isStart = opts.isStart !== false;
       const isEnd = opts.isEnd !== false;
 
+      console.log('[XmovAvatar] speak:', (text || '(空)').slice(0, 40),
+        'isStart=' + isStart, 'isEnd=' + isEnd);
       this.sdk.speak(text, isStart, isEnd);
     }
 
@@ -137,13 +195,16 @@
 
     // ======================== 状态控制 ========================
 
-    /** 待机状态 (长时间无交互) */
+    /** 待机状态 */
     idle() { this.sdk?.idle(); }
 
-    /** 互动待机 (可打断当前播报) */
-    interactiveIdle() { this.sdk?.interactiveidle(); this.isSpeaking = false; }
+    /** 互动待机 (打断当前播报) */
+    interactiveIdle() {
+      this.sdk?.interactiveidle();
+      this.isSpeaking = false;
+    }
 
-    /** 思考状态 (等待LLM回复时) */
+    /** 思考状态 */
     think() { this.sdk?.think(); }
 
     // ======================== 音量控制 ========================
@@ -174,7 +235,6 @@
 
     // ======================== 销毁 ========================
 
-    /** 销毁数字人实例，释放资源 */
     destroy() {
       this._speechQueue = [];
       this.isReady = false;

@@ -9,13 +9,16 @@ from pathlib import Path
 # 将项目根目录加入Python路径
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+import os
+import threading
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 import json
 import logging
 
 from src.LLM.chat_api import ChatRequest, ChatMessage, chat_service, init_chat_service
+from src.backend.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,6 +30,16 @@ app = FastAPI(title="海洋守护者 API", version="0.1.0")
 async def startup():
     init_chat_service()
     logger.info("ChatService 已初始化")
+    # 后台预热 RAG 知识库：嵌入模型首次加载耗时约 10-15 秒，
+    # 若在 startup 中同步执行会阻塞服务启动，导致浏览器打开页面时服务尚未就绪、
+    # 数字人配置请求失败而降级为纯文本模式。改为后台线程预热，服务立即就绪，
+    # RAG 在后台加载完成后即可服务对话请求；加载期间的首条对话会触发按需初始化。
+    def _warmup_rag():
+        try:
+            chat_service.rag.initialize()
+        except Exception as e:
+            logger.warning(f"RAG 预热失败（将降级为纯 LLM 模式）: {e}")
+    threading.Thread(target=_warmup_rag, daemon=True, name="rag-warmup").start()
 
 # ==================== API路由 ====================
 
@@ -50,6 +63,22 @@ async def list_models():
         return {"models": models}
     except Exception as e:
         return {"models": [], "error": str(e)}
+
+
+@app.get("/api/v1/digital-human/config")
+async def digital_human_config():
+    """数字人 SDK 配置（appId/appSecret 从 .env 注入，不写入仓库代码）"""
+    app_id = settings.DH_APP_ID
+    app_secret = settings.DH_APP_SECRET
+    if not app_id or not app_secret:
+        return JSONResponse({
+            "appId": app_id or "",
+            "note": "DH_APP_ID 或 DH_APP_SECRET 环境变量未配置",
+        }, status_code=200)
+    return JSONResponse({
+        "appId": app_id,
+        "appSecret": app_secret,
+    })
 
 
 # ==================== 静态文件 ====================

@@ -1,16 +1,27 @@
-# LLaMA Factory LoRA 微调训练配置
+# LoRA 微调训练配置
 # 用于海洋领域专属模型训练
+#
+# === 训练模式说明 ===
+# 本机环境（RTX 4060 Laptop 8GB / anaconda base+xa_code 均为 CPU 版 torch）：
+#   使用 local 模式 → Qwen2-0.5B-Instruct + CPU 训练（约30-60分钟）
+#   命令: python src/LLM/fine_tune/train_lora.py --mode local
+#
+# 云 GPU 环境（AutoDL/阿里云PAI，≥16GB 显存）：
+#   使用 cloud 模式 → Qwen2-7B-Instruct + GPU 训练
+#   命令: python src/LLM/fine_tune/train_lora.py --mode cloud
+#
+# 注：本仓库不依赖 llamafactory-cli（默认环境未安装），
+#     train_lora.py 使用 transformers + peft 原生实现，等效 LoRA 训练流程。
 
-# === 模型选择 ===
-# 基座模型选型（按项目规划文档W5评估确定）:
-#   候选: DeepSeek-R1-Distill-Qwen-7B / Llama-3-8B-Instruct / Qwen2-7B-Instruct
-#   评估维度: 中文领域效果、显存占用、推理时延、开源许可证
-#   当前推荐: Qwen2-7B-Instruct（中英双语强 + 消费级GPU可运行 + Apache 2.0许可）
-#   备选说明见 CLAUDE.md 技术栈章节
-model_name_or_path: Qwen/Qwen2-7B-Instruct
-# 备选1: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B (强推理能力)
-# 备选2: meta-llama/Llama-3-8B-Instruct (Meta开源，英文强)
-# 备选3: Qwen/Qwen2-1.5B-Instruct (轻量级，适合低显存环境)
+# === 模型选择（按模式自动切换） ===
+# local 模式（本机 CPU）：Qwen2-0.5B-Instruct（约 1GB 显存/内存可跑）
+# cloud 模式（云 GPU）：Qwen2-7B-Instruct（中英双语强 + Apache 2.0许可）
+model_name_or_path_local: Qwen/Qwen2-0.5B-Instruct
+model_name_or_path_cloud: Qwen/Qwen2-7B-Instruct
+# 备选基座:
+#   - deepseek-ai/DeepSeek-R1-Distill-Qwen-7B (强推理能力)
+#   - meta-llama/Llama-3-8B-Instruct (Meta开源，英文强)
+#   - Qwen/Qwen2-1.5B-Instruct (轻量级，适合8GB显存GPU)
 
 # === 训练方式 ===
 finetuning_type: lora                              # LoRA轻量微调

@@ -57,13 +57,22 @@
             appId: self.appId,
             appSecret: self.appSecret,
             gatewayServer: self.gatewayServer,
+            // 禁用 SDK 自带字幕弹窗：代理掉 subtitle_on/subtitle_off 事件，只保留语音+动作
+            proxyWidget: {
+              subtitle_on:  () => {},
+              subtitle_off: () => {},
+            },
 
             onMessage(message) {
               console.log('[XmovAvatar] 消息:', message);
-              // 仅将真正错误码(>=10000)当作error，忽略info/warning级别消息
-              if (message && message.code && message.code >= 10000) {
-                console.error('[XmovAvatar] SDK错误 ' + message.code + ':', message.message || message);
+              const code = message && message.code;
+              // 50001-50004 为网络状态信息（离线/在线/重试/断开），属非致命状态，不触发 error
+              // 仅 10001-10005(初始化/会话错误) 与 20001-20003(视频抽帧错误) 视为致命错误
+              if (code && code >= 10000 && code < 50000) {
+                console.error('[XmovAvatar] SDK错误 ' + code + ':', message.message || message);
                 self._emit('error', message);
+              } else if (code && code >= 50000) {
+                console.warn('[XmovAvatar] 网络状态 ' + code + ':', message.message || '');
               }
             },
 

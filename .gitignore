@@ -75,6 +75,22 @@ tensorboard_logs/
 .vscode/
 
 # ==============================
+# LLM model weights and vector DB
+# ==============================
+# Large model files (GGUF, safetensors) – never commit to git
+models/llm/
+# ChromaDB generated vector store
+data/chroma_db/
+
+# ==============================
+# Frontend Node / build artifacts
+# ==============================
+src/frontend/node_modules/
+src/frontend/dist/
+
+
+
+# ==============================
 # OS files
 # ==============================
 .DS_Store
