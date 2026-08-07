@@ -1,0 +1,26 @@
+{
+  "name": "aquarise-monitor-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.4",
+    "echarts": "^5.6.0",
+    "lucide-react": "^0.468.0",
+    "marked": "^15.0.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.3.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.7.3"
+  }
+}

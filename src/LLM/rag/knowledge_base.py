@@ -21,14 +21,11 @@ from langchain_community.document_loaders import (
 from langchain_chroma import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
+from src.backend.config import settings
+
 
 class OceanKnowledgeBase:
     """水下垃圾与海洋环保知识库"""
-
-    # 默认知识库文档目录
-    DEFAULT_KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "knowledge"
-    # 默认向量库持久化目录
-    DEFAULT_PERSIST_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "chroma_db"
 
     # 中文嵌入模型
     EMBEDDING_MODEL_NAME = "BAAI/bge-small-zh-v1.5"
@@ -47,12 +44,12 @@ class OceanKnowledgeBase:
         初始化知识库
 
         Args:
-            knowledge_dir: 知识文档目录路径
-            persist_dir: ChromaDB 持久化目录
+            knowledge_dir: 知识文档目录路径（默认读取 settings.KNOWLEDGE_DIR）
+            persist_dir: ChromaDB 持久化目录（默认读取 settings.CHROMA_DIR）
             embedding_model: 嵌入模型名称
         """
-        self.knowledge_dir = Path(knowledge_dir or self.DEFAULT_KNOWLEDGE_DIR)
-        self.persist_dir = Path(persist_dir or self.DEFAULT_PERSIST_DIR)
+        self.knowledge_dir = Path(knowledge_dir) if knowledge_dir else settings.KNOWLEDGE_DIR
+        self.persist_dir = Path(persist_dir) if persist_dir else settings.CHROMA_DIR
         self.embedding_model = embedding_model or self.EMBEDDING_MODEL_NAME
 
         # 初始化嵌入模型
