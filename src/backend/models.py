@@ -1,0 +1,241 @@
+"""
+ORM 模型层：全部 7 张 MySQL 表
+=====================================
+users               用户表（JWT + bcrypt）
+detection_tasks     检测任务表（图片/视频）
+detection_results   检测结果表（逐帧逐目标）
+chat_history        对话历史表
+digital_human_sessions  数字人交互记录表
+knowledge_docs      RAG 知识库文档表
+reports             报告表
+
+所有表由 Base.metadata.create_all() 在启动时自动创建。
+"""
+
+import enum
+from datetime import datetime
+
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Enum as SAEnum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    Boolean,
+)
+from sqlalchemy.orm import relationship
+
+from database import Base
+
+
+# ============ 枚举（对应规划文档的 ENUM 字段） ============
+class UserRole(str, enum.Enum):
+    admin = "admin"
+    user = "user"
+
+
+class TaskType(str, enum.Enum):
+    image = "image"
+    video = "video"
+
+
+class TaskStatus(str, enum.Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+
+class PollutionLevel(str, enum.Enum):
+    excellent = "excellent"  # 优
+    good = "good"            # 良
+    moderate = "moderate"    # 中
+    poor = "poor"            # 差
+    severe = "severe"        # 严重
+
+
+class ChatRole(str, enum.Enum):
+    user = "user"
+    assistant = "assistant"
+
+
+class DocStatus(str, enum.Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+
+class ReportType(str, enum.Enum):
+    single = "single"
+    weekly = "weekly"
+    monthly = "monthly"
+    custom = "custom"
+
+
+class DHStatus(str, enum.Enum):
+    pending = "pending"
+    speaking = "speaking"
+    completed = "completed"
+    failed = "failed"
+
+
+# ============ 1. 用户表 ============
+class User(Base):
+    """用户：username 唯一，密码存 bcrypt 哈希"""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)  # bcrypt 哈希
+    email = Column(String(100), nullable=True)
+    role = Column(SAEnum(UserRole), default=UserRole.user, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f"<User id={self.id} username={self.username!r} role={self.role.value}>"
+
+
+# ============ 2. 检测任务表 ============
+class DetectionTask(Base):
+    """一次图片/视频检测任务"""
+
+    __tablename__ = "detection_tasks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    task_type = Column(SAEnum(TaskType), nullable=False)  # image / video
+    file_name = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    status = Column(SAEnum(TaskStatus), default=TaskStatus.pending, nullable=False)
+    sea_area_id = Column(Integer, nullable=True)  # 海域编号（本期留空）
+    total_objects = Column(Integer, default=0, nullable=False)  # 检出垃圾总数
+    pollution_level = Column(SAEnum(PollutionLevel), nullable=True)
+    processing_time = Column(Float, nullable=True)  # 处理耗时（秒）
+    created_at = Column(DateTime, default=datetime.now)
+    completed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+    results = relationship(
+        "DetectionResult", cascade="all, delete-orphan", back_populates="task"
+    )
+
+    def __repr__(self):
+        return f"<DetectionTask id={self.id} type={self.task_type.value} status={self.status.value}>"
+
+
+# ============ 3. 检测结果表（逐帧逐目标） ============
+class DetectionResult(Base):
+    """检测到的每一个目标框"""
+
+    __tablename__ = "detection_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("detection_tasks.id", ondelete="CASCADE"), nullable=False)
+    frame_index = Column(Integer, default=0, nullable=False)  # 视频帧号，图片恒为 0
+    class_id = Column(Integer, nullable=False)  # YOLO 类别 ID
+    class_name = Column(String(50), nullable=False)  # 中文类别名
+    confidence = Column(Float, nullable=False)  # 置信度
+    bbox_x1 = Column(Float, nullable=True)
+    bbox_y1 = Column(Float, nullable=True)
+    bbox_x2 = Column(Float, nullable=True)
+    bbox_y2 = Column(Float, nullable=True)
+    material_type = Column(String(30), nullable=True)  # 材质：塑料/金属/尼龙...
+    created_at = Column(DateTime, default=datetime.now)
+
+    task = relationship("DetectionTask", back_populates="results")
+
+    def __repr__(self):
+        return f"<DetectionResult id={self.id} class={self.class_name} conf={self.confidence}>"
+
+
+# ============ 4. 对话历史表 ============
+class ChatHistory(Base):
+    """海洋小助手对话记录"""
+
+    __tablename__ = "chat_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    session_id = Column(String(100), nullable=False, index=True)
+    role = Column(SAEnum(ChatRole), nullable=False)  # user / assistant
+    content = Column(Text, nullable=False)
+    has_image = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<ChatHistory id={self.id} role={self.role.value}>"
+
+
+# ============ 5. 数字人交互记录表 ============
+class DigitalHumanSession(Base):
+    """数字人交互记录（扩展功能）"""
+
+    __tablename__ = "digital_human_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    session_id = Column(String(100), nullable=False)
+    input_type = Column(String(20), default="text", nullable=False)
+    input_text = Column(Text, nullable=True)
+    llm_response = Column(Text, nullable=True)
+    avatar_id = Column(String(50), nullable=True)
+    voice_id = Column(String(50), nullable=True)
+    sdk_mode = Column(String(20), default="realtime", nullable=False)
+    status = Column(SAEnum(DHStatus), default=DHStatus.pending, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<DigitalHumanSession id={self.id} status={self.status.value}>"
+
+
+# ============ 6. 知识库文档表 ============
+class KnowledgeDoc(Base):
+    """RAG 知识库上传的文档"""
+
+    __tablename__ = "knowledge_docs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    file_name = Column(String(255), nullable=False)
+    file_type = Column(String(20), nullable=False)  # pdf/word/txt
+    file_path = Column(String(500), nullable=False)
+    file_size = Column(Integer, nullable=True)  # 字节
+    chunk_count = Column(Integer, default=0, nullable=False)  # 分片数
+    status = Column(SAEnum(DocStatus), default=DocStatus.pending, nullable=False)
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<KnowledgeDoc id={self.id} file={self.file_name} status={self.status.value}>"
+
+
+# ============ 7. 报告表 ============
+class Report(Base):
+    """海域污染评估报告"""
+
+    __tablename__ = "reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("detection_tasks.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    report_type = Column(SAEnum(ReportType), nullable=False)
+    report_path = Column(String(500), nullable=False)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    task = relationship("DetectionTask")
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<Report id={self.id} type={self.report_type.value}>"

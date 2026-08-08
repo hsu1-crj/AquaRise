@@ -1,0 +1,12 @@
+# FastAPI backend dependencies
+# install: py -3 -m pip install -r requirements.txt
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+jinja2==3.1.6
+python-multipart==0.0.20
+sqlalchemy==2.0.51
+pymysql==1.2.0
+pillow==12.3.0
+bcrypt==5.0.0
+PyJWT==2.13.0
+aiohttp==3.14.3
