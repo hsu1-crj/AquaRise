@@ -19,13 +19,14 @@ import {
   Waves,
   X,
 } from 'lucide-react';
-import type { PageKey } from '../types';
+import type { PageKey, UserInfo } from '../types';
 import { isMockMode } from '../services/api';
 
 interface ShellProps {
   page: PageKey;
   onNavigate: (page: PageKey) => void;
   onLogout: () => void;
+  user?: UserInfo | null;
   children: ReactNode;
 }
 
@@ -41,12 +42,12 @@ const navGroups: Array<{ title: string; items: Array<{ id: PageKey; label: strin
     { id: 'reports', label: '质量报告', icon: FileBarChart },
   ] },
   { title: '智能服务', items: [
-    { id: 'assistant', label: '海洋小助手', icon: Bot },
+    { id: 'assistant', label: '海洋守护者', icon: Bot },
     { id: 'knowledge', label: '知识库', icon: Library },
   ] },
 ];
 
-export function Shell({ page, onNavigate, onLogout, children }: ShellProps) {
+export function Shell({ page, onNavigate, onLogout, user, children }: ShellProps) {
   return (
     <div className="app-shell">
       <div className="ocean-ambient" aria-hidden="true"><i /><i /><i /></div>
@@ -86,7 +87,7 @@ export function Shell({ page, onNavigate, onLogout, children }: ShellProps) {
           <div className="top-actions">
             {isMockMode && <span className="demo-badge"><FlaskConical size={14} />演示数据</span>}
             <button className="icon-button" aria-label="消息通知"><Bell size={19} /><i /></button>
-            <button className="user-chip" onClick={() => onNavigate('profile')}><span>林</span><div><strong>林海</strong><small>前端开发 · 管理员</small></div><ChevronDown size={15} /></button>
+            <button className="user-chip" onClick={() => onNavigate('profile')}><span>{(user?.username ?? '林').slice(0, 1).toUpperCase()}</span><div><strong>{user?.username ?? '林海'}</strong><small>{user?.role === 'admin' ? '项目管理员' : '项目成员'}</small></div><ChevronDown size={15} /></button>
           </div>
         </header>
         <div className="page-container">{children}</div>

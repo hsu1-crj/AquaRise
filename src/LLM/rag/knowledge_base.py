@@ -14,15 +14,10 @@ from typing import List, Optional
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import (
     TextLoader,
-    UnstructuredMarkdownLoader,
     PyPDFLoader,
-    DirectoryLoader,
 )
 from langchain_chroma import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-
-from src.backend.config import settings
-
 
 class OceanKnowledgeBase:
     """水下垃圾与海洋环保知识库"""
@@ -48,8 +43,10 @@ class OceanKnowledgeBase:
             persist_dir: ChromaDB 持久化目录（默认读取 settings.CHROMA_DIR）
             embedding_model: 嵌入模型名称
         """
-        self.knowledge_dir = Path(knowledge_dir) if knowledge_dir else settings.KNOWLEDGE_DIR
-        self.persist_dir = Path(persist_dir) if persist_dir else settings.CHROMA_DIR
+        # 默认路径：项目根下的 data/knowledge 和 data/chroma_db
+        _root = Path(__file__).resolve().parent.parent.parent.parent
+        self.knowledge_dir = Path(knowledge_dir) if knowledge_dir else _root / "data" / "knowledge"
+        self.persist_dir = Path(persist_dir) if persist_dir else _root / "data" / "chroma_db"
         self.embedding_model = embedding_model or self.EMBEDDING_MODEL_NAME
 
         # 初始化嵌入模型
@@ -77,9 +74,10 @@ class OceanKnowledgeBase:
             raise FileNotFoundError(f"知识库目录不存在: {self.knowledge_dir}")
 
         # 加载不同格式的文档
+        # .md 使用 TextLoader 而非 UnstructuredMarkdownLoader，避免依赖 markdown 包
         loaders = {
             "*.txt": (TextLoader, {"encoding": "utf-8"}),
-            "*.md": (UnstructuredMarkdownLoader, {}),
+            "*.md": (TextLoader, {"encoding": "utf-8"}),
             "*.pdf": (PyPDFLoader, {}),
         }
 

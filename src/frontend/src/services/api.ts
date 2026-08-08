@@ -1,17 +1,26 @@
 import { createMockDetection, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, Report, Summary, TrendPoint } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, Report, Summary, TrendPoint, UserInfo } from '../types';
 
-const API_MODE = (import.meta.env.VITE_API_MODE ?? (import.meta.env.DEV ? 'mock' : 'live')) as 'mock' | 'live';
+const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 export const isMockMode = API_MODE === 'mock';
+
+export const AUTH_TOKEN_KEY = 'aquarise-token';
+
+function authHeaders(init?: RequestInit): Headers {
+  const headers = new Headers(init?.headers);
+  const token = window.sessionStorage.getItem(AUTH_TOKEN_KEY);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return headers;
+}
 
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(path, { ...init, signal: init?.signal ?? controller.signal });
+    const response = await fetch(path, { ...init, headers: authHeaders(init), signal: init?.signal ?? controller.signal });
     if (!response.ok) {
       let payload: ApiErrorShape | null = null;
       try { payload = await response.json() as ApiErrorShape; } catch { /* non-JSON error */ }
@@ -46,7 +55,7 @@ export const api = {
 
   async getReports(): Promise<Report[]> {
     if (isMockMode) { await wait(); return mockReports; }
-    const payload = await request<{ items: Report[] }>('/api/v1/reports?page=1&page_size=50');
+    const payload = await request<{ items: Report[] }>('/api/v1/reports/?page=1&page_size=50');
     return payload.items;
   },
 
@@ -54,6 +63,8 @@ export const api = {
     if (isMockMode) { await wait(1300); return createMockDetection(width, height); }
     const form = new FormData();
     form.append('file', file);
+    form.append('width', String(width));
+    form.append('height', String(height));
     return request<DetectionResult>('/api/v1/detect/image', { method: 'POST', body: form });
   },
 
@@ -67,10 +78,32 @@ export const api = {
 
   async createReport(taskId: string): Promise<Report> {
     if (isMockMode) { await wait(900); return mockReports[0]; }
-    return request<Report>('/api/v1/reports', {
+    return request<Report>('/api/v1/reports/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task_id: taskId, format: 'html' }),
+    });
+  },
+
+  async getCurrentUser(): Promise<UserInfo> {
+    if (isMockMode) { await wait(200); return { id: 1, username: '林海', email: 'linhai@aquarise.local', role: 'admin' }; }
+    return request<UserInfo>('/api/v1/auth/me');
+  },
+
+  async changePassword(oldPassword: string, newPassword: string): Promise<string> {
+    const payload = await request<{ message: string }>('/api/v1/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+    });
+    return payload.message;
+  },
+
+  async updateProfile(email: string): Promise<UserInfo> {
+    return request<UserInfo>('/api/v1/auth/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim() || null }),
     });
   },
 };
@@ -94,7 +127,7 @@ export async function streamChat(
 
   const response = await fetch('/api/v1/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ headers: { 'Content-Type': 'application/json' } }),
     body: JSON.stringify({ messages, stream: true }),
     signal,
   });
