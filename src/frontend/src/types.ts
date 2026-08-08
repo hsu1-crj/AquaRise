@@ -73,3 +73,11 @@ export interface ApiErrorShape {
   message?: string;
   error?: string;
 }
+
+export interface UserInfo {
+  id: number;
+  username: string;
+  email?: string | null;
+  role: 'admin' | 'user';
+  created_at?: string;
+}

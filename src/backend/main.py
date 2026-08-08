@@ -1,99 +1,164 @@
 """
-FastAPI 主应用 - 海洋守护者后端服务
-启动: uvicorn src.backend.main:app --port 8000
-访问: http://localhost:8000/assistant
-"""
-import sys
-from pathlib import Path
+海洋守护者 FastAPI 后端主入口
+=====================================
+由 test/ 的完整后端迁移而来，作为 React 前端（src/frontend）的真实后端。
+SSR 管理页面由 React SPA 取代，故不再挂载 pages_router / templates。
 
-# 将项目根目录加入Python路径
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+启动方式（二选一）：
+    cd src/backend && uvicorn main:app --reload --port 8000
+    或 从项目根  uvicorn src.backend.main:app --reload --port 8000
+
+浏览器：
+    http://127.0.0.1:8000/docs   Swagger API 文档
+    http://127.0.0.1:5173        React 前端（npm run dev，/api 代理到 8000）
+"""
 
 import os
-import threading
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
-import json
-import logging
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
 
-from src.LLM.chat_api import ChatRequest, ChatMessage, chat_service, init_chat_service
-from src.backend.config import settings
+# 将项目根与后端目录加入 Python 路径：
+#   - 项目根  → 允许 `from src.LLM.chat_api import ...`（Ollama 对话混合模式）
+#   - 后端目录 → 允许平铺导入 `import config / from models import ...`
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+BACKEND_DIR = Path(__file__).resolve().parent
+for _p in (str(PROJECT_ROOT), str(BACKEND_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+import config  # noqa: E402
+import models  # noqa: F401  E402  导入全部模型，注册到 Base.metadata 才能建表
+from auth import hash_password  # noqa: E402
+from database import Base, SessionLocal, engine, ensure_database_exists  # noqa: E402
+from routers import (  # noqa: E402
+    auth_router,
+    chat_router,
+    detect_router,
+    digital_human_router,
+    knowledge_router,
+    reports_router,
+    stats_router,
+)
 
-app = FastAPI(title="海洋守护者 API", version="0.1.0")
 
-# 启动时初始化对话服务
-@app.on_event("startup")
-async def startup():
-    init_chat_service()
-    logger.info("ChatService 已初始化")
-    # 后台预热 RAG 知识库：嵌入模型首次加载耗时约 10-15 秒，
-    # 若在 startup 中同步执行会阻塞服务启动，导致浏览器打开页面时服务尚未就绪、
-    # 数字人配置请求失败而降级为纯文本模式。改为后台线程预热，服务立即就绪，
-    # RAG 在后台加载完成后即可服务对话请求；加载期间的首条对话会触发按需初始化。
-    def _warmup_rag():
-        try:
-            chat_service.rag.initialize()
-        except Exception as e:
-            logger.warning(f"RAG 预热失败（将降级为纯 LLM 模式）: {e}")
-    threading.Thread(target=_warmup_rag, daemon=True, name="rag-warmup").start()
+def _migrate_legacy_users(db):
+    """兼容旧版 users 表：补齐新列并迁移明文密码 → bcrypt 哈希。"""
+    from sqlalchemy import inspect, text
 
-# ==================== API路由 ====================
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    cols = {c["name"] for c in inspector.get_columns("users")}
 
-@app.post("/api/v1/chat")
-async def chat(request: ChatRequest):
-    """LLM对话接口（支持流式和非流式）"""
-    if request.stream:
-        return StreamingResponse(
-            chat_service.chat_stream(request),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    if "password" in cols and "password_hash" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL"))
+    if "email" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(100) NULL"))
+    if "role" not in cols:
+        db.execute(
+            text("ALTER TABLE users ADD COLUMN role ENUM('admin','user') NOT NULL DEFAULT 'user'")
         )
-    return await chat_service.chat(request)
+    if "created_at" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN created_at DATETIME NULL"))
+    if "updated_at" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN updated_at DATETIME NULL"))
+
+    if "password" in cols:
+        rows = db.execute(
+            text("SELECT id, password FROM users WHERE password_hash IS NULL")
+        ).fetchall()
+        for uid, raw in rows:
+            if raw and not raw.startswith("$2"):
+                db.execute(
+                    text("UPDATE users SET password_hash = :h WHERE id = :i"),
+                    {"h": hash_password(raw), "i": uid},
+                )
+        db.execute(text("ALTER TABLE users DROP COLUMN password"))
+
+    db.commit()
 
 
-@app.get("/api/v1/models")
-async def list_models():
-    """可用模型列表"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动：建目录 → 建库建表 → 迁移旧数据 → 播种 admin → 预热 Ollama"""
+    os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+    os.makedirs("reports", exist_ok=True)
+
+    ensure_database_exists()
+    Base.metadata.create_all(bind=engine)
+
+    db = SessionLocal()
     try:
-        models = await chat_service.ollama.list_models()
-        return {"models": models}
-    except Exception as e:
-        return {"models": [], "error": str(e)}
+        _migrate_legacy_users(db)
+        admin = db.query(models.User).filter(models.User.username == "admin").first()
+        if admin is None:
+            db.add(
+                models.User(
+                    username="admin",
+                    password_hash=hash_password("123456"),
+                    role=models.UserRole.admin,
+                )
+            )
+            db.commit()
+        else:
+            if not admin.password_hash or admin.role != models.UserRole.admin:
+                admin.password_hash = admin.password_hash or hash_password("123456")
+                admin.role = models.UserRole.admin
+                db.commit()
+    finally:
+        db.close()
+
+    # 预热 Ollama 对话服务（不可用则回退存根，不影响启动）
+    try:
+        chat_router._get_ollama_service()
+    except Exception:
+        pass
+
+    yield
 
 
-@app.get("/api/v1/digital-human/config")
-async def digital_human_config():
-    """数字人 SDK 配置（appId/appSecret 从 .env 注入，不写入仓库代码）"""
-    app_id = settings.DH_APP_ID
-    app_secret = settings.DH_APP_SECRET
-    if not app_id or not app_secret:
-        return JSONResponse({
-            "appId": app_id or "",
-            "note": "DH_APP_ID 或 DH_APP_SECRET 环境变量未配置",
-        }, status_code=200)
-    return JSONResponse({
-        "appId": app_id,
-        "appSecret": app_secret,
-    })
+# ============ 创建应用 ============
+app = FastAPI(
+    title="海洋守护者 API（水下垃圾自动识别与海洋污染分析系统）",
+    description="认证 / 检测 / 统计 / 对话 / 报告 / 知识库 / 数字人",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 
+# CORS：开发环境前端经 Vite 代理（同源）无需跨域，放开便于绕过代理直连 / 本地调试
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# ==================== 静态文件 ====================
-
-static_dir = Path(__file__).resolve().parent.parent / "frontend" / "static"
-static_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-
-@app.get("/assistant")
-async def assistant_page():
-    """海洋小助手页面"""
-    return FileResponse(str(static_dir / "assistant.html"))
+# ============ 挂载 API 路由 ============
+app.include_router(auth_router.router)           # /login /register /logout /captcha /api/v1/auth/*
+app.include_router(detect_router.router)         # /api/v1/detect/* + /api/v1/detections
+app.include_router(chat_router.router)           # /api/v1/chat (SSE) /api/v1/chat/history
+app.include_router(stats_router.router)          # /api/v1/stats/*
+app.include_router(reports_router.router)        # /api/v1/reports/*
+app.include_router(knowledge_router.router)      # /api/v1/knowledge/*
+app.include_router(digital_human_router.router)  # /api/v1/digital-human/*
 
 
 @app.get("/")
 async def root():
-    return {"service": "海洋守护者 API", "version": "0.1.0", "docs": "/docs"}
+    return {
+        "service": "海洋守护者 API",
+        "version": "0.1.0",
+        "docs": "/docs",
+        "frontend": "http://localhost:5173 (npm run dev)",
+    }
+
+
+# ============ 入口 ============
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
