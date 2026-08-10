@@ -15,6 +15,7 @@ LLM对话API模块
 
 import json
 import logging
+import os
 from typing import Optional, AsyncGenerator, List, Dict
 
 from pydantic import BaseModel, Field
@@ -195,12 +196,18 @@ class RAGService:
             logger.warning(f"RAG 知识库初始化失败（将继续使用纯LLM模式）: {e}")
             self._initialized = True  # 标记已尝试，避免重复失败
 
-    def retrieve_context(self, query: str, k: int = 4) -> str:
-        """检索相关上下文"""
+    def retrieve_context(self, query: str, k: Optional[int] = None) -> str:
+        """检索相关上下文（k 默认取环境变量 RAG_TOP_K，缺省 4）"""
         if not self._retriever:
             self.initialize()
         if not self._retriever:
             return ""
+
+        if k is None:
+            try:
+                k = int(os.getenv("RAG_TOP_K", "4"))
+            except ValueError:
+                k = 4
 
         try:
             context, _ = self._retriever.retrieve_for_llm(query, k)

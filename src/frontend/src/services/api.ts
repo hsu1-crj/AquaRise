@@ -110,8 +110,18 @@ export const api = {
 
 export interface ChatMessagePayload { role: 'system' | 'user' | 'assistant'; content: string }
 
+/** 拉取指定会话的对话历史（同一用户自己的记录，按时间正序） */
+export async function getChatHistory(sessionId: string): Promise<ChatMessagePayload[]> {
+  if (isMockMode) { await wait(220); return []; }
+  const payload = await request<ChatMessagePayload[]>(
+    `/api/v1/chat/history?session_id=${encodeURIComponent(sessionId)}`,
+  );
+  return Array.isArray(payload) ? payload : [];
+}
+
 export async function streamChat(
   messages: ChatMessagePayload[],
+  sessionId: string,
   onChunk: (text: string) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -128,7 +138,7 @@ export async function streamChat(
   const response = await fetch('/api/v1/chat', {
     method: 'POST',
     headers: authHeaders({ headers: { 'Content-Type': 'application/json' } }),
-    body: JSON.stringify({ messages, stream: true }),
+    body: JSON.stringify({ messages, stream: true, session_id: sessionId }),
     signal,
   });
   if (!response.ok || !response.body) throw new Error(`对话服务不可用（${response.status}）`);

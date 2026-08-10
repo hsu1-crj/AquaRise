@@ -68,8 +68,11 @@ async def login_form(
     captcha: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
-    """表单登录：校验用户密码后签发 JWT，重定向到首页。错误返回 JSON。"""
-    user = db.query(User).filter(User.username == username).first()
+    """表单登录：校验用户密码后签发 JWT，重定向到首页。错误返回 JSON。支持用户名或邮箱登录。"""
+    account = username.strip()
+    user = db.query(User).filter(User.username == account).first()
+    if not user and "@" in account:
+        user = db.query(User).filter(User.email == account).first()
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     response = RedirectResponse(url="/", status_code=303)
@@ -120,8 +123,11 @@ async def logout():
 # ============ JSON API（给前端 fetch / 外部调用） ============
 @router.post("/api/v1/auth/login", response_model=TokenResponse)
 async def api_login(body: LoginRequest, db: Session = Depends(get_db)):
-    """API 登录：返回 JWT"""
-    user = db.query(User).filter(User.username == body.username).first()
+    """API 登录：返回 JWT。支持用户名或邮箱登录。"""
+    account = body.username.strip()
+    user = db.query(User).filter(User.username == account).first()
+    if not user and "@" in account:
+        user = db.query(User).filter(User.email == account).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     return TokenResponse(access_token=create_access_token(user))

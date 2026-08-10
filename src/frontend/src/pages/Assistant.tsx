@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { Brain, LoaderCircle, Send, Trash2 } from 'lucide-react';
-import { streamChat, type ChatMessagePayload } from '../services/api';
+import { getChatHistory, streamChat, type ChatMessagePayload } from '../services/api';
 import {
   loadXmovSDK,
   OceanDigitalHuman,
@@ -24,6 +24,18 @@ const SYSTEM_PROMPT: ChatMessagePayload = {
   content:
     '你是海洋守护者，专注水下垃圾识别、海洋污染分析和环保教育。用专业积极语气回答，200字内。不确定的明确说明。',
 };
+
+// 对话会话 id 持久化：同一用户在同一浏览器标签页内复用同一个会话，
+// 重新进入海洋小助手页面时能看到自己的历史对话；"清空"则新建会话。
+const SESSION_KEY = 'aquarise-chat-session';
+
+function getOrCreateSessionId(): string {
+  const existing = window.sessionStorage.getItem(SESSION_KEY);
+  if (existing) return existing;
+  const fresh = crypto.randomUUID();
+  window.sessionStorage.setItem(SESSION_KEY, fresh);
+  return fresh;
+}
 
 const QUICK_QUESTIONS = [
   { label: '塑料袋降解周期', q: '塑料袋在海洋中多久能降解？' },
@@ -122,6 +134,7 @@ function MessageBubble({
 
 export function AssistantPage({ user }: { user: UserInfo | null }) {
   // --- chat state ---
+  const [sessionId, setSessionId] = useState<string>(() => getOrCreateSessionId());
   const [messages, setMessages] = useState<UiMessage[]>([
     { id: 'welcome', role: 'assistant', content: WELCOME_MD },
   ]);
@@ -155,6 +168,34 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       dhRef.current?.destroy();
     };
   }, []);
+
+  // --- load persisted chat history for this session (re-fetch on session change) ---
+  // 注意：开发模式下 React.StrictMode 会 setup→cleanup→setup 执行两次 effect。
+  // 不能用 ref 守卫提前 return（会把第二次拉取短路掉），只依赖 cancelled 标记即可，
+  // 第一次请求的 cleanup 会让它被丢弃，第二次请求正常生效。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const history = await getChatHistory(sessionId);
+        if (cancelled) return;
+        if (history.length > 0) {
+          setMessages(
+            history.map((m) => ({
+              id: crypto.randomUUID(),
+              role: m.role === 'user' ? 'user' : 'assistant',
+              content: m.content,
+            })),
+          );
+        }
+      } catch {
+        // 历史加载失败不阻塞聊天，保留欢迎语
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   // --- aggressively hide SDK's built-in subtitle ---
   useEffect(() => {
@@ -291,11 +332,13 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       try {
         const payload: ChatMessagePayload[] = [
           SYSTEM_PROMPT,
-          ...nextMessages.map(({ role, content }) => ({ role, content })),
+          ...nextMessages
+            .filter((m) => m.id !== 'welcome')
+            .map(({ role, content }) => ({ role, content })),
         ];
 
         let fullContent = '';
-        await streamChat(payload, (chunk: string) => {
+        await streamChat(payload, sessionId, (chunk: string) => {
           if (abortController.signal.aborted) return;
           fullContent += chunk;
           // Update chat message
@@ -331,7 +374,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         controller.current = null;
       }
     },
-    [busy, messages, dhOn, dhReady],
+    [busy, messages, dhOn, dhReady, sessionId],
   );
 
   const submit = (event: FormEvent) => {
@@ -361,7 +404,11 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
   const clearMessages = () => {
     controller.current?.abort();
-    setMessages([]);
+    // 新建会话：旧记录保留在数据库，但本页重新开始一段新的对话
+    const fresh = crypto.randomUUID();
+    window.sessionStorage.setItem(SESSION_KEY, fresh);
+    setSessionId(fresh);
+    setMessages([{ id: 'welcome', role: 'assistant', content: WELCOME_MD }]);
     setError('');
     setDhSubtitle('');
   };

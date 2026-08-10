@@ -11,13 +11,14 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+# langchain 1.x：文本分割器与嵌入模型已拆分为独立包
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import (
     TextLoader,
     PyPDFLoader,
 )
 from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 class OceanKnowledgeBase:
     """水下垃圾与海洋环保知识库"""
@@ -137,3 +138,57 @@ class OceanKnowledgeBase:
         if self.vector_store is None:
             raise RuntimeError("请先调用 build() 构建/加载向量库")
         return self.vector_store.as_retriever(search_kwargs={"k": k})
+
+    def add_document(self, file_path) -> int:
+        """
+        增量添加单个文档到向量库（网页上传后即时入库）。
+
+        若向量库尚未构建，则先执行 build()（首次会把 data/knowledge
+        中已有文档一并入库）。返回该文档产生的分片数量。
+
+        Args:
+            file_path: 文档绝对路径（.md / .txt / .pdf）
+
+        Raises:
+            ValueError: 文件类型不受支持
+            FileNotFoundError: 文件不存在
+        """
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"文档不存在: {path}")
+
+        suffix = path.suffix.lower()
+        if suffix == ".pdf":
+            loader = PyPDFLoader(str(path))
+        elif suffix in (".txt", ".md"):
+            loader = TextLoader(str(path), encoding="utf-8")
+        else:
+            raise ValueError(f"暂不支持向量化的文件类型: {suffix}（仅支持 .md/.txt/.pdf）")
+
+        # 首次调用时构建/加载向量库（persist_dir 不存在会全量构建）
+        if self.vector_store is None:
+            self.build(force_rebuild=False)
+
+        docs = loader.load()
+        if not docs:
+            return 0
+
+        chunks = self.text_splitter.split_documents(docs)
+        if chunks:
+            self.vector_store.add_documents(chunks)
+        return len(chunks)
+
+    def remove_document(self, file_path) -> int:
+        """
+        从向量库删除某个文档的所有分片（按 metadata.source 精确匹配）。
+
+        Returns:
+            删除的分片数量；向量库未初始化或删除失败时返回 0
+        """
+        if self.vector_store is None:
+            return 0
+        try:
+            return self.vector_store.delete(where={"source": str(Path(file_path))})
+        except Exception as e:
+            print(f"从向量库删除 {file_path} 失败: {e}")
+            return 0

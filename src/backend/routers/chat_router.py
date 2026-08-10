@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+import config
 from database import get_db
 from models import ChatHistory, ChatRole, User
 from schemas import ChatMessage, SpaChatRequest
@@ -102,7 +103,11 @@ async def chat(
                 ollama_messages = [
                     OllamaMessage(role=m.role, content=m.content) for m in body.messages
                 ]
-                ollama_request = OllamaChatRequest(messages=ollama_messages, stream=True)
+                ollama_request = OllamaChatRequest(
+                    messages=ollama_messages,
+                    stream=True,
+                    enable_rag=config.RAG_ENABLED,
+                )
                 async for event in svc.chat_stream(ollama_request):
                     for line in event.split("\n"):
                         if line.startswith("data:") and "[DONE]" not in line:
