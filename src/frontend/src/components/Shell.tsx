@@ -87,7 +87,7 @@ export function Shell({ page, onNavigate, onLogout, user, children }: ShellProps
           <div className="top-actions">
             {isMockMode && <span className="demo-badge"><FlaskConical size={14} />演示数据</span>}
             <button className="icon-button" aria-label="消息通知"><Bell size={19} /><i /></button>
-            <button className="user-chip" onClick={() => onNavigate('profile')}><span>{(user?.username ?? '林').slice(0, 1).toUpperCase()}</span><div><strong>{user?.username ?? '林海'}</strong><small>{user?.role === 'admin' ? '项目管理员' : '项目成员'}</small></div><ChevronDown size={15} /></button>
+            <button className="user-chip" onClick={() => onNavigate('profile')}><span>{(user?.username ?? '林').slice(0, 1).toUpperCase()}</span><div><strong>{user?.username ?? '林海'}</strong><small>{user?.role === 'admin' ? '管理员' : '用户'}</small></div><ChevronDown size={15} /></button>
           </div>
         </header>
         <div className="page-container">{children}</div>

@@ -73,6 +73,8 @@ async def login_form(
     user = db.query(User).filter(User.username == account).first()
     if not user and "@" in account:
         user = db.query(User).filter(User.email == account).first()
+    if not user:
+        user = db.query(User).filter(User.phone_num == account).first()
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     response = RedirectResponse(url="/", status_code=303)
@@ -128,6 +130,8 @@ async def api_login(body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == account).first()
     if not user and "@" in account:
         user = db.query(User).filter(User.email == account).first()
+    if not user:
+        user = db.query(User).filter(User.phone_num == account).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     return TokenResponse(access_token=create_access_token(user))
@@ -178,8 +182,11 @@ async def api_update_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """个人中心更新资料：更新电子邮箱并返回最新用户信息"""
-    current_user.email = body.email.strip() or None
+    """个人中心更新资料：更新电子邮箱 / 手机号并返回最新用户信息"""
+    if body.email is not None:
+        current_user.email = body.email.strip() or None
+    if body.phone_num is not None:
+        current_user.phone_num = body.phone_num.strip() or None
     db.commit()
     db.refresh(current_user)
     return current_user

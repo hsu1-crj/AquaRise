@@ -99,11 +99,14 @@ export const api = {
     return payload.message;
   },
 
-  async updateProfile(email: string): Promise<UserInfo> {
+  async updateProfile(data: { email?: string | null; phoneNum?: string | null }): Promise<UserInfo> {
     return request<UserInfo>('/api/v1/auth/profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim() || null }),
+      body: JSON.stringify({
+        email: data.email?.trim() || null,
+        phone_num: data.phoneNum?.trim() || null,
+      }),
     });
   },
 };

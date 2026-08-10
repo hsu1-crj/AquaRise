@@ -93,6 +93,7 @@ class User(Base):
     username = Column(String(50), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)  # bcrypt 哈希
     email = Column(String(100), nullable=True)
+    phone_num = Column(String(20), nullable=True)  # 手机号，可作为登录凭据
     role = Column(SAEnum(UserRole), default=UserRole.user, nullable=False)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

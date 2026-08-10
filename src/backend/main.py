@@ -57,6 +57,8 @@ def _migrate_legacy_users(db):
         db.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL"))
     if "email" not in cols:
         db.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(100) NULL"))
+    if "phone_num" not in cols:
+        db.execute(text("ALTER TABLE users ADD COLUMN phone_num VARCHAR(20) NULL"))
     if "role" not in cols:
         db.execute(
             text("ALTER TABLE users ADD COLUMN role ENUM('admin','user') NOT NULL DEFAULT 'user'")

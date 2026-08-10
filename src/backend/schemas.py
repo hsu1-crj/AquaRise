@@ -35,6 +35,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: Optional[str]
+    phone_num: Optional[str]
     role: str
     created_at: Optional[datetime]
 
@@ -48,8 +49,9 @@ class ChangePasswordRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
-    """个人中心更新资料（本期仅电子邮箱）"""
+    """个人中心更新资料（电子邮箱 / 手机号）"""
     email: Optional[str] = Field(default=None, max_length=100)
+    phone_num: Optional[str] = Field(default=None, max_length=20)
 
 
 class MessageResponse(BaseModel):
