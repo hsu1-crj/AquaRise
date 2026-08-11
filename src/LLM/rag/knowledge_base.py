@@ -1,194 +1,57 @@
-"""
-海洋环保知识库构建模块
-
-功能:
-- 加载知识文档（Markdown、PDF、TXT）
-- 文档分块（RecursiveCharacterTextSplitter）
-- 向量化存储（ChromaDB + Sentence Transformers）
-"""
-
-import os
+"""海洋环保知识库构建（Chroma + BGE，可选依赖）。"""
 from pathlib import Path
 from typing import List, Optional
 
-# langchain 1.x：文本分割器与嵌入模型已拆分为独立包
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import (
-    TextLoader,
-    PyPDFLoader,
-)
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
+
 class OceanKnowledgeBase:
-    """水下垃圾与海洋环保知识库"""
-
-    # 中文嵌入模型
     EMBEDDING_MODEL_NAME = "BAAI/bge-small-zh-v1.5"
+    CHUNK_SIZE = 650
+    CHUNK_OVERLAP = 80
 
-    # 分块参数
-    CHUNK_SIZE = 500
-    CHUNK_OVERLAP = 50
-
-    def __init__(
-        self,
-        knowledge_dir: Optional[str] = None,
-        persist_dir: Optional[str] = None,
-        embedding_model: Optional[str] = None,
-    ):
-        """
-        初始化知识库
-
-        Args:
-            knowledge_dir: 知识文档目录路径（默认读取 settings.KNOWLEDGE_DIR）
-            persist_dir: ChromaDB 持久化目录（默认读取 settings.CHROMA_DIR）
-            embedding_model: 嵌入模型名称
-        """
-        # 默认路径：项目根下的 data/knowledge 和 data/chroma_db
-        _root = Path(__file__).resolve().parent.parent.parent.parent
-        self.knowledge_dir = Path(knowledge_dir) if knowledge_dir else _root / "data" / "knowledge"
-        self.persist_dir = Path(persist_dir) if persist_dir else _root / "data" / "chroma_db"
+    def __init__(self, knowledge_dir: Optional[str] = None, persist_dir: Optional[str] = None, embedding_model: Optional[str] = None):
+        root = Path(__file__).resolve().parents[3]
+        self.knowledge_dir = Path(knowledge_dir) if knowledge_dir else root / "data" / "knowledge"
+        self.persist_dir = Path(persist_dir) if persist_dir else root / "data" / "chroma_db"
         self.embedding_model = embedding_model or self.EMBEDDING_MODEL_NAME
-
-        # 初始化嵌入模型
         self.embeddings = HuggingFaceEmbeddings(
-            model_name=self.embedding_model,
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
+            model_name=self.embedding_model, model_kwargs={"device": "cpu"}, encode_kwargs={"normalize_embeddings": True}
         )
-
-        # 初始化文本分割器
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.CHUNK_SIZE,
-            chunk_overlap=self.CHUNK_OVERLAP,
+            chunk_size=self.CHUNK_SIZE, chunk_overlap=self.CHUNK_OVERLAP,
             separators=["\n\n", "\n", "。", "！", "？", "；", " ", ""],
         )
-
-        # 向量存储
         self.vector_store: Optional[Chroma] = None
 
     def load_documents(self) -> List:
-        """加载知识库目录中的所有文档"""
         documents = []
-
         if not self.knowledge_dir.exists():
             raise FileNotFoundError(f"知识库目录不存在: {self.knowledge_dir}")
-
-        # 加载不同格式的文档
-        # .md 使用 TextLoader 而非 UnstructuredMarkdownLoader，避免依赖 markdown 包
-        loaders = {
-            "*.txt": (TextLoader, {"encoding": "utf-8"}),
-            "*.md": (TextLoader, {"encoding": "utf-8"}),
-            "*.pdf": (PyPDFLoader, {}),
-        }
-
-        for pattern, (loader_cls, kwargs) in loaders.items():
-            files = list(self.knowledge_dir.glob(pattern))
-            for file_path in files:
+        for pattern, cls, kwargs in (("*.md", TextLoader, {"encoding": "utf-8"}), ("*.txt", TextLoader, {"encoding": "utf-8"}), ("*.pdf", PyPDFLoader, {})):
+            for path in sorted(self.knowledge_dir.glob(pattern)):
                 try:
-                    loader = loader_cls(str(file_path), **kwargs)
-                    documents.extend(loader.load())
-                except Exception as e:
-                    print(f"加载文档 {file_path} 失败: {e}")
-
-        print(f"共加载 {len(documents)} 个文档")
+                    documents.extend(cls(str(path), **kwargs).load())
+                except Exception as exc:
+                    print(f"加载文档 {path} 失败: {exc}")
         return documents
 
     def build(self, force_rebuild: bool = False) -> Chroma:
-        """
-        构建或加载知识库向量存储
-
-        Args:
-            force_rebuild: 是否强制重建
-
-        Returns:
-            Chroma 向量存储实例
-        """
         if not force_rebuild and self.persist_dir.exists():
-            print(f"加载已有向量库: {self.persist_dir}")
-            self.vector_store = Chroma(
-                persist_directory=str(self.persist_dir),
-                embedding_function=self.embeddings,
-                collection_name="ocean_knowledge",
-            )
+            self.vector_store = Chroma(persist_directory=str(self.persist_dir), embedding_function=self.embeddings, collection_name="ocean_knowledge")
             return self.vector_store
-
-        # 加载并分块文档
         documents = self.load_documents()
         if not documents:
-            raise ValueError(f"知识库目录 {self.knowledge_dir} 中未找到任何文档")
-
+            raise ValueError("知识库没有可加载文档")
         chunks = self.text_splitter.split_documents(documents)
-        print(f"文档分块完成: 共 {len(chunks)} 个文本块")
-
-        # 创建向量存储
         self.persist_dir.mkdir(parents=True, exist_ok=True)
-        self.vector_store = Chroma.from_documents(
-            documents=chunks,
-            embedding=self.embeddings,
-            persist_directory=str(self.persist_dir),
-            collection_name="ocean_knowledge",
-        )
-        print(f"向量库已保存至: {self.persist_dir}")
-
+        self.vector_store = Chroma.from_documents(chunks, self.embeddings, persist_directory=str(self.persist_dir), collection_name="ocean_knowledge")
         return self.vector_store
 
-    def get_retriever(self, k: int = 4):
-        """获取检索器（需先调用 build()）"""
+    def get_retriever(self, k: int = 5):
         if self.vector_store is None:
-            raise RuntimeError("请先调用 build() 构建/加载向量库")
-        return self.vector_store.as_retriever(search_kwargs={"k": k})
-
-    def add_document(self, file_path) -> int:
-        """
-        增量添加单个文档到向量库（网页上传后即时入库）。
-
-        若向量库尚未构建，则先执行 build()（首次会把 data/knowledge
-        中已有文档一并入库）。返回该文档产生的分片数量。
-
-        Args:
-            file_path: 文档绝对路径（.md / .txt / .pdf）
-
-        Raises:
-            ValueError: 文件类型不受支持
-            FileNotFoundError: 文件不存在
-        """
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"文档不存在: {path}")
-
-        suffix = path.suffix.lower()
-        if suffix == ".pdf":
-            loader = PyPDFLoader(str(path))
-        elif suffix in (".txt", ".md"):
-            loader = TextLoader(str(path), encoding="utf-8")
-        else:
-            raise ValueError(f"暂不支持向量化的文件类型: {suffix}（仅支持 .md/.txt/.pdf）")
-
-        # 首次调用时构建/加载向量库（persist_dir 不存在会全量构建）
-        if self.vector_store is None:
-            self.build(force_rebuild=False)
-
-        docs = loader.load()
-        if not docs:
-            return 0
-
-        chunks = self.text_splitter.split_documents(docs)
-        if chunks:
-            self.vector_store.add_documents(chunks)
-        return len(chunks)
-
-    def remove_document(self, file_path) -> int:
-        """
-        从向量库删除某个文档的所有分片（按 metadata.source 精确匹配）。
-
-        Returns:
-            删除的分片数量；向量库未初始化或删除失败时返回 0
-        """
-        if self.vector_store is None:
-            return 0
-        try:
-            return self.vector_store.delete(where={"source": str(Path(file_path))})
-        except Exception as e:
-            print(f"从向量库删除 {file_path} 失败: {e}")
-            return 0
+            self.build()
+        return self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": k})

@@ -1,12 +1,12 @@
-"""
-RAG 知识库模块
+"""RAG 模块。向量依赖缺失时仍可直接使用 lexical_retriever。"""
 
-基于 LangChain + ChromaDB 实现海洋环保领域的检索增强生成(RAG):
-- knowledge_base.py : 知识库文档加载、分块与向量化
-- retriever.py      : 检索器封装，支持语义搜索与重排序
-"""
+try:
+    from .knowledge_base import OceanKnowledgeBase
+    from .retriever import OceanRetriever
+except ImportError:  # 开发机未安装可选向量依赖
+    OceanKnowledgeBase = None
+    OceanRetriever = None
 
-from .knowledge_base import OceanKnowledgeBase
-from .retriever import OceanRetriever
+from .lexical_retriever import LocalKnowledgeRetriever
 
-__all__ = ["OceanKnowledgeBase", "OceanRetriever"]
+__all__ = ["OceanKnowledgeBase", "OceanRetriever", "LocalKnowledgeRetriever"]

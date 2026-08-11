@@ -1,21 +1,23 @@
-# LLM微调框架
+# Ollama/LLM API
+aiohttp==3.9.5
+pydantic==2.8.2
+python-dotenv==1.0.1
+
+# RAG（langchain 0.2.x 的拆包依赖必须一并安装）
+langchain==0.2.11
+langchain-core==0.2.43
+langchain-text-splitters==0.2.2
+langchain-community==0.2.10
+langchain-chroma==0.1.2
+langchain-huggingface==0.0.3
+chromadb==0.5.3
+sentence-transformers==3.0.1
+
+# 微调/部署（按需安装）
 llamafactory==0.9.0
 torch==2.3.1
 transformers==4.43.3
 peft==0.12.0
 accelerate==0.33.0
 datasets==2.20.0
-
-# 模型部署与RAG应用
-langchain==0.2.11
-langchain-chroma==0.1.2
-chromadb==0.5.3
-sentence-transformers==3.0.1
-
-# LLM对话API依赖
-aiohttp==3.9.5
-pydantic==2.8.2
-
-# 通用工具库
-python-dotenv==1.0.1
 pandas==2.2.2

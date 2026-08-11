@@ -22,7 +22,7 @@ interface UiMessage {
 const SYSTEM_PROMPT: ChatMessagePayload = {
   role: 'system',
   content:
-    '你是海洋守护者，专注水下垃圾识别、海洋污染分析和环保教育。用专业积极语气回答，200字内。不确定的明确说明。',
+    '你是海洋守护者，AquaRise 海洋垃圾识别与海洋环保平台的专业 AI 助手。请结合项目知识库直接回答海洋垃圾、污染治理和检测结果问题；先给结论，再给依据和行动建议，不确定就明确说明，不要编造。不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或"谁做的"时，才自然回答海瞳 LLM 组负责这个项目的 LLM 对话与数字人模块开发。',
 };
 
 // 对话会话 id 持久化：同一用户在同一浏览器标签页内复用同一个会话，
@@ -38,9 +38,9 @@ function getOrCreateSessionId(): string {
 }
 
 const QUICK_QUESTIONS = [
-  { label: '塑料袋降解周期', q: '塑料袋在海洋中多久能降解？' },
-  { label: '幽灵渔网危害', q: '什么是幽灵渔网？有什么危害？' },
-  { label: '怎么减少海洋塑料', q: '普通人怎么帮助减少海洋塑料？' },
+  { label: '幽灵渔网怎么处置', q: '什么是幽灵渔网？发现后应该怎么处置？' },
+  { label: '解读一次检测', q: '如何解读海洋垃圾检测结果？' },
+  { label: '海岸清理方案', q: '如何制定一套安全的海岸垃圾清理方案？' },
 ];
 
 const STATUS_LABELS: Record<DigitalHumanStatus, string> = {
@@ -52,7 +52,7 @@ const STATUS_LABELS: Record<DigitalHumanStatus, string> = {
 };
 
 const WELCOME_MD =
-  '你好，我是 **海洋守护者** 🌊。我可以解读检测结果、分析污染报告，也可以回答海洋垃圾治理问题。';
+  '你好，我是 **海洋守护者** 🌊。我会优先检索项目知识库，帮你解读检测结果、分析污染风险并制定治理建议。';
 
 // ---------- particle background ----------
 
@@ -150,6 +150,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const [dhOn, setDhOn] = useState(true);
   const [dhReady, setDhReady] = useState(false);
   const [dhSubtitle, setDhSubtitle] = useState('');
+  const [dhProgress, setDhProgress] = useState(0);
+  const [dhLoadingText, setDhLoadingText] = useState('正在准备数字人…');
   const dhRef = useRef<OceanDigitalHuman | null>(null);
   const sdkContainerRef = useRef<HTMLDivElement>(null);
 
@@ -245,13 +247,19 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
     async function boot() {
       try {
+        setDhLoadingText('正在加载数字人引擎…');
         await loadXmovSDK();
         if (cancelled) return;
 
+        setDhLoadingText('正在连接数字人服务…');
         const appId = import.meta.env.VITE_DH_APP_ID || '';
         const appSecret = import.meta.env.VITE_DH_APP_SECRET || '';
         if (!appId || !appSecret) {
           console.warn('[数字人] 未配置 VITE_DH_APP_ID / VITE_DH_APP_SECRET，数字人功能不可用');
+          if (!cancelled) {
+            setDhStatus('offline');
+            setDhLoadingText('数字人暂未配置，已切换纯文本模式');
+          }
           return;
         }
         const dh = new OceanDigitalHuman({
@@ -260,9 +268,14 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           containerId: container!.id || 'og-sdk-container',
         });
 
+        dh.on('progress', (value) => {
+          if (!cancelled) setDhProgress(Number(value) || 0);
+        });
         dh.on('ready', () => {
           if (!cancelled) {
             setDhReady(true);
+            setDhProgress(100);
+            setDhLoadingText('数字人已就绪');
             setDhStatus('idle');
           }
         });
@@ -279,6 +292,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           if (!cancelled) {
             setDhStatus('offline');
             setDhReady(false);
+            setDhLoadingText('数字人暂不可用，已切换纯文本模式');
           }
         });
 
@@ -290,6 +304,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         if (!cancelled) {
           setDhStatus('offline');
           setDhReady(false);
+          setDhLoadingText('数字人暂不可用，已切换纯文本模式');
         }
       }
     }
@@ -326,7 +341,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         setDhStatus('thinking');
         dhRef.current.think();
       } else if (dhOn && !dhReady) {
-        setDhStatus('thinking');
+        // 数字人还在加载时不冒充“思考中”，保持加载态，回答仍正常显示在聊天区。
+        setDhStatus('offline');
       }
 
       try {
@@ -347,14 +363,12 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               item.id === assistantId ? { ...item, content: fullContent } : item,
             ),
           );
-          // Streaming subtitle — show text as it arrives
-          setDhSubtitle(fullContent);
         }, abortController.signal);
 
         // After streaming done, drive digital human to speak
         if (dhOn && dhReady && dhRef.current && fullContent) {
           setDhStatus('speaking');
-          // Keep the full subtitle visible during TTS
+          // 回答完整生成后再展示整段字幕并播报，避免加载与半句字幕来回跳变。
           setDhSubtitle(fullContent);
           dhRef.current.speak(fullContent, { isStart: true, isEnd: true });
         } else {
@@ -414,7 +428,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   };
 
   // computed: show thinking overlay or subtitle on stage
-  const showThinking = dhOn && dhStatus === 'thinking';
+  const showThinking = dhOn && dhReady && dhStatus === 'thinking';
   const showSubtitle = dhOn && dhSubtitle && (dhStatus === 'speaking' || dhStatus === 'thinking');
 
   return (
@@ -431,6 +445,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         <div className="og-asub">Ocean Guardian</div>
 
         <div className="og-awrap" ref={sdkContainerRef} id="og-sdk-container" />
+        {!dhReady && dhOn && <div className="og-avatar-loading"><LoaderCircle className="spin" size={18} /><span>{dhLoadingText}</span>{dhProgress > 0 && <em>{Math.round(dhProgress)}%</em>}</div>}
 
         {/* Thinking overlay on the stage */}
         <ThinkingOverlay visible={showThinking} />
