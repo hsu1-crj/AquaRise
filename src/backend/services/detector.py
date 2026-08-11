@@ -1,20 +1,22 @@
 """
-检测服务（YOLO 存根）
+检测服务（YOLO 真推理）
 =====================================
-真实 YOLO 模型要到项目第 3-4 周才训练完成。本文件是**存根**：
+调用 src/vision/best.pt（22 类 TrashCan 水下垃圾模型）做目标检测。
 
-- 接口签名与真实服务保持一致
-- 返回模拟的检测结果（使用规划文档里的 14 类垃圾类别）
-- 真实模型就绪后，只改本文件即可，路由/模型层不用动
+- 模型懒加载 + 进程内单例（threading.Lock 防并发初始化竞态）
+- ultralytics 延迟导入：不装 ultralytics 也能正常启动后端，首次检测才加载权重
+- 只返回/入库垃圾类（YOLO ID 8-21），rov/动植物等 8 个背景类（ID 0-7）被过滤
 
-替换点：detect_image / process_video_background 内部逻辑 → 调用 YOLO 推理。
+路由层契约保持不变，替换存根逻辑即可接入真实模型。
 """
 
-import random
+import threading
 import time
 from datetime import datetime
 
-# 规划文档中的 14 类垃圾（YOLO ID 8-21）: id -> (英文, 中文, 材质)
+import config
+
+# 14 类垃圾（YOLO ID 8-21）: id -> (英文, 中文, 材质)
 GARBAGE_CLASSES = {
     8: ("trash_clothing", "衣物/纺织品", "纺织物"),
     9: ("trash_pipe", "管道", "塑料"),
@@ -35,54 +37,94 @@ GARBAGE_CLASSES = {
 # 高危害类别（用于污染等级评估）：塑料袋(11)、渔网(21)、残骸(18)
 HIGH_HAZARD_IDS = {11, 21, 18}
 
+# 模型单例
+_model = None
+_model_lock = threading.Lock()
 
-def _make_mock_detection(class_id: int) -> dict:
-    """生成一个模拟检测目标"""
-    _, cn_name, material = GARBAGE_CLASSES[class_id]
-    x1 = round(random.uniform(20, 380), 1)
-    y1 = round(random.uniform(20, 380), 1)
-    return {
-        "class_id": class_id,
-        "class_name": cn_name,
-        "confidence": round(random.uniform(0.65, 0.98), 2),
-        "bbox_x1": x1,
-        "bbox_y1": y1,
-        "bbox_x2": round(x1 + random.uniform(40, 180), 1),
-        "bbox_y2": round(y1 + random.uniform(40, 180), 1),
-        "material_type": GARBAGE_CLASSES[class_id][2],
+
+def _get_model():
+    """懒加载 YOLO 模型单例（进程内共享，首次调用才加载权重）"""
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                from ultralytics import YOLO  # 延迟导入，不影响后端启动
+
+                _model = YOLO(config.YOLO_MODEL_PATH)
+    return _model
+
+
+def _decode_image(image_bytes: bytes):
+    """字节 → BGR numpy 数组；返回 (img, height, width)"""
+    import cv2
+    import numpy as np
+
+    arr = np.frombuffer(image_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("无法解析图片数据，请确认上传的是有效图片")
+    height, width = img.shape[:2]
+    return img, height, width
+
+
+def _filter_and_build(detections: list) -> list[dict]:
+    """把 YOLO 目标框过滤为垃圾类（ID 8-21），转成与存根一致的结构"""
+    items = []
+    for det in detections:
+        cls_id = int(det["class_id"])
+        if cls_id not in GARBAGE_CLASSES:
+            continue  # 忽略 rov/plant/动物等背景类
+        x1, y1, x2, y2 = det["xyxy"]
+        _, cn_name, material = GARBAGE_CLASSES[cls_id]
+        items.append(
+            {
+                "class_id": cls_id,
+                "class_name": cn_name,
+                "confidence": round(float(det["confidence"]), 4),
+                "bbox_x1": round(float(x1), 2),
+                "bbox_y1": round(float(y1), 2),
+                "bbox_x2": round(float(x2), 2),
+                "bbox_y2": round(float(y2), 2),
+                "material_type": material,
+            }
+        )
+    return items
+
+
+def detect_image(image_bytes: bytes) -> dict:
+    """
+    对单张图片做目标检测（真推理）。
+    返回: {
+        "detections": [{"class_id","class_name","confidence",
+                        "bbox_x1","bbox_y1","bbox_x2","bbox_y2","material_type"}, ...],
+        "width": int,   # 图片真实宽
+        "height": int,  # 图片真实高
     }
-
-
-def detect_image(image_bytes: bytes) -> list[dict]:
     """
-    对单张图片做目标检测（存根）。
-    真实现：加载 YOLO 模型 → 推理 → 返回 NMS 后的目标列表。
-    """
-    # 模拟推理耗时
-    time.sleep(random.uniform(0.3, 0.8))
-    # 模拟检出 2-6 个目标
-    class_ids = random.sample(list(GARBAGE_CLASSES.keys()), k=random.randint(2, 6))
-    return [_make_mock_detection(cid) for cid in class_ids]
+    img, height, width = _decode_image(image_bytes)
+    model = _get_model()
+    result = model.predict(
+        img, conf=config.YOLO_CONF, device=config.YOLO_DEVICE, verbose=False
+    )[0]
 
+    detections = []
+    if result.boxes is not None:
+        for box in result.boxes:
+            detections.append(
+                {
+                    "class_id": int(box.cls[0]),
+                    "class_name": model.names[int(box.cls[0])],
+                    "confidence": round(float(box.conf[0]), 4),
+                    "xyxy": [round(float(v), 2) for v in box.xyxy[0].tolist()],
+                }
+            )
 
-def detect_video_frames(frame_count: int = 12) -> list[dict]:
-    """
-    对视频逐帧推理（存根）：返回多帧检测结果的合并列表，
-    每帧在结果里带 frame_index。
-    """
-    results = []
-    for frame in range(frame_count):
-        # 每帧检出 0-4 个目标
-        for cid in random.sample(list(GARBAGE_CLASSES.keys()), k=random.randint(0, 4)):
-            det = _make_mock_detection(cid)
-            det["frame_index"] = frame
-            results.append(det)
-    return results
+    return {"detections": _filter_and_build(detections), "width": width, "height": height}
 
 
 def compute_pollution_level(class_ids: list[int]) -> str:
     """
-    根据检出的目标类别评估污染等级（模拟阈值逻辑）。
+    根据检出的垃圾类别评估污染等级。
     返回 PollutionLevel 枚举值字符串。
     """
     total = len(class_ids)
@@ -100,16 +142,19 @@ def compute_pollution_level(class_ids: list[int]) -> str:
 
 def process_video_background(task_id: int, file_path: str):
     """
-    视频检测后台任务（存根）：模拟从 pending → processing → completed。
+    视频检测后台任务（真实推理）：pending → processing → completed。
     由 FastAPI BackgroundTasks 调用，独立开数据库会话写库。
-    真实现：读取视频 → 抽帧 → YOLO 逐帧推理 → 写 detection_results。
+    逐帧推理，垃圾类（ID 8-21）目标写入 detection_results。
     """
     # 延迟导入，避免模块加载时依赖数据库
     from database import SessionLocal
     from models import DetectionResult, DetectionTask, TaskStatus
 
+    import cv2
+
     db = SessionLocal()
     start = time.time()
+    garbage_ids: list[int] = []
     try:
         task = db.query(DetectionTask).filter_by(id=task_id).first()
         if not task:
@@ -118,28 +163,49 @@ def process_video_background(task_id: int, file_path: str):
         task.status = TaskStatus.processing
         db.commit()
 
-        # 模拟逐帧推理耗时
-        time.sleep(random.uniform(2, 4))
+        model = _get_model()
+        cap = cv2.VideoCapture(file_path)
+        if not cap.isOpened():
+            raise OSError(f"无法打开视频文件: {file_path}")
 
-        frame_results = detect_video_frames(frame_count=12)
-        for det in frame_results:
-            db.add(
-                DetectionResult(
-                    task_id=task_id,
-                    frame_index=det["frame_index"],
-                    class_id=det["class_id"],
-                    class_name=det["class_name"],
-                    confidence=det["confidence"],
-                    bbox_x1=det["bbox_x1"],
-                    bbox_y1=det["bbox_y1"],
-                    bbox_x2=det["bbox_x2"],
-                    bbox_y2=det["bbox_y2"],
-                    material_type=det["material_type"],
-                )
-            )
+        frame_index = 0
+        try:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                result = model.predict(
+                    frame, conf=config.YOLO_CONF, device=config.YOLO_DEVICE, verbose=False
+                )[0]
+                if result.boxes is not None:
+                    for box in result.boxes:
+                        cls_id = int(box.cls[0])
+                        if cls_id not in GARBAGE_CLASSES:
+                            continue
+                        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        _, cn_name, material = GARBAGE_CLASSES[cls_id]
+                        db.add(
+                            DetectionResult(
+                                task_id=task_id,
+                                frame_index=frame_index,
+                                class_id=cls_id,
+                                class_name=cn_name,
+                                confidence=round(float(box.conf[0]), 4),
+                                bbox_x1=round(float(x1), 2),
+                                bbox_y1=round(float(y1), 2),
+                                bbox_x2=round(float(x2), 2),
+                                bbox_y2=round(float(y2), 2),
+                                material_type=material,
+                            )
+                        )
+                        garbage_ids.append(cls_id)
+                frame_index += 1
+        finally:
+            cap.release()
 
-        task.total_objects = len(frame_results)
-        task.pollution_level = compute_pollution_level([d["class_id"] for d in frame_results])
+        db.commit()
+        task.total_objects = len(garbage_ids)
+        task.pollution_level = compute_pollution_level(garbage_ids)
         task.processing_time = round(time.time() - start, 2)
         task.status = TaskStatus.completed
         task.completed_at = datetime.now()

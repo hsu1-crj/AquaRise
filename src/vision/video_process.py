@@ -44,7 +44,7 @@ def process_video(model_path: str, source: str, output: str, conf: float = 0.25,
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", default="runs/detect/underwater_baseline_v1/weights/best.pt")
+    parser.add_argument("--model", default="best.pt")
     parser.add_argument("--source", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--conf", type=float, default=0.25)

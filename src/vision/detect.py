@@ -8,7 +8,7 @@ from pathlib import Path
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", default="runs/detect/underwater_baseline_v1/weights/best.pt")
+    parser.add_argument("--model", default="best.pt")
     parser.add_argument("--source", required=True, help="Image path")
     parser.add_argument("--output", default=None, help="Annotated output image path")
     parser.add_argument("--conf", type=float, default=0.25)

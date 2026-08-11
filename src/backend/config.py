@@ -68,3 +68,14 @@ CHROMA_DIR = str(PROJECT_ROOT / os.getenv("CHROMA_DIR", "data/chroma_db"))
 # ============ Ollama 本地推理配置 ============
 # 对话优先调用本地 Ollama（.env: OLLAMA_URL）
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+
+
+# ============ YOLO 检测模型配置 ============
+# 水下垃圾检测权重路径（.env: YOLO_MODEL_PATH，默认 src/vision/best.pt）
+YOLO_MODEL_PATH = os.getenv(
+    "YOLO_MODEL_PATH", str(PROJECT_ROOT / "src" / "vision" / "best.pt")
+)
+# 检测置信度阈值（.env: YOLO_CONF）
+YOLO_CONF = float(os.getenv("YOLO_CONF", "0.25"))
+# 推理设备（.env: YOLO_DEVICE，如 "0"/"cpu"/"mps"；空串 → None → ultralytics 自动选 CPU/GPU）
+YOLO_DEVICE = os.getenv("YOLO_DEVICE") or None

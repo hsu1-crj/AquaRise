@@ -68,7 +68,8 @@ async def detect_image(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """图片检测：上传 → 检测（存根）→ 结果写库 → 返回前端 DetectionResult 形状"""
+    """图片检测：上传 → YOLO 推理 → 结果写库 → 返回前端 DetectionResult 形状
+    （sourceWidth/Height 取自图片真实尺寸；width/height 表单参数仅向前端契约保留）"""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_IMAGE:
         raise HTTPException(status_code=400, detail="不支持的图片格式，支持 jpg/png/webp/bmp")
@@ -77,8 +78,9 @@ async def detect_image(
     with open(file_path, "rb") as f:
         image_bytes = f.read()
 
-    # 调用检测服务（当前为存根，返回模拟结果）
-    detections = detector.detect_image(image_bytes)
+    # 调用检测服务（真实 YOLO 推理），返回检测目标列表 + 图片真实宽高
+    payload = detector.detect_image(image_bytes)
+    detections = payload["detections"]
 
     # 创建任务 + 结果
     task = DetectionTask(
@@ -137,8 +139,8 @@ async def detect_image(
 
     return FrontendDetectionResult(
         taskId=str(task.id),
-        sourceWidth=width,
-        sourceHeight=height,
+        sourceWidth=payload["width"],
+        sourceHeight=payload["height"],
         objects=objects,
         pollutionLevel=pollution_level_zh(level),
         density=round(len(objects) / 10.0, 1),
