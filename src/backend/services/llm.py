@@ -9,7 +9,11 @@ import asyncio
 import re
 from typing import AsyncGenerator, Optional
 
-IDENTITY = "海瞳 LLM 组负责这个项目的 LLM 对话与数字人模块开发。"
+IDENTITY = "这个项目是由海瞳 LLM 组开发的实训项目成果。"
+FAMILY_IDENTITY = (
+    "我是软件系统中的 AI 助手，没有父母或家庭关系。"
+    "我的开发归属是：这个项目是由海瞳 LLM 组开发的实训项目成果。"
+)
 SCOPE_RESPONSE = (
     "我目前专注于海洋垃圾识别、海洋污染分析、治理技术和检测结果解读。"
     "这个问题不在我的知识范围内；如果你提供检测结果或海洋环保问题，我可以继续帮你分析。"
@@ -95,7 +99,9 @@ def direct_response(message: str) -> Optional[str]:
     q = (message or "").strip().lower()
     if not q:
         return "请告诉我你想了解的海洋垃圾、污染治理或检测结果。"
-    if re.search(r"谁开发|开发者|作者|谁做的|谁创建|项目是谁", q):
+    if re.search(r"爸爸|父亲|母亲|妈妈|父母|家人|家长", q):
+        return FAMILY_IDENTITY
+    if re.search(r"谁开发|开发者|作者|谁做的|谁创建|项目是谁|谁制作", q):
         return IDENTITY
     if re.search(r"^(你好|您好|嗨|hello|hi)[！!。．. ]*$", q):
         return "你好，我是海洋守护者。我可以结合项目知识库，帮你分析海洋垃圾、污染风险和检测结果。"
