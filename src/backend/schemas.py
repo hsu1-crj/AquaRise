@@ -5,7 +5,7 @@ Pydantic 模型：API 请求 / 响应结构
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,7 @@ class LoginRequest(BaseModel):
     """API JSON 登录请求"""
     username: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=1)
+    platform: Literal["pc", "mobile"] = Field(default="pc", description="设备类型：pc=主机端 / mobile=移动端，并发登录按此分组")
 
 
 class RegisterRequest(BaseModel):

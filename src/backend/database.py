@@ -42,6 +42,33 @@ def ensure_database_exists():
         server_engine.dispose()
 
 
+def ensure_login_session_platform_column() -> None:
+    """
+    幂等迁移：为 login_sessions 增加 platform 列（并发登录按设备类型分组）。
+    create_all 只建新表、不会 ALTER 旧表，因此启动时手动补列。
+    已有行回填为 'pc'（NOT NULL DEFAULT 'pc'），保持向后兼容。
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = :db AND TABLE_NAME = 'login_sessions' "
+                "AND COLUMN_NAME = 'platform'"
+            ),
+            {"db": DB_NAME},
+        ).scalar()
+        if not exists:
+            conn.execute(
+                text(
+                    "ALTER TABLE login_sessions "
+                    "ADD COLUMN platform VARCHAR(16) NOT NULL DEFAULT 'pc'"
+                )
+            )
+            conn.execute(
+                text("CREATE INDEX ix_login_sessions_platform ON login_sessions (platform)")
+            )
+            conn.commit()
+
 def get_db():
     """
     FastAPI 依赖：提供数据库会话

@@ -67,15 +67,18 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def record_login_session(db: Session, user: User, token: str) -> None:
+def record_login_session(db: Session, user: User, token: str, platform: str = "pc") -> None:
     """
-    登录成功后记录会话，并执行「同一账号并发数」控制：
-      - admin 账号最多 config.MAX_CONCURRENT_SESSIONS["admin"] 个会话
-      - user  账号最多 config.MAX_CONCURRENT_SESSIONS["user"]  个会话
-    超限时踢掉最早建立的会话，保证新登录始终成功。
+    登录成功后记录会话，并执行「同一账号在同一平台(platform)的并发数」控制：
+      - admin 账号每个平台最多 config.MAX_CONCURRENT_SESSIONS["admin"] 个会话
+      - user  账号每个平台最多 config.MAX_CONCURRENT_SESSIONS["user"]  个会话
+    超限时踢掉该平台最早建立的会话；跨平台(PC ↔ 移动端)互不影响，保证新登录始终成功。
+    对 User 行加 for update 行锁串行化同账号登录，避免并发读-踢-写竞态突破上限。
     """
     now = datetime.now()
     limit = config.MAX_CONCURRENT_SESSIONS.get(user.role.value, 1)
+    # 0. 锁定用户行(行级锁，持有至下方 commit)，串行化同账号并发登录，杜绝读-踢-写竞态
+    db.query(User).filter(User.id == user.id).with_for_update().first()
 
     # 1. 清理该账号已过期的会话（被动失效）
     db.query(LoginSession).filter(
@@ -83,11 +86,13 @@ def record_login_session(db: Session, user: User, token: str) -> None:
         LoginSession.expires_at <= now,
     ).delete()
 
-    # 2. 统计该账号当前有效会话，按建立时间升序
+    # 2. 统计该账号【同 platform】的有效会话(锁定读)：FOR UPDATE 做“当前读”，
+    #    绕过 REPEATABLE READ 旧快照，确保看到并发事务刚提交的会话，上限判定才可靠
     sessions = (
         db.query(LoginSession)
-        .filter(LoginSession.user_id == user.id)
+        .filter(LoginSession.user_id == user.id, LoginSession.platform == platform)
         .order_by(LoginSession.created_at.asc())
+        .with_for_update()
         .all()
     )
 
@@ -102,6 +107,7 @@ def record_login_session(db: Session, user: User, token: str) -> None:
             user_id=user.id,
             token_hash=_token_hash(token),
             expires_at=now + timedelta(hours=config.JWT_EXPIRE_HOURS),
+            platform=platform,
         )
     )
     db.commit()

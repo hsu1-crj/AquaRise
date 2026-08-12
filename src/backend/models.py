@@ -107,10 +107,11 @@ class User(Base):
 class LoginSession(Base):
     """
     登录会话：每个 JWT 对应一条记录。
-    用于「同一账号并发登录数」限制：
-      - admin 账号最多 3 个会话
-      - user  账号最多 1 个会话
-    超限时踢掉最早建立的会话；被踢的 token 在 get_current_user 中失效。
+    用于「同一账号在同一平台(设备类型)的并发登录数」限制：
+      - admin 账号每个平台最多 3 个会话
+      - user  账号每个平台最多 1 个会话
+    同平台超限则踢掉最早建立的会话；跨平台(PC ↔ 移动端)互不挤占。
+    被踢的 token 在 get_current_user 中失效。
     """
 
     __tablename__ = "login_sessions"
@@ -120,6 +121,7 @@ class LoginSession(Base):
     token_hash = Column(String(64), unique=True, nullable=False)  # JWT 的 SHA-256，避免明文落库
     created_at = Column(DateTime, default=datetime.now)
     expires_at = Column(DateTime, nullable=False)  # 与 JWT 过期时间一致
+    platform = Column(String(16), nullable=False, default="pc", server_default="pc", index=True)  # 设备类型：pc / mobile，并发按此分组
 
     user = relationship("User")
 

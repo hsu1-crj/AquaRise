@@ -142,7 +142,7 @@ async def api_login(body: LoginRequest, db: Session = Depends(get_db)):
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = create_access_token(user)
-    record_login_session(db, user, token)
+    record_login_session(db, user, token, platform=body.platform)
     return TokenResponse(access_token=token)
 
 

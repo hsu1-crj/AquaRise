@@ -32,7 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 import config  # noqa: E402
 import models  # noqa: F401  E402  导入全部模型，注册到 Base.metadata 才能建表
 from auth import hash_password  # noqa: E402
-from database import Base, SessionLocal, engine, ensure_database_exists  # noqa: E402
+from database import Base, SessionLocal, engine, ensure_database_exists, ensure_login_session_platform_column  # noqa: E402
 from routers import (  # noqa: E402
     auth_router,
     chat_router,
@@ -91,6 +91,7 @@ async def lifespan(app: FastAPI):
 
     ensure_database_exists()
     Base.metadata.create_all(bind=engine)
+    ensure_login_session_platform_column()
 
     db = SessionLocal()
     try:

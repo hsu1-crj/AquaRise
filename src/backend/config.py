@@ -30,7 +30,10 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "fastapi-learning-jwt-secret-change
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "8"))
 
-# 同一账号最大并发登录数（按角色）：超限踢掉最早建立的会话
+# 同一账号在同一平台(pc/mobile)的最大并发登录数（按角色）：
+# 同平台超限踢掉最早会话；跨平台(PC ↔ 移动端)互不挤占，便于移动端观察 PC 端进度。
+# platform 由官方客户端登录时声明(PC=pc / 移动端=mobile)并据此分组限流：
+# 面向协作式官方客户端，不构成对抗「多账号共享」的强保证(强保证需设备绑定)。
 MAX_CONCURRENT_SESSIONS = {"admin": 3, "user": 1}
 
 # 文件上传
