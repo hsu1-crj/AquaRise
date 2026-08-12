@@ -78,7 +78,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
     setError('');
     try {
       const account = username.trim();
-      const body = { username: account, password };
+      const body = { username: account, password, platform: 'pc' };
       if (register) {
         const res = await fetch('/api/v1/auth/register', {
           method: 'POST',
