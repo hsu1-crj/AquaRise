@@ -265,8 +265,8 @@ class FrontendDetectionListResponse(BaseModel):
 class FrontendDetectionBox(BaseModel):
     """单个目标框（前端 DetectionBox）"""
     id: str
-    label: str          # 英文标签 trash_bottle
-    labelZh: str        # 中文标签 塑料瓶
+    label: str          # 英文标签 trash_easy
+    labelZh: str        # 中文标签 易清除垃圾
     confidence: float
     bbox: list[float]   # [x, y, w, h]
     material: str
@@ -282,6 +282,22 @@ class FrontendDetectionResult(BaseModel):
     density: float
     qualityScore: int
     processedAt: str
+
+
+class MultiImageDetectItem(BaseModel):
+    """多图批量识别中的单张图片结果项"""
+    success: bool
+    fileName: str
+    result: Optional[FrontendDetectionResult] = None
+    error: Optional[str] = None
+
+
+class MultiImageDetectResponse(BaseModel):
+    """多图批量识别返回：每张图独立成功/失败"""
+    items: list[MultiImageDetectItem]
+    total: int
+    successCount: int
+    failCount: int
 
 
 class FrontendReport(BaseModel):
@@ -306,6 +322,12 @@ class FrontendReportListResponse(BaseModel):
 class CreateReportRequest(BaseModel):
     """前端 api.createReport：POST /api/v1/reports JSON body"""
     task_id: int
+    format: str = "html"
+
+
+class CreateBatchReportRequest(BaseModel):
+    """前端多图批量报告：POST /api/v1/reports/batch JSON body"""
+    task_ids: list[int]
     format: str = "html"
 
 

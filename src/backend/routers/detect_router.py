@@ -24,6 +24,8 @@ from schemas import (
     FrontendDetectionListResponse,
     FrontendDetectionRecord,
     FrontendDetectionResult,
+    MultiImageDetectItem,
+    MultiImageDetectResponse,
     ResultResponse,
     TaskStatusResponse,
     VideoDetectResponse,
@@ -39,6 +41,9 @@ router = APIRouter(prefix="/api/v1", tags=["detection"])
 
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 ALLOWED_VIDEO = {".mp4", ".avi", ".mov", ".mkv"}
+
+# 一次批量识别最多图片数（限制单次请求体大小）
+MAX_BATCH_IMAGES = 50
 
 # 任务状态 → 进度百分比（用于前端进度条）
 PROGRESS = {
@@ -60,16 +65,9 @@ def _save_upload(file: UploadFile, subdir: str) -> str:
     return file_path
 
 
-@router.post("/detect/image", response_model=FrontendDetectionResult)
-async def detect_image(
-    file: UploadFile = File(...),
-    width: int = Form(1280),
-    height: int = Form(720),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """图片检测：上传 → YOLO 推理 → 结果写库 → 返回前端 DetectionResult 形状
-    （sourceWidth/Height 取自图片真实尺寸；width/height 表单参数仅向前端契约保留）"""
+def _process_single_image(file: UploadFile, current_user: User, db: Session) -> FrontendDetectionResult:
+    """单张图片：保存 → YOLO 推理 → 建任务/结果 → 返回前端 DetectionResult 形状。
+    单图与多图端点共用，保证行为一致。"""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_IMAGE:
         raise HTTPException(status_code=400, detail="不支持的图片格式，支持 jpg/png/webp/bmp")
@@ -146,6 +144,54 @@ async def detect_image(
         density=round(len(objects) / 10.0, 1),
         qualityScore=POLLUTION_SCORE.get(str(level), 68),
         processedAt=f"{datetime.now():%Y-%m-%d %H:%M}",
+    )
+
+
+@router.post("/detect/image", response_model=FrontendDetectionResult)
+async def detect_image(
+    file: UploadFile = File(...),
+    width: int = Form(1280),
+    height: int = Form(720),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """图片检测：上传 → YOLO 推理 → 结果写库 → 返回前端 DetectionResult 形状
+    （sourceWidth/Height 取自图片真实尺寸；width/height 表单参数仅向前端契约保留）"""
+    return _process_single_image(file, current_user, db)
+
+
+@router.post("/detect/images", response_model=MultiImageDetectResponse)
+async def detect_images(
+    files: list[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """多图批量识别：每张图独立保存 + 推理 + 建任务，单张失败不影响其余。
+    返回每张图的成功/失败结果，前端逐图展示。"""
+    if not files:
+        raise HTTPException(status_code=400, detail="未收到任何图片")
+    if len(files) > MAX_BATCH_IMAGES:
+        raise HTTPException(status_code=400, detail=f"一次最多上传 {MAX_BATCH_IMAGES} 张图片")
+
+    items: list[MultiImageDetectItem] = []
+    success_count = 0
+    for file in files:
+        name = file.filename or "未命名图片"
+        try:
+            result = _process_single_image(file, current_user, db)
+            items.append(MultiImageDetectItem(success=True, fileName=name, result=result))
+            success_count += 1
+        except HTTPException as exc:
+            # 单图校验失败（格式/类型）不中断整批
+            items.append(MultiImageDetectItem(success=False, fileName=name, error=exc.detail))
+        except Exception as exc:
+            items.append(MultiImageDetectItem(success=False, fileName=name, error=str(exc)))
+
+    return MultiImageDetectResponse(
+        items=items,
+        total=len(files),
+        successCount=success_count,
+        failCount=len(files) - success_count,
     )
 
 

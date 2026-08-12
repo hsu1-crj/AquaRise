@@ -1,8 +1,25 @@
 import { createMockDetection, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, Report, Summary, TrendPoint, UserInfo } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, Summary, TrendPoint, UserInfo } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+/** 读取图片文件真实尺寸（mock 模式生成检测框需要）；失败回退默认值 */
+function readImageSize(file: File): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: img.naturalWidth || 1280, height: img.naturalHeight || 720 });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: 1280, height: 720 });
+    };
+    img.src = url;
+  });
+}
 
 export const isMockMode = API_MODE === 'mock';
 
@@ -68,6 +85,23 @@ export const api = {
     return request<DetectionResult>('/api/v1/detect/image', { method: 'POST', body: form });
   },
 
+  /** 批量识别多张图片：每张图独立返回结果（单张失败不影响其余） */
+  async detectImages(files: File[], onProgress?: (current: number, total: number) => void): Promise<MultiImageDetectResponse> {
+    if (isMockMode) {
+      const items: MultiImageDetectItem[] = [];
+      for (let i = 0; i < files.length; i += 1) {
+        const size = await readImageSize(files[i]);
+        await wait(600);
+        items.push({ success: true, fileName: files[i].name, result: createMockDetection(size.width, size.height) });
+        onProgress?.(i + 1, files.length);
+      }
+      return { items, total: files.length, successCount: items.length, failCount: 0 };
+    }
+    const form = new FormData();
+    files.forEach((file) => form.append('files', file));
+    return request<MultiImageDetectResponse>('/api/v1/detect/images', { method: 'POST', body: form });
+  },
+
   async createVideoTask(file: File): Promise<{ taskId: string }> {
     if (isMockMode) { await wait(700); return { taskId: `VID-${Date.now().toString().slice(-8)}` }; }
     const form = new FormData();
@@ -82,6 +116,16 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task_id: taskId, format: 'html' }),
+    });
+  },
+
+  /** 多图批量报告：基于多张图片的检测任务聚合生成一份报告 */
+  async createBatchReport(taskIds: string[]): Promise<Report> {
+    if (isMockMode) { await wait(900); return mockReports[0]; }
+    return request<Report>('/api/v1/reports/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_ids: taskIds.map(Number), format: 'html' }),
     });
   },
 

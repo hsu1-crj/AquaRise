@@ -46,6 +46,20 @@ export interface DetectionResult {
   processedAt: string;
 }
 
+export interface MultiImageDetectItem {
+  success: boolean;
+  fileName: string;
+  result?: DetectionResult | null;
+  error?: string | null;
+}
+
+export interface MultiImageDetectResponse {
+  items: MultiImageDetectItem[];
+  total: number;
+  successCount: number;
+  failCount: number;
+}
+
 export interface DetectionRecord {
   id: string;
   createdAt: string;

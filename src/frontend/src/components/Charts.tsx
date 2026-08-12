@@ -59,11 +59,10 @@ export function MaterialChart() {
     series: [{
       type: 'pie', radius: ['52%', '76%'], center: ['50%', '43%'], padAngle: 3, itemStyle: { borderRadius: 5 }, label: { show: false },
       data: [
-        { name: '塑料', value: 48, itemStyle: { color: '#20d7ff' } },
-        { name: '渔具', value: 22, itemStyle: { color: '#7068ff' } },
-        { name: '金属', value: 15, itemStyle: { color: '#54f1a9' } },
-        { name: '玻璃', value: 9, itemStyle: { color: '#ffbd66' } },
-        { name: '其他', value: 6, itemStyle: { color: '#ff6885' } },
+        { name: '塑料/轻质', value: 48, itemStyle: { color: '#20d7ff' } },
+        { name: '渔网/绳索', value: 22, itemStyle: { color: '#7068ff' } },
+        { name: '金属/木质', value: 15, itemStyle: { color: '#54f1a9' } },
+        { name: '其他', value: 15, itemStyle: { color: '#ffbd66' } },
       ],
     }],
     graphic: [{ type: 'text', left: 'center', top: '35%', style: { text: '487,392', fill: '#f0feff', font: '700 20px Inter' } }, { type: 'text', left: 'center', top: '47%', style: { text: '累计识别', fill: 'rgba(207,232,244,.5)', font: '11px sans-serif' } }],
@@ -75,8 +74,8 @@ export function RankingChart() {
   const option: EChartsOption = {
     grid: { left: 8, right: 18, top: 6, bottom: 6, containLabel: true },
     xAxis: { type: 'value', show: false },
-    yAxis: { type: 'category', inverse: true, data: ['塑料瓶', '废弃渔网', '包装袋', '金属罐', '绳索'], axisLabel: { ...axisLabel, color: 'rgba(230,248,255,.75)' }, axisLine: { show: false }, axisTick: { show: false } },
-    series: [{ type: 'bar', data: [128, 96, 82, 64, 51], barWidth: 8, showBackground: true, backgroundStyle: { color: 'rgba(94,214,255,.07)', borderRadius: 8 }, itemStyle: { borderRadius: 8, color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: '#1677ff' }, { offset: 1, color: '#42e8ff' }]) }, label: { show: true, position: 'right', color: '#bfefff', fontSize: 11 } }],
+    yAxis: { type: 'category', inverse: true, data: ['易清除垃圾', '纠缠垃圾', '沉重垃圾'], axisLabel: { ...axisLabel, color: 'rgba(230,248,255,.75)' }, axisLine: { show: false }, axisTick: { show: false } },
+    series: [{ type: 'bar', data: [128, 96, 82], barWidth: 8, showBackground: true, backgroundStyle: { color: 'rgba(94,214,255,.07)', borderRadius: 8 }, itemStyle: { borderRadius: 8, color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: '#1677ff' }, { offset: 1, color: '#42e8ff' }]) }, label: { show: true, position: 'right', color: '#bfefff', fontSize: 11 } }],
   };
   return <OceanChart option={option} className="ranking-chart" />;
 }
