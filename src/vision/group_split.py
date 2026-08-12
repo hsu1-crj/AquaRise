@@ -8,6 +8,7 @@ while keeping the split close to the requested image ratios.
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import re
 import shutil
@@ -29,10 +30,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source", default="dataset/yolo_dataset")
     parser.add_argument("--output", default="dataset/yolo_dataset_video_split")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--train-ratio", type=float, default=0.70)
-    parser.add_argument("--val-ratio", type=float, default=0.20)
-    parser.add_argument("--min-instances", type=int, default=5,
-                        help="Minimum instances per category in val and test (default: 5)")
+    parser.add_argument("--train-ratio", type=float, default=0.80)
+    parser.add_argument("--val-ratio", type=float, default=0.10)
+    parser.add_argument("--min-instances", type=int, default=10,
+                        help="Minimum instances per category in val and test (default: 10)")
     parser.add_argument("--simple", action="store_true",
                         help="Use simple random-video assignment (previous behaviour)")
     return parser.parse_args()
@@ -58,6 +59,8 @@ def collect_groups(source: Path) -> dict[str, list[Path]]:
     groups: dict[str, list[Path]] = defaultdict(list)
     for split in ("train", "val", "test"):
         image_dir = source / "images" / split
+        if not image_dir.is_dir():
+            continue
         for image_path in image_dir.iterdir():
             if image_path.is_file() and image_path.suffix.lower() in IMAGE_SUFFIXES:
                 groups[video_id(image_path)].append(image_path)
@@ -111,19 +114,19 @@ def assign_groups_stratified(
     seed: int,
     train_ratio: float,
     val_ratio: float,
-    min_instances: int = 5,
+    min_instances: int = 10,
 ) -> dict[str, str]:
-    """Two-phase assignment: secure test coverage first, then val, then fill train.
+    """Assign videos while protecting train data and holdout class coverage.
 
-    Phase 1 — Secure TEST: for each category still below *min_instances* in test,
-    pick the unassigned video that contributes the most instances of that category
-    (favouring videos that also help other under‑covered test categories).
-
-    Phase 2 — Secure VAL: same logic for val, from remaining unassigned videos.
-
-    Phase 3 — Fill: assign everything left to the split furthest below its image
-    target (biased toward train once both val and test targets are met).
+    Phase 1 reserves the strongest video for every category in train. This is
+    essential for categories represented by only a handful of videos.
+    Phases 2 and 3 secure test and validation coverage from the remaining
+    videos. Phase 4 fills each split toward its requested image ratio.
     """
+    if not 0 < train_ratio < 1 or not 0 < val_ratio < 1:
+        raise ValueError("train_ratio and val_ratio must be between 0 and 1")
+    if train_ratio + val_ratio >= 1:
+        raise ValueError("train_ratio + val_ratio must leave a positive test split")
     total_images = sum(len(imgs) for imgs in groups.values())
     targets = {
         "train": total_images * train_ratio,
@@ -139,6 +142,23 @@ def assign_groups_stratified(
     split_cats: dict[str, dict[int, int]] = {
         s: defaultdict(int) for s in ("train", "val", "test")
     }
+    # Keep the strongest source of every class available for learning. The
+    # upstream dataset has classes represented by as few as four videos; the
+    # previous algorithm put their largest source in test before filling train.
+    reserved_train = {
+        max(
+            (vid for vid in groups if video_cats.get(vid, {}).get(cls, 0) > 0),
+            key=lambda vid: (video_cats[vid][cls], vid),
+        )
+        for cls in sorted(cat_totals)
+    }
+    for vid in sorted(reserved_train):
+        unassigned.remove(vid)
+        assignment[vid] = "train"
+        split_images["train"] += len(groups[vid])
+        for cls, count in video_cats.get(vid, {}).items():
+            split_cats["train"][cls] += count
+
 
     # ---- helper: find best video for a category → split --------------------
     def _best_video_for(
@@ -149,7 +169,7 @@ def assign_groups_stratified(
         (for the same split) the video also helps."""
         best_vid = None
         best_score = -1.0
-        for vid in pool:
+        for vid in sorted(pool):
             vid_cats = video_cats.get(vid, {})
             count = vid_cats.get(target_cls, 0)
             if count == 0:
@@ -168,19 +188,19 @@ def assign_groups_stratified(
                 best_vid = vid
         return best_vid
 
-    # ---- Phase 1: secure TEST ----------------------------------------------
+    # ---- Phase 2: secure TEST ----------------------------------------------
     _secure_split("test", groups, video_cats, cat_totals, targets,
                   split_images, split_cats, assignment, unassigned,
                   min_instances, rng, _best_video_for)
 
-    # ---- Phase 2: secure VAL -----------------------------------------------
+    # ---- Phase 3: secure VAL -----------------------------------------------
     _secure_split("val", groups, video_cats, cat_totals, targets,
                   split_images, split_cats, assignment, unassigned,
                   min_instances, rng, _best_video_for)
 
-    # ---- Phase 3: fill remaining -------------------------------------------
+    # ---- Phase 4: fill remaining -------------------------------------------
     # Sort remaining by size (larger first for better ratio control)
-    remaining = sorted(unassigned, key=lambda v: len(groups[v]), reverse=True)
+    remaining = sorted(unassigned, key=lambda v: (-len(groups[v]), v))
     for vid in remaining:
         # Pick the split furthest below its image target
         deficits = {
@@ -314,6 +334,32 @@ def _print_split_report(
             print(f"\n  {split}: all categories >= {min_instances} instances  ✓")
 
 
+
+def _write_data_yaml(output: Path, source_yaml: Path) -> None:
+    """Write data.yaml with standard layout, preserving names/nc from the source."""
+    keys = ("path", "train", "val", "test")
+    source_text = source_yaml.read_text(encoding="utf-8") if source_yaml.is_file() else ""
+
+    values: dict[str, str] = {
+        "path": output.as_posix(),
+        "train": "images/train",
+        "val": "images/val",
+        "test": "images/test",
+    }
+    lines = [f"{key}: {values[key]}" for key in keys]
+
+    nc_match = re.search(r"^\s*nc\s*:\s*(\d+)\s*$", source_text, re.MULTILINE)
+    if nc_match:
+        lines += ["", f"nc: {nc_match.group(1)}"]
+
+    names_match = re.search(
+        r"^\s*names\s*:\s*\n((?:\s+\S.*\n?)+)", source_text, re.MULTILINE,
+    )
+    if names_match:
+        lines += ["", "names:", names_match.group(1).rstrip()]
+
+    (output / "data.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
 # ---------------------------------------------------------------------------
 # File copying
 # ---------------------------------------------------------------------------
@@ -336,7 +382,10 @@ def copy_split(source: Path, output: Path, groups: dict[str, list[Path]],
             label_target = output / "labels" / split / label_path.name
             image_target.parent.mkdir(parents=True, exist_ok=True)
             label_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(image_path, image_target)
+            try:
+                os.link(image_path, image_target)
+            except OSError:
+                shutil.copy2(image_path, image_target)
             label_lines = []
             seen_lines = set()
             for raw_line in label_path.read_text(encoding="utf-8").splitlines():
@@ -356,13 +405,7 @@ def copy_split(source: Path, output: Path, groups: dict[str, list[Path]],
             counts[split] += 1
 
     source_yaml = source / "data.yaml"
-    yaml_text = source_yaml.read_text(encoding="utf-8")
-    new_path = output.as_posix()
-    yaml_text = re.sub(r"^path:.*$", f"path: {new_path}", yaml_text, flags=re.MULTILINE)
-    yaml_text = re.sub(r"^train:.*$", "train: images/train", yaml_text, flags=re.MULTILINE)
-    yaml_text = re.sub(r"^val:.*$", "val: images/val", yaml_text, flags=re.MULTILINE)
-    yaml_text = re.sub(r"^test:.*$", "test: images/test", yaml_text, flags=re.MULTILINE)
-    (output / "data.yaml").write_text(yaml_text, encoding="utf-8")
+    _write_data_yaml(output, source / "data.yaml")
     print(f"Duplicate label rows removed: {duplicate_labels_removed}")
     return counts
 
