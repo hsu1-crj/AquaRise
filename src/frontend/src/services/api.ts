@@ -32,6 +32,14 @@ function authHeaders(init?: RequestInit): Headers {
   return headers;
 }
 
+/** 401 说明 token 已失效（被踢下线 / 过期 / 服务端不认）：清空本地会话并回登录页 */
+function handleUnauthorized(response: Response): void {
+  if (response.status !== 401) return;
+  sessionStorage.removeItem('aquarise-session');
+  sessionStorage.removeItem(AUTH_TOKEN_KEY);
+  window.location.reload();
+}
+
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
@@ -39,6 +47,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     const response = await fetch(path, { ...init, headers: authHeaders(init), signal: init?.signal ?? controller.signal });
     if (!response.ok) {
+      handleUnauthorized(response);
       let payload: ApiErrorShape | null = null;
       try { payload = await response.json() as ApiErrorShape; } catch { /* non-JSON error */ }
       throw new Error(payload?.detail || payload?.message || payload?.error || `请求失败（${response.status}）`);
@@ -188,7 +197,10 @@ export async function streamChat(
     body: JSON.stringify({ messages, stream: true, session_id: sessionId }),
     signal,
   });
-  if (!response.ok || !response.body) throw new Error(`对话服务不可用（${response.status}）`);
+  if (!response.ok || !response.body) {
+    handleUnauthorized(response);
+    throw new Error(`对话服务不可用（${response.status}）`);
+  }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();

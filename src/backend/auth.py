@@ -10,7 +10,9 @@ JWT 同时写入 HttpOnly Cookie（access_token）和返回给 API 调用方，
 页面请求用 Cookie，外部 API 调用用 Authorization: Bearer。
 """
 
+import hashlib
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import bcrypt
 import jwt
@@ -19,7 +21,7 @@ from sqlalchemy.orm import Session
 
 import config
 from database import get_db
-from models import User, UserRole
+from models import LoginSession, User, UserRole
 
 # ============ bcrypt 密码哈希 ============
 def hash_password(raw: str) -> str:
@@ -40,6 +42,8 @@ def create_access_token(user: User) -> str:
     """为用户签发 JWT，含 id / username / role"""
     now = datetime.now(timezone.utc)
     payload = {
+        # jti 保证每次签发的 token 全局唯一（同秒内多次登录也不会撞 token_hash）
+        "jti": uuid4().hex,
         "sub": str(user.id),
         "username": user.username,
         "role": user.role.value,
@@ -55,6 +59,67 @@ def decode_access_token(token: str) -> dict | None:
         return jwt.decode(token, config.JWT_SECRET_KEY, algorithms=[config.JWT_ALGORITHM])
     except jwt.PyJWTError:
         return None
+
+
+# ============ 并发登录会话控制 ============
+def _token_hash(token: str) -> str:
+    """对 JWT 做 SHA-256，避免明文 token 落库"""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def record_login_session(db: Session, user: User, token: str) -> None:
+    """
+    登录成功后记录会话，并执行「同一账号并发数」控制：
+      - admin 账号最多 config.MAX_CONCURRENT_SESSIONS["admin"] 个会话
+      - user  账号最多 config.MAX_CONCURRENT_SESSIONS["user"]  个会话
+    超限时踢掉最早建立的会话，保证新登录始终成功。
+    """
+    now = datetime.now()
+    limit = config.MAX_CONCURRENT_SESSIONS.get(user.role.value, 1)
+
+    # 1. 清理该账号已过期的会话（被动失效）
+    db.query(LoginSession).filter(
+        LoginSession.user_id == user.id,
+        LoginSession.expires_at <= now,
+    ).delete()
+
+    # 2. 统计该账号当前有效会话，按建立时间升序
+    sessions = (
+        db.query(LoginSession)
+        .filter(LoginSession.user_id == user.id)
+        .order_by(LoginSession.created_at.asc())
+        .all()
+    )
+
+    # 3. 超限则逐条踢掉最早会话，直到剩 limit-1 个
+    while len(sessions) >= limit:
+        oldest = sessions.pop(0)
+        db.delete(oldest)
+
+    # 4. 写入本次会话
+    db.add(
+        LoginSession(
+            user_id=user.id,
+            token_hash=_token_hash(token),
+            expires_at=now + timedelta(hours=config.JWT_EXPIRE_HOURS),
+        )
+    )
+    db.commit()
+
+
+def _session_is_active(db: Session, token: str, user_id: int) -> bool:
+    """会话是否仍有效：JWT 对应的会话记录存在且未过期（被踢即失效）"""
+    row = (
+        db.query(LoginSession)
+        .filter(
+            LoginSession.user_id == user_id,
+            LoginSession.token_hash == _token_hash(token),
+        )
+        .first()
+    )
+    if not row:
+        return False
+    return row.expires_at > datetime.now()
 
 
 def _get_token_from_request(request: Request) -> str | None:
@@ -88,6 +153,12 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.query(User).filter(User.id == int(payload["sub"])).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+    # 会话校验：被「踢下线」或已过期的 token 在此失效
+    if not _session_is_active(db, token, user.id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="该账号已有更晚的登录，当前会话已失效，请重新登录",
+        )
     return user
 
 
@@ -104,7 +175,10 @@ def get_current_user_optional(
     payload = decode_access_token(token)
     if not payload:
         return None
-    return db.query(User).filter(User.id == int(payload["sub"])).first()
+    user = db.query(User).filter(User.id == int(payload["sub"])).first()
+    if not user or not _session_is_active(db, token, user.id):
+        return None
+    return user
 
 
 def require_role(role: UserRole):

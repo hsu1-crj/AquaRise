@@ -30,6 +30,9 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "fastapi-learning-jwt-secret-change
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "8"))
 
+# 同一账号最大并发登录数（按角色）：超限踢掉最早建立的会话
+MAX_CONCURRENT_SESSIONS = {"admin": 3, "user": 1}
+
 # 文件上传
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 

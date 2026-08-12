@@ -14,7 +14,13 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
-from auth import create_access_token, get_current_user, hash_password, verify_password
+from auth import (
+    create_access_token,
+    get_current_user,
+    hash_password,
+    record_login_session,
+    verify_password,
+)
 from database import get_db
 from models import User, UserRole
 # Jinja2 templates removed — React SPA handles all page rendering now
@@ -78,7 +84,8 @@ async def login_form(
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     response = RedirectResponse(url="/", status_code=303)
-    _issue_auth_cookie(response, user)
+    token = _issue_auth_cookie(response, user)
+    record_login_session(db, user, token)
     return response
 
 
@@ -134,7 +141,9 @@ async def api_login(body: LoginRequest, db: Session = Depends(get_db)):
         user = db.query(User).filter(User.phone_num == account).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
-    return TokenResponse(access_token=create_access_token(user))
+    token = create_access_token(user)
+    record_login_session(db, user, token)
+    return TokenResponse(access_token=token)
 
 
 @router.post("/api/v1/auth/register", response_model=UserResponse)

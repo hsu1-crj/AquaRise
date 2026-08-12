@@ -1,7 +1,8 @@
 """
-ORM 模型层：全部 7 张 MySQL 表
+ORM 模型层：全部 8 张 MySQL 表
 =====================================
 users               用户表（JWT + bcrypt）
+login_sessions      登录会话表（并发登录控制）
 detection_tasks     检测任务表（图片/视频）
 detection_results   检测结果表（逐帧逐目标）
 chat_history        对话历史表
@@ -102,7 +103,31 @@ class User(Base):
         return f"<User id={self.id} username={self.username!r} role={self.role.value}>"
 
 
-# ============ 2. 检测任务表 ============
+# ============ 2. 登录会话表（并发登录控制） ============
+class LoginSession(Base):
+    """
+    登录会话：每个 JWT 对应一条记录。
+    用于「同一账号并发登录数」限制：
+      - admin 账号最多 3 个会话
+      - user  账号最多 1 个会话
+    超限时踢掉最早建立的会话；被踢的 token 在 get_current_user 中失效。
+    """
+
+    __tablename__ = "login_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False)  # JWT 的 SHA-256，避免明文落库
+    created_at = Column(DateTime, default=datetime.now)
+    expires_at = Column(DateTime, nullable=False)  # 与 JWT 过期时间一致
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<LoginSession id={self.id} user_id={self.user_id} expires_at={self.expires_at}>"
+
+
+# ============ 3. 检测任务表 ============
 class DetectionTask(Base):
     """一次图片/视频检测任务"""
 
