@@ -266,8 +266,8 @@ class FrontendDetectionListResponse(BaseModel):
 class FrontendDetectionBox(BaseModel):
     """单个目标框（前端 DetectionBox）"""
     id: str
-    label: str          # 英文标签 trash_easy
-    labelZh: str        # 中文标签 易清除垃圾
+    label: str          # 英文标签 trash_bottle
+    labelZh: str        # 中文标签 瓶子
     confidence: float
     bbox: list[float]   # [x, y, w, h]
     material: str
