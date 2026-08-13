@@ -1,11 +1,11 @@
 """
 检测服务（YOLO 真推理）
 =====================================
-调用 src/vision/best.pt（5 类水下目标模型）做目标检测。
+调用 src/vision/best.pt（22 类 TrashCan 模型）做目标检测。
 
 - 模型懒加载 + 进程内单例（threading.Lock 防并发初始化竞态）
 - ultralytics 延迟导入：不装 ultralytics 也能正常启动后端，首次检测才加载权重
-- 只返回/入库垃圾类（YOLO ID 2-4），rov(0)/organic(1) 2 个背景类被过滤
+- 只返回/入库垃圾类（YOLO ID 8-21），rov(0)/plant(1)/animal_*(2-7) 8 个背景类被过滤
 
 路由层契约保持不变，替换存根逻辑即可接入真实模型。
 """
@@ -16,16 +16,27 @@ from datetime import datetime
 
 import config
 
-# 3 类垃圾（YOLO ID 2-4）: id -> (英文, 中文, 材质)
-# 按清理难度粗分类：易清除 / 纠缠（缠绕风险）/ 沉重（大型重物）
+# 14 类垃圾（YOLO ID 8-21）: id -> (英文, 中文, 材质)
+# 英文标签 = 模型 names；中文/材质参考 CLAUDE.md 类别说明
 GARBAGE_CLASSES = {
-    2: ("trash_easy", "易清除垃圾", "塑料/轻质"),
-    3: ("trash_entangled", "纠缠垃圾", "渔网/绳索"),
-    4: ("trash_heavy", "沉重垃圾", "金属/木质"),
+    8: ("trash_clothing", "衣物", "织物"),
+    9: ("trash_pipe", "管道", "金属/塑料"),
+    10: ("trash_bottle", "瓶子", "塑料/玻璃"),
+    11: ("trash_bag", "塑料袋", "塑料"),
+    12: ("trash_snack_wrapper", "零食包装", "塑料"),
+    13: ("trash_can", "金属罐", "金属"),
+    14: ("trash_cup", "杯子", "塑料"),
+    15: ("trash_container", "容器", "塑料/金属"),
+    16: ("trash_unknown_instance", "未知垃圾", "未知"),
+    17: ("trash_branch", "树枝/木头", "木质"),
+    18: ("trash_wreckage", "残骸/碎片", "金属/混合"),
+    19: ("trash_tarp", "防水布", "塑料/布料"),
+    20: ("trash_rope", "绳索", "尼龙/纤维"),
+    21: ("trash_net", "渔网", "尼龙"),
 }
 
-# 高危害类别（用于污染等级评估）：纠缠垃圾(3)、沉重垃圾(4)
-HIGH_HAZARD_IDS = {3, 4}
+# 高危害类别（用于污染等级评估）：残骸(18) 大型碎片 + 绳索(20)/渔网(21) 缠绕危害
+HIGH_HAZARD_IDS = {18, 20, 21}
 
 # 模型单例
 _model = None
@@ -58,12 +69,12 @@ def _decode_image(image_bytes: bytes):
 
 
 def _filter_and_build(detections: list) -> list[dict]:
-    """把 YOLO 目标框过滤为垃圾类（ID 2-4），转成与存根一致的结构"""
+    """把 YOLO 目标框过滤为垃圾类（ID 8-21），转成与存根一致的结构"""
     items = []
     for det in detections:
         cls_id = int(det["class_id"])
         if cls_id not in GARBAGE_CLASSES:
-            continue  # 忽略 rov(0)/organic(1) 等背景类
+            continue  # 忽略 rov(0)/plant(1)/animal_*(2-7) 等背景类
         x1, y1, x2, y2 = det["xyxy"]
         _, cn_name, material = GARBAGE_CLASSES[cls_id]
         items.append(
@@ -134,7 +145,7 @@ def process_video_background(task_id: int, file_path: str):
     """
     视频检测后台任务（真实推理）：pending → processing → completed。
     由 FastAPI BackgroundTasks 调用，独立开数据库会话写库。
-    逐帧推理，垃圾类（ID 2-4）目标写入 detection_results。
+    逐帧推理，垃圾类（ID 8-21）目标写入 detection_results。
     """
     # 延迟导入，避免模块加载时依赖数据库
     from database import SessionLocal
