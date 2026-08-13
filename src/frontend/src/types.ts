@@ -46,6 +46,40 @@ export interface DetectionResult {
   processedAt: string;
 }
 
+export interface VideoTaskStatus {
+  taskId: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number; // 0-100
+  totalObjects: number;
+  pollutionLevel?: string | null;
+  processingTime?: number | null;
+  previewUrl?: string | null; // 视频实时预览帧（标注图）URL
+  previewUrls?: string[] | null; // 已累积的全部预览帧 URL（按场景逐张追加）
+  annotatedVideoUrl?: string | null; // 逐帧画框后的标注视频（可回放）URL
+  processedFrames?: number | null;
+  totalFrames?: number | null;
+}
+
+export interface VideoObjectItem {
+  classId: number;
+  className: string; // 中文类别名
+  confidence: number;
+  materialType?: string | null;
+  cropUrl?: string | null; // 目标裁剪缩略图 URL（视频任务才有）
+}
+
+export interface VideoDetectResult {
+  taskId: number;
+  taskType: string;
+  fileName: string;
+  status: string;
+  totalObjects: number;
+  pollutionLevel?: string | null;
+  processingTime?: number | null;
+  results: VideoObjectItem[];
+  materialBreakdown: Record<string, number>;
+}
+
 export interface MultiImageDetectItem {
   success: boolean;
   fileName: string;

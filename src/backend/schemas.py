@@ -71,6 +71,7 @@ class DetectionResultItem(BaseModel):
     bbox_x2: Optional[float] = None
     bbox_y2: Optional[float] = None
     material_type: Optional[str] = None
+    crop_url: Optional[str] = None  # 视频目标裁剪缩略图 URL（视频任务才有）
 
 
 class ImageDetectResponse(BaseModel):
@@ -96,6 +97,11 @@ class TaskStatusResponse(BaseModel):
     total_objects: int
     pollution_level: Optional[str] = None
     processing_time: Optional[float] = None
+    preview_url: Optional[str] = None  # 视频实时预览帧（标注图）URL，非视频任务为 None
+    preview_urls: Optional[list[str]] = None  # 视频已累积的全部预览帧 URL（按场景逐张）
+    annotated_video_url: Optional[str] = None  # 逐帧画框后的标注视频（可回放）URL
+    processed_frames: Optional[int] = None  # 已处理帧数
+    total_frames: Optional[int] = None  # 视频总帧数
 
 
 class ResultResponse(BaseModel):
@@ -109,6 +115,7 @@ class ResultResponse(BaseModel):
     processing_time: Optional[float]
     results: list[DetectionResultItem] = []
     material_breakdown: dict = {}  # {"塑料": N, "金属": N, ...}
+    annotated_video_url: Optional[str] = None  # 逐帧画框后的标注视频（可回放）URL
 
 
 # ============ 聊天 ============
