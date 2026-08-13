@@ -3,11 +3,12 @@ import { AlertTriangle, ArrowRight, Camera, ChevronRight, CircleGauge, FileDown,
 import { MaterialChart, RankingChart, TrendChart } from '../components/Charts';
 import { mockRecords } from '../data/mock';
 import { api } from '../services/api';
-import type { PageKey, Summary, TrendPoint } from '../types';
+import type { PageKey, StatsAnalysis, Summary, TrendPoint } from '../types';
 
 export function Dashboard({ onNavigate }: { onNavigate: (page: PageKey) => void }) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [analysis, setAnalysis] = useState<StatsAnalysis | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -15,9 +16,10 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: PageKey) => void 
     setLoading(true);
     setError('');
     try {
-      const [summaryData, trendData] = await Promise.all([api.getSummary(), api.getTrend()]);
+      const [summaryData, trendData, analysisData] = await Promise.all([api.getSummary(), api.getTrend(), api.getAnalysis()]);
       setSummary(summaryData);
       setTrend(trendData);
+      setAnalysis(analysisData);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '数据加载失败');
     } finally {
@@ -74,8 +76,8 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: PageKey) => void 
       </section>
 
       <section className="dashboard-lower">
-        <article className="panel glass"><PanelTitle icon={CircleGauge} title="材质构成" subtitle="近 30 日识别结果" /><MaterialChart /></article>
-        <article className="panel glass"><PanelTitle icon={Sparkles} title="高频垃圾类型" subtitle="目标数量 TOP 5" /><RankingChart /></article>
+        <article className="panel glass"><PanelTitle icon={CircleGauge} title="材质构成" subtitle="近 30 日识别结果" /><MaterialChart breakdown={analysis?.materialBreakdown} total={analysis?.totalObjects} /></article>
+        <article className="panel glass"><PanelTitle icon={Sparkles} title="高频垃圾类型" subtitle="目标数量 TOP 5" /><RankingChart ranking={analysis?.classRanking} /></article>
         <article className="panel glass records-panel">
           <PanelTitle icon={ShipWheel} title="最近检测" subtitle="最新完成任务" action="全部记录" onAction={() => onNavigate('history')} />
           <div className="record-list">

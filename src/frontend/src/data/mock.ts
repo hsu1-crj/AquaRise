@@ -1,4 +1,4 @@
-import type { DetectionRecord, DetectionResult, Report, Summary, TrendPoint } from '../types';
+import type { DetectionRecord, DetectionResult, Report, StatsAnalysis, Summary, TrendPoint } from '../types';
 
 export const mockSummary: Summary = {
   totalTasks: 12846,
@@ -7,6 +7,25 @@ export const mockSummary: Summary = {
   monthlyGrowth: 18.6,
   activeAlerts: 3,
   coverageKm2: 126.8,
+};
+
+export const mockAnalysis: StatsAnalysis = {
+  pollutionIndex: 4.21,
+  pollutionIndexPrev: 4.6,
+  plasticPercent: 7.3,
+  plasticPercentPrev: 6.1,
+  severeCount: 19,
+  severeCountPrev: 14,
+  totalObjects: 1108,
+  materialBreakdown: { '其他/未知': 410, '织物/衣物': 357, '金属/木质': 161, '渔网/绳索': 99, '塑料/轻质': 81 },
+  classRanking: [
+    { name: '未知垃圾', count: 410 },
+    { name: '衣物', count: 350 },
+    { name: '金属罐', count: 93 },
+    { name: '纠缠垃圾', count: 53 },
+    { name: '沉重垃圾', count: 38 },
+    { name: '渔网', count: 29 },
+  ],
 };
 
 export const mockTrend: TrendPoint[] = [

@@ -1,5 +1,5 @@
-import { createMockDetection, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -98,6 +98,31 @@ export const api = {
     if (isMockMode) { await wait(560); return mockTrend; }
     const payload = await request<{ items?: TrendPoint[] } | TrendPoint[]>(`/api/v1/stats/trend?period=${encodeURIComponent(period)}`);
     return Array.isArray(payload) ? payload : payload.items ?? [];
+  },
+
+  /** 分析页聚合数据：综合污染指数 / 材质分布 / 高频类别排名（Analysis 与 Dashboard 共用）。
+   * 后端返回 snake_case，需显式映射为 camelCase（与 getSummary/getVideoStatus 一致）。 */
+  async getAnalysis(): Promise<StatsAnalysis> {
+    if (isMockMode) { await wait(500); return mockAnalysis; }
+    const response = await request<{
+      pollution_index: number; pollution_index_prev: number;
+      plastic_percent: number; plastic_percent_prev: number;
+      severe_count: number; severe_count_prev: number;
+      total_objects: number;
+      material_breakdown: Record<string, number>;
+      class_ranking: { name: string; count: number }[];
+    }>('/api/v1/stats/analysis');
+    return {
+      pollutionIndex: response.pollution_index,
+      pollutionIndexPrev: response.pollution_index_prev,
+      plasticPercent: response.plastic_percent,
+      plasticPercentPrev: response.plastic_percent_prev,
+      severeCount: response.severe_count,
+      severeCountPrev: response.severe_count_prev,
+      totalObjects: response.total_objects,
+      materialBreakdown: response.material_breakdown ?? {},
+      classRanking: response.class_ranking ?? [],
+    };
   },
 
   async getHistory(page = 1, pageSize = 50, filters?: { level?: string; query?: string }): Promise<{ items: DetectionRecord[]; total: number }> {

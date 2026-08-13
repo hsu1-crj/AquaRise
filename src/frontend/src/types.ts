@@ -26,6 +26,24 @@ export interface TrendPoint {
   density: number;
 }
 
+export interface ClassRankItem {
+  name: string; // 中文类别名
+  count: number;
+}
+
+/** 分析页聚合数据（后端 /stats/analysis；近 30 天 vs 前 30 天环比） */
+export interface StatsAnalysis {
+  pollutionIndex: number; // 综合污染指数 0-10
+  pollutionIndexPrev: number;
+  plasticPercent: number; // 塑料类目标占比 %
+  plasticPercentPrev: number;
+  severeCount: number; // 高风险（严重）任务数
+  severeCountPrev: number;
+  totalObjects: number; // 近 30 天检出垃圾总数
+  materialBreakdown: Record<string, number>; // 材质桶 → 数量
+  classRanking: ClassRankItem[]; // 高频类别 TOP N
+}
+
 export interface DetectionBox {
   id: string;
   label: string;
