@@ -3,17 +3,7 @@ import type { ChangeEvent, DragEvent } from 'react';
 import { AlertCircle, ArrowRight, CheckCircle2, FileImage, FileText, FileVideo2, LoaderCircle, RotateCcw, ScanLine, ShieldCheck, UploadCloud, WandSparkles, X } from 'lucide-react';
 import { api } from '../services/api';
 import type { DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, PageKey, VideoDetectResult, VideoTaskStatus } from '../types';
-
-/** 后端英文污染等级 → 前端中文（/detect/status 返回原始枚举值） */
-const POLLUTION_LEVEL_ZH: Record<string, string> = {
-  excellent: '优', good: '良', moderate: '中', poor: '差', severe: '严重',
-};
-const levelZh = (level?: string | null) => (level ? POLLUTION_LEVEL_ZH[level] ?? level : '');
-
-/** 后端英文污染等级 → 环境质量分（与后端 POLLUTION_SCORE 演示推导值一致） */
-const QUALITY_SCORE: Record<string, number> = {
-  excellent: 92, good: 82, moderate: 68, poor: 48, severe: 28,
-};
+import { PreviewGallery, VideoResultCard, levelZh, QUALITY_SCORE } from '../components/resultViews';
 
 const imageTypes = ['image/jpeg', 'image/png', 'image/webp'];
 const videoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
@@ -329,74 +319,6 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
 
 function ResultEmpty() {
   return <div className="result-empty"><div><WandSparkles /></div><h3>等待影像分析</h3><p>识别结果、置信度与环境质量建议将在这里展示。</p><ol><li><span>1</span>上传水下图片或视频</li><li><span>2</span>启动 AI 智能识别</li><li><span>3</span>生成污染质量报告</li></ol></div>;
-}
-
-/** 视频预览帧画廊：大图 + 缩略图条；后端每检测到"新画面"即追加一张 */
-function PreviewGallery({ urls }: { urls: string[] }) {
-  const [active, setActive] = useState(0);
-  useEffect(() => {
-    // 预览帧累积时：正停在末尾则跟随最新一张，否则保持用户当前查看的帧
-    setActive((prev) => (prev >= urls.length - 1 ? Math.max(0, urls.length - 1) : prev));
-  }, [urls.length]);
-  if (urls.length === 0) return <div className="result-card-media-empty">暂无标注预览</div>;
-  const idx = Math.min(active, urls.length - 1);
-  return (
-    <>
-      <img className="video-gallery-main" src={urls[idx]} alt={`预览帧 ${idx + 1}`} />
-      {urls.length > 1 && (
-        <div className="video-preview-strip">
-          {urls.map((url, i) => (
-            <button key={url} className={i === idx ? 'active' : ''} onClick={() => setActive(i)} aria-label={`预览帧 ${i + 1}`}>
-              <img src={url} alt={`预览 ${i + 1}`} loading="lazy" />
-            </button>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-/** 视频结果卡片：与多图识别结果卡片同一布局（标注预览图 + 统计 + 可展开目标列表）。
- * 媒体区展示全部场景预览帧画廊（每次检测到新画面追加一张）；目标列表为去重后的垃圾清单。 */
-function VideoResultCard({ fileName, status, result }: { fileName: string; status: VideoTaskStatus | null; result: VideoDetectResult | null }) {
-  const [expanded, setExpanded] = useState(true); // 默认展开目标列表，与图片卡片一致
-  const level = result?.pollutionLevel || status?.pollutionLevel || '';
-  const levelLabel = levelZh(level);
-  const objects = result?.results ?? [];
-  const count = result?.totalObjects ?? status?.totalObjects ?? 0;
-  const seconds = result?.processingTime ?? status?.processingTime;
-  const score = QUALITY_SCORE[level] ?? 68;
-  const previews = status?.previewUrls?.length ? status.previewUrls : (status?.previewUrl ? [status.previewUrl] : []);
-
-  return (
-    <div className="result-card">
-      <div className="result-card-media">
-        <PreviewGallery urls={previews} />
-      </div>
-      {status?.annotatedVideoUrl && (
-        <div className="annotated-video-block">
-          <video src={status.annotatedVideoUrl} controls playsInline preload="metadata" />
-        </div>
-      )}
-      <div className="result-card-info">
-        <strong title={fileName}>{fileName}</strong>
-        <div className="result-card-tags">
-          <span className={`level-badge level-${levelLabel}`}>{levelLabel ? `${levelLabel}度污染` : '未评级'}</span>
-          <span>质量分 {score}</span>
-        </div>
-        <p>发现 {count} 个垃圾目标{seconds != null ? ` · 耗时 ${seconds}s` : ''}</p>
-        <button className="secondary-button" onClick={() => setExpanded(!expanded)}>{expanded ? '收起目标列表' : `目标列表${objects.length > 0 ? `（${objects.length}）` : ''}`}</button>
-        {expanded && (
-          <div className="object-list">
-            {objects.length === 0 && <p style={{ fontSize: 9, color: 'var(--muted)', margin: 0 }}>未检出垃圾目标</p>}
-            {objects.map((object, index) => (
-              <div key={`v-${index}`}><span>{object.className}</span><em>{object.materialType ?? '未知'}</em><div><i style={{ width: `${object.confidence * 100}%` }} /></div><strong>{(object.confidence * 100).toFixed(0)}%</strong></div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
 }
 
 /** 单张图片的结果卡片：缩略图 + 检测框 canvas + 统计 + 可展开目标列表 */

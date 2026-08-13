@@ -16,6 +16,7 @@ class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=1)
     platform: Literal["pc", "mobile"] = Field(default="pc", description="设备类型：pc=主机端 / mobile=移动端，并发登录按此分组")
+    remember_me: bool = Field(default=False, description="保持登录：签发长有效期 token（30 天），跨浏览器重启自动登录直到退出")
 
 
 class RegisterRequest(BaseModel):
@@ -116,6 +117,8 @@ class ResultResponse(BaseModel):
     results: list[DetectionResultItem] = []
     material_breakdown: dict = {}  # {"塑料": N, "金属": N, ...}
     annotated_video_url: Optional[str] = None  # 逐帧画框后的标注视频（可回放）URL
+    preview_urls: Optional[list[str]] = None  # 视频：场景预览帧（按场景逐张累积）
+    media_url: Optional[str] = None  # 图片：把已入库检测框画回原图的标注图 URL
 
 
 # ============ 聊天 ============

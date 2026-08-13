@@ -78,6 +78,9 @@ export interface VideoDetectResult {
   processingTime?: number | null;
   results: VideoObjectItem[];
   materialBreakdown: Record<string, number>;
+  previewUrls?: string[] | null; // 视频：场景预览帧 URL（检测历史详情直接以 result 为准）
+  annotatedVideoUrl?: string | null; // 视频：标注视频回放 URL
+  mediaUrl?: string | null; // 图片：把已入库检测框画回原图的标注图 URL
 }
 
 export interface MultiImageDetectItem {

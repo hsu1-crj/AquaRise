@@ -29,6 +29,8 @@ DATABASE_URL = (
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "fastapi-learning-jwt-secret-change-me")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "8"))
+# 「保持登录」勾选时签发的长有效期 token（天）：跨浏览器重启自动登录，直到用户退出
+JWT_REMEMBER_DAYS = int(os.getenv("JWT_REMEMBER_DAYS", "30"))
 
 # 同一账号在同一平台(pc/mobile)的最大并发登录数（按角色）：
 # 同平台超限踢掉最早会话；跨平台(PC ↔ 移动端)互不挤占，便于移动端观察 PC 端进度。

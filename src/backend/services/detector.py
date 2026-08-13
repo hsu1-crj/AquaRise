@@ -143,6 +143,54 @@ def _save_preview(task_id: int, index: int, img) -> str | None:
     return f"/uploads/video_preview/{task_id}/{index}.jpg"
 
 
+def _annotated_image_url(task_id: int, file_path: str, rows) -> str | None:
+    """图片任务：把已入库的检测框+中文标签画回原图，存 uploads/image_detail/{task_id}.jpg。
+
+    供检测历史「查看详情」使用（内存 VIDEO_PROGRESS 在重启后丢失，无法拿到实时标注图）。
+    复用 _draw_preview 的画框/中文标签逻辑；文件已生成则直接复用缓存。失败返回 None。
+    """
+    import cv2
+    import numpy as np
+
+    try:
+        dir_path = os.path.join(config.UPLOAD_DIR, "image_detail")
+        os.makedirs(dir_path, exist_ok=True)
+        out_path = os.path.join(dir_path, f"{task_id}.jpg")
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            return f"/uploads/image_detail/{task_id}.jpg"
+
+        img = cv2.imread(file_path)
+        if img is None:
+            return None
+        labels: list[tuple[int, int, str]] = []
+        for r in rows:
+            bbox = (r.bbox_x1, r.bbox_y1, r.bbox_x2, r.bbox_y2)
+            if any(v is None for v in bbox):
+                continue
+            x1, y1, x2, y2 = (int(v) for v in bbox)
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 200, 255), 2)
+            labels.append((x1, max(y1 - 18, 0), f"{r.class_name} {r.confidence * 100:.0f}%"))
+
+        if labels:
+            from PIL import Image, ImageDraw
+
+            pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil_img)
+            font = _get_chinese_font(16)
+            for x, y, text in labels:
+                draw.text((x, y), text, fill=(255, 200, 0), font=font)
+            img = cv2.cvtColor(np.asarray(pil_img), cv2.COLOR_RGB2BGR)
+
+        ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        if not ok:
+            return None
+        with open(out_path, "wb") as f:
+            f.write(buf.tobytes())
+        return f"/uploads/image_detail/{task_id}.jpg"
+    except Exception:
+        return None
+
+
 def _scene_changed(frame, last_preview, threshold: float = SCENE_CHANGE_THRESHOLD) -> bool:
     """场景切换检测：当前帧与最近一张已保存预览的缩小图平均绝对差超过阈值即视为新画面。
 

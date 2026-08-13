@@ -38,8 +38,11 @@ def verify_password(raw: str, hashed: str) -> bool:
 
 
 # ============ JWT 签发与校验 ============
-def create_access_token(user: User) -> str:
-    """为用户签发 JWT，含 id / username / role"""
+def create_access_token(user: User, expires_hours: int | None = None) -> str:
+    """为用户签发 JWT，含 id / username / role。
+
+    expires_hours 覆盖默认有效期（保持登录时传更长值，如 30 天）。
+    """
     now = datetime.now(timezone.utc)
     payload = {
         # jti 保证每次签发的 token 全局唯一（同秒内多次登录也不会撞 token_hash）
@@ -48,7 +51,7 @@ def create_access_token(user: User) -> str:
         "username": user.username,
         "role": user.role.value,
         "iat": now,
-        "exp": now + timedelta(hours=config.JWT_EXPIRE_HOURS),
+        "exp": now + timedelta(hours=expires_hours or config.JWT_EXPIRE_HOURS),
     }
     return jwt.encode(payload, config.JWT_SECRET_KEY, algorithm=config.JWT_ALGORITHM)
 
@@ -67,16 +70,21 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def record_login_session(db: Session, user: User, token: str, platform: str = "pc") -> None:
+def record_login_session(
+    db: Session, user: User, token: str, platform: str = "pc", expires_hours: int | None = None
+) -> None:
     """
     登录成功后记录会话，并执行「同一账号在同一平台(platform)的并发数」控制：
       - admin 账号每个平台最多 config.MAX_CONCURRENT_SESSIONS["admin"] 个会话
       - user  账号每个平台最多 config.MAX_CONCURRENT_SESSIONS["user"]  个会话
     超限时踢掉该平台最早建立的会话；跨平台(PC ↔ 移动端)互不影响，保证新登录始终成功。
     对 User 行加 for update 行锁串行化同账号登录，避免并发读-踢-写竞态突破上限。
+
+    expires_hours 覆盖会话有效期（保持登录时与 JWT 同步给更长值）。
     """
     now = datetime.now()
     limit = config.MAX_CONCURRENT_SESSIONS.get(user.role.value, 1)
+    expires = now + timedelta(hours=expires_hours or config.JWT_EXPIRE_HOURS)
     # 0. 锁定用户行(行级锁，持有至下方 commit)，串行化同账号并发登录，杜绝读-踢-写竞态
     db.query(User).filter(User.id == user.id).with_for_update().first()
 
@@ -106,7 +114,7 @@ def record_login_session(db: Session, user: User, token: str, platform: str = "p
         LoginSession(
             user_id=user.id,
             token_hash=_token_hash(token),
-            expires_at=now + timedelta(hours=config.JWT_EXPIRE_HOURS),
+            expires_at=expires,
             platform=platform,
         )
     )
