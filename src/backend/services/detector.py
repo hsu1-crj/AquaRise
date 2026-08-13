@@ -73,6 +73,70 @@ def get_video_progress(task_id: int) -> dict:
     return VIDEO_PROGRESS.get(task_id, {})
 
 
+def restore_video_indexes() -> None:
+    """后端重启后重建视频媒体索引。
+
+    预览帧 / 标注视频文件已落盘（uploads/video_preview、uploads/video_annotated），
+    但它们的 URL 索引存在内存 VIDEO_PROGRESS，进程重启即丢。启动时扫描磁盘目录，
+    把已完成视频任务的媒体 URL 恢复回去，保证重启后「查看详情」仍可预览/回放。
+    """
+    preview_root = os.path.join(config.UPLOAD_DIR, "video_preview")
+    ann_root = os.path.join(config.UPLOAD_DIR, "video_annotated")
+    restored = 0
+
+    def _entry(task_id: int) -> dict:
+        return VIDEO_PROGRESS.setdefault(
+            task_id,
+            {
+                "progress": 100.0,
+                "processed_frames": 0,
+                "total_frames": 0,
+                "preview_url": None,
+                "preview_urls": [],
+                "annotated_video_url": None,
+            },
+        )
+
+    if os.path.isdir(preview_root):
+        for name in os.listdir(preview_root):
+            task_dir = os.path.join(preview_root, name)
+            if not os.path.isdir(task_dir):
+                continue
+            try:
+                task_id = int(name)
+            except ValueError:
+                continue
+            # 帧文件为 {index}.jpg，需按数字排序（"10.jpg" 应在 "2.jpg" 之后）
+            urls = sorted(
+                (
+                    f"/uploads/video_preview/{task_id}/{f}"
+                    for f in os.listdir(task_dir)
+                    if f.lower().endswith(".jpg") and f.rsplit(".", 1)[0].isdigit()
+                ),
+                key=lambda url: int(url.rsplit("/", 1)[1].split(".")[0]),
+            )
+            if not urls:
+                continue
+            entry = _entry(task_id)
+            entry["preview_urls"] = urls
+            entry["preview_url"] = urls[-1]  # 最新一帧作封面
+            restored += 1
+
+    if os.path.isdir(ann_root):
+        for name in os.listdir(ann_root):
+            mp4 = os.path.join(ann_root, name, "annotated.mp4")
+            if not (os.path.isfile(mp4) and os.path.getsize(mp4) > 0):
+                continue
+            try:
+                task_id = int(name)
+            except ValueError:
+                continue
+            _entry(task_id)["annotated_video_url"] = f"/uploads/video_annotated/{task_id}/annotated.mp4"
+            restored += 1
+
+    print(f"[detector] restored {restored} video media index entries from disk")
+
+
 # 中文字体缓存（按字号懒加载，标注视频逐帧绘制时避免重复加载字体）
 _CHINESE_FONT_CACHE: dict[int, object] = {}
 
