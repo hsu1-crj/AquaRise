@@ -267,7 +267,7 @@ async def task_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """查询任务进度"""
+    """查询任务进度：DB 任务状态 + 内存实时进度（视频预览帧）合并"""
     task = (
         db.query(DetectionTask)
         .filter(DetectionTask.id == task_id, DetectionTask.user_id == current_user.id)
@@ -275,13 +275,21 @@ async def task_status(
     )
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
+    # 视频后台任务在内存中实时更新进度/预览帧（进程内有效），优先于静态 PROGRESS 映射
+    live = detector.get_video_progress(task.id) if task.task_type == TaskType.video else {}
+    progress = live.get("progress", PROGRESS[task.status])
     return TaskStatusResponse(
         task_id=task.id,
         status=task.status.value,
-        progress=PROGRESS[task.status],
+        progress=progress,
         total_objects=task.total_objects,
         pollution_level=task.pollution_level.value if task.pollution_level else None,
         processing_time=task.processing_time,
+        preview_url=live.get("preview_url"),
+        preview_urls=live.get("preview_urls"),
+        annotated_video_url=live.get("annotated_video_url"),
+        processed_frames=live.get("processed_frames"),
+        total_frames=live.get("total_frames"),
     )
 
 
@@ -303,7 +311,12 @@ async def task_result(
     rows = db.query(DetectionResult).filter(DetectionResult.task_id == task_id).all()
     items = []
     material_breakdown: dict = {}
+    crop_dir = os.path.join(config.UPLOAD_DIR, "video_crops", str(task_id))
     for r in rows:
+        # 视频任务：若检测时保存了目标裁剪缩略图，则给出对应 URL（用行 id 命名）
+        crop_url = None
+        if task.task_type == TaskType.video and os.path.exists(os.path.join(crop_dir, f"{r.id}.jpg")):
+            crop_url = f"/uploads/video_crops/{task_id}/{r.id}.jpg"
         items.append(
             DetectionResultItem(
                 class_id=r.class_id,
@@ -314,6 +327,7 @@ async def task_result(
                 bbox_x2=r.bbox_x2,
                 bbox_y2=r.bbox_y2,
                 material_type=r.material_type,
+                crop_url=crop_url,
             )
         )
         if r.material_type:
@@ -329,4 +343,5 @@ async def task_result(
         processing_time=task.processing_time,
         results=items,
         material_breakdown=material_breakdown,
+        annotated_video_url=detector.get_video_progress(task.id).get("annotated_video_url"),
     )

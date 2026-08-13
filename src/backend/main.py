@@ -29,6 +29,7 @@ for _p in (str(PROJECT_ROOT), str(BACKEND_DIR)):
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 import config  # noqa: E402
 import models  # noqa: F401  E402  导入全部模型，注册到 Base.metadata 才能建表
 from auth import hash_password  # noqa: E402
@@ -148,6 +149,13 @@ app.include_router(stats_router.router)          # /api/v1/stats/*
 app.include_router(reports_router.router)        # /api/v1/reports/*
 app.include_router(knowledge_router.router)      # /api/v1/knowledge/*
 app.include_router(digital_human_router.router)  # /api/v1/digital-human/*
+
+# ============ 静态文件：上传产物（图片/视频/视频预览帧）同源访问 ============
+# 挂载 /uploads → config.UPLOAD_DIR（默认 uploads/，相对 cwd=src/backend），
+# 使 /uploads/video_preview/{task_id}.jpg 等 URL 可直接被 <img> 加载。
+_UPLOADS_ABS = os.path.abspath(config.UPLOAD_DIR)
+os.makedirs(_UPLOADS_ABS, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=_UPLOADS_ABS), name="uploads")
 
 
 @app.get("/")

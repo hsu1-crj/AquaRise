@@ -1,5 +1,5 @@
 import { createMockDetection, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, Summary, TrendPoint, UserInfo } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -117,6 +117,68 @@ export const api = {
     form.append('file', file);
     const response = await request<{ task_id?: string; taskId?: string }>('/api/v1/detect/video', { method: 'POST', body: form });
     return { taskId: response.taskId ?? response.task_id ?? '' };
+  },
+
+  /** 查询视频任务实时进度：轮询返回 progress / previewUrl / 帧数，驱动实时可视化 */
+  async getVideoStatus(taskId: string | number): Promise<VideoTaskStatus> {
+    if (isMockMode) {
+      await wait(500);
+      return { taskId: Number(taskId), status: 'processing', progress: 55, totalObjects: 0 };
+    }
+    const response = await request<{
+      task_id: number; status: string; progress: number; total_objects: number;
+      pollution_level?: string | null; processing_time?: number | null;
+      preview_url?: string | null; preview_urls?: string[] | null;
+      annotated_video_url?: string | null;
+      processed_frames?: number | null; total_frames?: number | null;
+    }>(`/api/v1/detect/status/${taskId}`);
+    return {
+      taskId: response.task_id,
+      status: response.status as VideoTaskStatus['status'],
+      progress: response.progress,
+      totalObjects: response.total_objects,
+      pollutionLevel: response.pollution_level,
+      processingTime: response.processing_time,
+      previewUrl: response.preview_url,
+      previewUrls: response.preview_urls ?? [],
+      annotatedVideoUrl: response.annotated_video_url ?? null,
+      processedFrames: response.processed_frames,
+      totalFrames: response.total_frames,
+    };
+  },
+
+  /** 查询视频检测结果：去重后的垃圾目标列表 + 材质汇总（/detect/result） */
+  async getVideoResult(taskId: string | number): Promise<VideoDetectResult> {
+    if (isMockMode) {
+      await wait(400);
+      return { taskId: Number(taskId), taskType: 'video', fileName: '', status: 'completed', totalObjects: 0, results: [], materialBreakdown: {} };
+    }
+    const response = await request<{
+      task_id: number; task_type: string; file_name: string; status: string; total_objects: number;
+      pollution_level?: string | null; processing_time?: number | null; material_breakdown: Record<string, number>;
+      results: {
+        class_id: number; class_name: string; confidence: number;
+        bbox_x1?: number | null; bbox_y1?: number | null; bbox_x2?: number | null; bbox_y2?: number | null;
+        material_type?: string | null; crop_url?: string | null;
+      }[];
+    }>(`/api/v1/detect/result/${taskId}`);
+    return {
+      taskId: response.task_id,
+      taskType: response.task_type,
+      fileName: response.file_name,
+      status: response.status,
+      totalObjects: response.total_objects,
+      pollutionLevel: response.pollution_level,
+      processingTime: response.processing_time,
+      materialBreakdown: response.material_breakdown ?? {},
+      results: (response.results ?? []).map((r) => ({
+        classId: r.class_id,
+        className: r.class_name,
+        confidence: r.confidence,
+        materialType: r.material_type ?? null,
+        cropUrl: r.crop_url ?? null,
+      })),
+    };
   },
 
   async createReport(taskId: string): Promise<Report> {

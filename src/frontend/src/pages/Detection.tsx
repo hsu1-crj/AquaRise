@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
-import { AlertCircle, ArrowRight, CheckCircle2, FileImage, FileVideo2, LoaderCircle, RotateCcw, ScanLine, ShieldCheck, UploadCloud, WandSparkles, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, FileImage, FileText, FileVideo2, LoaderCircle, RotateCcw, ScanLine, ShieldCheck, UploadCloud, WandSparkles, X } from 'lucide-react';
 import { api } from '../services/api';
-import type { DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, PageKey } from '../types';
+import type { DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, PageKey, VideoDetectResult, VideoTaskStatus } from '../types';
+
+/** 后端英文污染等级 → 前端中文（/detect/status 返回原始枚举值） */
+const POLLUTION_LEVEL_ZH: Record<string, string> = {
+  excellent: '优', good: '良', moderate: '中', poor: '差', severe: '严重',
+};
+const levelZh = (level?: string | null) => (level ? POLLUTION_LEVEL_ZH[level] ?? level : '');
+
+/** 后端英文污染等级 → 环境质量分（与后端 POLLUTION_SCORE 演示推导值一致） */
+const QUALITY_SCORE: Record<string, number> = {
+  excellent: 92, good: 82, moderate: 68, poor: 48, severe: 28,
+};
 
 const imageTypes = ['image/jpeg', 'image/png', 'image/webp'];
 const videoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
@@ -19,6 +30,8 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
   const [status, setStatus] = useState<'idle' | 'processing' | 'done' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [videoProgress, setVideoProgress] = useState(0);
+  const [videoStatus, setVideoStatus] = useState<VideoTaskStatus | null>(null); // 视频实时进度轮询结果
+  const [videoResult, setVideoResult] = useState<VideoDetectResult | null>(null); // 视频完成后去重目标列表
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [creatingReport, setCreatingReport] = useState(false); // 唯一"生成质量评估报告"按钮状态
   const [reportError, setReportError] = useState('');
@@ -27,7 +40,15 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
   // 仅在真正移除/替换/卸载时回收，避免误回收仍被后续 previews 引用的 URL
   const previewsRef = useRef<string[]>([]);
   useEffect(() => { previewsRef.current = previews; }, [previews]);
-  useEffect(() => () => previewsRef.current.forEach((url) => URL.revokeObjectURL(url)), []);
+  // 视频进度轮询定时器：卸载/重置时清除，避免状态更新泄漏
+  const pollingRef = useRef<number | null>(null);
+  const stopPolling = () => {
+    if (pollingRef.current !== null) { window.clearTimeout(pollingRef.current); pollingRef.current = null; }
+  };
+  useEffect(() => {
+    previewsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    stopPolling();
+  }, []);
 
   const acceptTypes = mode === 'image' ? imageTypes : videoTypes;
   const maxSize = mode === 'image' ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE;
@@ -43,9 +64,10 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
   };
 
   const reset = () => {
+    stopPolling();
     previews.forEach((url) => URL.revokeObjectURL(url));
     setFiles([]); setPreviews([]); setResult(null);
-    setStatus('idle'); setMessage(''); setVideoProgress(0); setBatchProgress(null);
+    setStatus('idle'); setMessage(''); setVideoProgress(0); setVideoStatus(null); setVideoResult(null); setBatchProgress(null);
     setCreatingReport(false); setReportError('');
   };
 
@@ -101,7 +123,7 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
 
   const runDetection = async () => {
     if (files.length === 0) return;
-    setStatus('processing'); setMessage(''); setResult(null);
+    setStatus('processing'); setMessage(''); setResult(null); setVideoResult(null);
     setCreatingReport(false); setReportError('');
 
     if (mode === 'image') {
@@ -123,16 +145,49 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
       }
     } else {
       try {
-        await api.createVideoTask(files[0]);
-        for (const value of [12, 27, 46, 68, 86, 100]) {
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 260));
-          setVideoProgress(value);
-        }
-        setStatus('done');
+        const { taskId } = await api.createVideoTask(files[0]);
+        if (!taskId) { throw new Error('未获取到任务编号'); }
+        setVideoProgress(0); setVideoStatus(null);
+        // 轮询实时进度：展示真实帧处理进度 + 标注预览帧，直到完成/失败
+        const poll = async () => {
+          const statusInfo = await api.getVideoStatus(taskId);
+          setVideoStatus(statusInfo);
+          setVideoProgress(statusInfo.progress);
+          if (statusInfo.status === 'completed' || statusInfo.status === 'failed') {
+            if (statusInfo.status === 'failed') { setStatus('error'); setMessage('视频识别失败，请重试'); }
+            else {
+              setStatus('done');
+              // 拉取去重后的垃圾目标列表，供结果卡片展示
+              try {
+                const resultInfo = await api.getVideoResult(taskId);
+                setVideoResult(resultInfo);
+              } catch { /* 列表拉取失败不阻塞完成态，仅少展示清单 */ }
+            }
+            return;
+          }
+          pollingRef.current = window.setTimeout(poll, 1200);
+        };
+        await poll();
       } catch (reason) {
+        stopPolling();
         setStatus('error');
         setMessage(reason instanceof Error ? reason.message : '识别任务失败，请重试');
       }
+    }
+  };
+
+  /** 为当前视频识别任务生成质量报告（与多图"生成报告"同一后端接口） */
+  const createVideoReport = async () => {
+    const taskId = videoStatus?.taskId;
+    if (taskId == null) return;
+    setCreatingReport(true); setReportError('');
+    try {
+      await api.createReport(String(taskId));
+      onNavigate('reports');
+    } catch (reason) {
+      setReportError(reason instanceof Error ? reason.message : '报告生成失败，请重试');
+    } finally {
+      setCreatingReport(false);
     }
   };
 
@@ -195,7 +250,7 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
               </label>
             ) : (
               <div className="preview-stage">
-                <video src={previews[0]} controls />
+                {videoStatus?.previewUrl ? <img className="live-preview" src={videoStatus.previewUrl} alt="AI 实时检测预览" /> : <video src={previews[0]} controls />}
                 {status === 'processing' && <div className="scanning-overlay"><div className="scan-beam" /><div><LoaderCircle className="spin" /><strong>AI 正在分析影像</strong><span>逐帧检测 · 材质判断 · 污染评级</span></div></div>}
                 <button className="remove-file" onClick={reset} aria-label="移除文件"><X /></button>
                 <div className="file-chip"><FileVideo2 /><div><strong>{files[0]?.name}</strong><small>{files[0] ? (files[0].size / 1024 / 1024).toFixed(2) : 0} MB</small></div></div>
@@ -211,13 +266,17 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
             </div>
           )}
           {status === 'processing' && mode === 'video' && (
-            <div className="progress-block"><div><span>正在创建异步任务</span><strong>{videoProgress}%</strong></div><div className="progress-track"><i style={{ width: `${videoProgress}%` }} /></div><small>页面可安全离开，任务会在后台继续处理</small></div>
+            <div className="progress-block">
+              <div><span>{videoStatus?.processedFrames != null && videoStatus?.totalFrames ? `已处理 ${videoStatus.processedFrames}/${videoStatus.totalFrames} 帧` : '正在逐帧识别'}</span><strong>{videoProgress}%</strong></div>
+              <div className="progress-track"><i style={{ width: `${videoProgress}%` }} /></div>
+              <small>页面可安全离开，任务会在后台继续处理</small>
+            </div>
           )}
           <footer><button className="secondary-button" onClick={reset} disabled={files.length === 0 || status === 'processing'}><RotateCcw />重新选择</button><button className="primary-button wide" disabled={files.length === 0 || status === 'processing'} onClick={runDetection}>{status === 'processing' ? <><LoaderCircle className="spin" />正在识别</> : mode === 'image' ? <><ScanLine />识别 {files.length} 张图片</> : <><ScanLine />开始 AI 识别</>}</button></footer>
         </article>
 
         <article className="result-panel panel glass">
-          <header><div><span>02</span><h2>识别结果</h2></div>{status === 'done' && mode === 'image' && <em className="success-tag"><CheckCircle2 />分析完成{result && result.failCount > 0 ? ` · ${result.successCount} 成功 / ${result.failCount} 失败` : ''}</em>}</header>
+          <header><div><span>02</span><h2>识别结果</h2></div>{status === 'done' && mode === 'image' && <em className="success-tag"><CheckCircle2 />分析完成{result && result.failCount > 0 ? ` · ${result.successCount} 成功 / ${result.failCount} 失败` : ''}</em>}{status === 'done' && mode === 'video' && <em className="success-tag"><CheckCircle2 />分析完成</em>}</header>
           {mode === 'image' ? (
             !result ? (
               <ResultEmpty />
@@ -238,8 +297,26 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
                 )}
               </>
             )
+          ) : mode === 'video' && status === 'processing' ? (
+            <div className="result-empty video-live-gallery">
+              <div><LoaderCircle className="spin" /></div>
+              <h3>正在逐帧分析</h3>
+              <p>{videoStatus?.processedFrames != null && videoStatus?.totalFrames ? `已处理 ${videoStatus.processedFrames}/${videoStatus.totalFrames} 帧 · 已捕获 ${videoStatus?.previewUrls?.length ?? 0} 个画面` : '检测到新画面时自动追加预览图'}</p>
+              <PreviewGallery urls={videoStatus?.previewUrls ?? []} />
+            </div>
           ) : status === 'done' ? (
-            <div className="result-empty"><div><CheckCircle2 /></div><h3>视频任务已创建</h3><p>任务已进入后台处理队列，可前往检测历史查看进度。</p><button className="primary-button" onClick={() => onNavigate('history')}>查看检测历史<ArrowRight /></button></div>
+            <>
+              <div className="result-card-list">
+                <VideoResultCard fileName={files[0]?.name ?? '视频'} status={videoStatus} result={videoResult} />
+              </div>
+              <footer className="result-panel-footer">
+                <button className="primary-button wide" disabled={creatingReport} onClick={createVideoReport}>
+                  {creatingReport ? <LoaderCircle className="spin" /> : <FileText />}生成质量评估报告
+                </button>
+                <button className="secondary-button" onClick={() => onNavigate('history')}>查看检测历史<ArrowRight /></button>
+                {reportError && <div className="inline-error"><AlertCircle />{reportError}</div>}
+              </footer>
+            </>
           ) : (
             <ResultEmpty />
           )}
@@ -252,6 +329,74 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
 
 function ResultEmpty() {
   return <div className="result-empty"><div><WandSparkles /></div><h3>等待影像分析</h3><p>识别结果、置信度与环境质量建议将在这里展示。</p><ol><li><span>1</span>上传水下图片或视频</li><li><span>2</span>启动 AI 智能识别</li><li><span>3</span>生成污染质量报告</li></ol></div>;
+}
+
+/** 视频预览帧画廊：大图 + 缩略图条；后端每检测到"新画面"即追加一张 */
+function PreviewGallery({ urls }: { urls: string[] }) {
+  const [active, setActive] = useState(0);
+  useEffect(() => {
+    // 预览帧累积时：正停在末尾则跟随最新一张，否则保持用户当前查看的帧
+    setActive((prev) => (prev >= urls.length - 1 ? Math.max(0, urls.length - 1) : prev));
+  }, [urls.length]);
+  if (urls.length === 0) return <div className="result-card-media-empty">暂无标注预览</div>;
+  const idx = Math.min(active, urls.length - 1);
+  return (
+    <>
+      <img className="video-gallery-main" src={urls[idx]} alt={`预览帧 ${idx + 1}`} />
+      {urls.length > 1 && (
+        <div className="video-preview-strip">
+          {urls.map((url, i) => (
+            <button key={url} className={i === idx ? 'active' : ''} onClick={() => setActive(i)} aria-label={`预览帧 ${i + 1}`}>
+              <img src={url} alt={`预览 ${i + 1}`} loading="lazy" />
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** 视频结果卡片：与多图识别结果卡片同一布局（标注预览图 + 统计 + 可展开目标列表）。
+ * 媒体区展示全部场景预览帧画廊（每次检测到新画面追加一张）；目标列表为去重后的垃圾清单。 */
+function VideoResultCard({ fileName, status, result }: { fileName: string; status: VideoTaskStatus | null; result: VideoDetectResult | null }) {
+  const [expanded, setExpanded] = useState(true); // 默认展开目标列表，与图片卡片一致
+  const level = result?.pollutionLevel || status?.pollutionLevel || '';
+  const levelLabel = levelZh(level);
+  const objects = result?.results ?? [];
+  const count = result?.totalObjects ?? status?.totalObjects ?? 0;
+  const seconds = result?.processingTime ?? status?.processingTime;
+  const score = QUALITY_SCORE[level] ?? 68;
+  const previews = status?.previewUrls?.length ? status.previewUrls : (status?.previewUrl ? [status.previewUrl] : []);
+
+  return (
+    <div className="result-card">
+      <div className="result-card-media">
+        <PreviewGallery urls={previews} />
+      </div>
+      {status?.annotatedVideoUrl && (
+        <div className="annotated-video-block">
+          <video src={status.annotatedVideoUrl} controls playsInline preload="metadata" />
+        </div>
+      )}
+      <div className="result-card-info">
+        <strong title={fileName}>{fileName}</strong>
+        <div className="result-card-tags">
+          <span className={`level-badge level-${levelLabel}`}>{levelLabel ? `${levelLabel}度污染` : '未评级'}</span>
+          <span>质量分 {score}</span>
+        </div>
+        <p>发现 {count} 个垃圾目标{seconds != null ? ` · 耗时 ${seconds}s` : ''}</p>
+        <button className="secondary-button" onClick={() => setExpanded(!expanded)}>{expanded ? '收起目标列表' : `目标列表${objects.length > 0 ? `（${objects.length}）` : ''}`}</button>
+        {expanded && (
+          <div className="object-list">
+            {objects.length === 0 && <p style={{ fontSize: 9, color: 'var(--muted)', margin: 0 }}>未检出垃圾目标</p>}
+            {objects.map((object, index) => (
+              <div key={`v-${index}`}><span>{object.className}</span><em>{object.materialType ?? '未知'}</em><div><i style={{ width: `${object.confidence * 100}%` }} /></div><strong>{(object.confidence * 100).toFixed(0)}%</strong></div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** 单张图片的结果卡片：缩略图 + 检测框 canvas + 统计 + 可展开目标列表 */
