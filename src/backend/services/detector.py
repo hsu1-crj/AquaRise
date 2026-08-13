@@ -38,6 +38,23 @@ GARBAGE_CLASSES = {
 # 高危害类别（用于污染等级评估）：残骸(18) 大型碎片 + 绳索(20)/渔网(21) 缠绕危害
 HIGH_HAZARD_IDS = {18, 20, 21}
 
+# 跨帧去重阈值：同一类别、位置高度重叠(IoU>0.5)视为同一目标，避免静态/拼接视频逐帧重复计数
+IOU_DEDUP_THRESHOLD = 0.5
+
+
+def _iou(box_a: list, box_b: list) -> float:
+    """计算两个 [x1, y1, x2, y2] 边界框的交并比(IoU)。"""
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    area_a = max(0.0, box_a[2] - box_a[0]) * max(0.0, box_a[3] - box_a[1])
+    area_b = max(0.0, box_b[2] - box_b[0]) * max(0.0, box_b[3] - box_b[1])
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
 # 模型单例
 _model = None
 _model_lock = threading.Lock()
@@ -146,6 +163,8 @@ def process_video_background(task_id: int, file_path: str):
     视频检测后台任务（真实推理）：pending → processing → completed。
     由 FastAPI BackgroundTasks 调用，独立开数据库会话写库。
     逐帧推理，垃圾类（ID 8-21）目标写入 detection_results。
+    跨帧 IoU 去重：同一类别、与已见目标高度重叠(IoU>0.5)的检测视为同一物体，只计一次，
+    避免三张图片拼接等静态/重复场景在每一帧重复计数。
     """
     # 延迟导入，避免模块加载时依赖数据库
     from database import SessionLocal
@@ -156,6 +175,7 @@ def process_video_background(task_id: int, file_path: str):
     db = SessionLocal()
     start = time.time()
     garbage_ids: list[int] = []
+    seen_objects: list[dict] = []  # 已入账目标：{"class_id", "box":[x1,y1,x2,y2]}
     try:
         task = db.query(DetectionTask).filter_by(id=task_id).first()
         if not task:
@@ -184,6 +204,14 @@ def process_video_background(task_id: int, file_path: str):
                         if cls_id not in GARBAGE_CLASSES:
                             continue
                         x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        # 跨帧去重：同一类别、与已见目标 IoU>阈值 → 同一物体，跳过
+                        cur_box = [x1, y1, x2, y2]
+                        if any(
+                            s["class_id"] == cls_id and _iou(s["box"], cur_box) > IOU_DEDUP_THRESHOLD
+                            for s in seen_objects
+                        ):
+                            continue
+                        seen_objects.append({"class_id": cls_id, "box": cur_box})
                         _, cn_name, material = GARBAGE_CLASSES[cls_id]
                         db.add(
                             DetectionResult(
