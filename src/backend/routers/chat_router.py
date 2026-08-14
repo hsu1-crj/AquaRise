@@ -106,14 +106,18 @@ async def chat(body: SpaChatRequest, current_user: User = Depends(get_current_us
                             part = data.get("content", "")
                             if part:
                                 full += part
-                    if for_event_errors or not llm_stub.is_acceptable_model_answer(full, message):
+                    candidate = llm_stub.finalize_model_answer(message, full)
+                    if for_event_errors or candidate != llm_stub._strip_think(full):
+                        # 质量门禁拒绝的内容不会先泄漏到 UI；统一改用确定性回答或知识库兜底。
                         if full:
-                            logger.warning("Ollama 输出未通过质量门禁，改用知识库兜底")
-                        full = ""
+                            logger.warning("Ollama 输出未通过质量门禁，改用知识库/规则兜底")
                     else:
                         used_ollama = True
-                        async for chunk in llm_stub.stream_text(full):
-                            yield _sse(chunk)
+                    full = candidate
+                    # 无论来自模型还是兜底，都从完整答案按短句输出，保持统一的流式体验。
+                    async for chunk in llm_stub.stream_text(full):
+                        yield _sse(chunk)
+                    used_ollama = True
                 except Exception as exc:
                     logger.warning("Ollama 对话失败，使用安全兜底: %s", exc)
                     full = ""

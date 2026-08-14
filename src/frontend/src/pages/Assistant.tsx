@@ -22,7 +22,7 @@ interface UiMessage {
 const SYSTEM_PROMPT: ChatMessagePayload = {
   role: 'system',
   content:
-    '你是海洋守护者，AquaRise 海洋垃圾识别与海洋环保平台的专业 AI 助手。请结合项目知识库直接回答海洋垃圾、污染治理和检测结果问题；先给结论，再给依据和行动建议，不确定就明确说明，不要编造。不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或“谁做的”时，回答“这个项目是由海瞳 LLM 组开发的实训项目成果。”；当用户问父母、爸爸或妈妈时，说明你是 AI 助手，没有家庭关系，并补充上述开发归属。',
+    '你是海洋守护者，AquaRise 海洋垃圾识别与海洋环保平台的专业 AI 助手。请结合项目知识库直接回答海洋垃圾、污染治理和检测结果问题；先给结论，再给依据和行动建议，不确定就明确说明，不要编造。不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或“谁做的”时，回答“这是一个实训项目成果；海瞳 LLM 组是本项目 LLM 部分负责人，负责模型微调与对话能力升级。”；当用户问父母、爸爸或妈妈时，说明你是 AI 助手，没有家庭关系，并补充海瞳 LLM 组的 LLM 负责人身份。',
 };
 
 // 对话会话 id 持久化：同一用户在同一浏览器标签页内复用同一个会话，
@@ -61,13 +61,24 @@ function getOrCreateSessionId(): string {
   return fresh;
 }
 
+/** 按句切分（保留标点），空输入返回空数组 */
+function splitIntoSentences(text: string): string[] {
+  if (!text) return [];
+  const parts = text.split(/(?<=[。！？；!?;])/);
+  return parts
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 const QUICK_QUESTIONS = [
+  { label: '海瞳平台', q: '海瞳平台是做什么的？' },
+  { label: '识别复核', q: '识别结果置信度较低时，为什么不能直接纳入正式统计？' },
+  { label: '珊瑚渔网处置', q: '珊瑚附近发现废弃渔网，现场处置应注意什么？' },
+  { label: '船舶塑料管理', q: 'MARPOL 附则 V 是否允许把塑料垃圾排入海里？' },
   { label: '微塑料风险', q: '微塑料是什么？它的风险应该怎样科学解读？' },
-  { label: '检测置信度', q: '检测置信度较低时，能直接确认垃圾类别吗？' },
-  { label: '幽灵渔网处置', q: '什么是幽灵渔网？发现后应该怎么处置？' },
-  { label: '船舶塑料管理', q: 'MARPOL 附则 V 如何管理船舶塑料垃圾？' },
-  { label: '海岸清理方案', q: '如何制定一套安全的海岸垃圾清理方案？' },
-  { label: '项目开发者', q: '这个项目是谁开发的？' },
+  { label: '塑料袋降解', q: '塑料袋在水下多久能真正降解？' },
+  { label: '检测报告解读', q: '检测报告里 trash_net 置信度不高，应该怎么解读？' },
+  { label: '海岸清理优先级', q: '如何制定海岸垃圾清理的优先级和复测流程？' },
 ];
 
 const STATUS_LABELS: Record<DigitalHumanStatus, string> = {
@@ -79,7 +90,7 @@ const STATUS_LABELS: Record<DigitalHumanStatus, string> = {
 };
 
 const WELCOME_MD =
-  '你好，我是 **海洋守护者** 🌊。我会优先检索项目知识库，帮你解读检测结果、分析污染风险并制定治理建议。';
+  '你好，我是 **海洋守护者** 🌊。我会优先检索项目知识库，帮你解读检测结果、分析污染风险，并给出可执行的海洋垃圾治理建议。';
 
 // ---------- particle background ----------
 
@@ -178,7 +189,37 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const [dhReady, setDhReady] = useState(false);
   const [dhSubtitle, setDhSubtitle] = useState('');
   const [dhProgress, setDhProgress] = useState(0);
+  const subtitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** 逐句推进字幕队列：按每句字数估算播报时长，配合数字人口型节奏 */
+  const startSubtitleQueue = useCallback((sentences: string[]) => {
+    if (subtitleTimer.current) clearTimeout(subtitleTimer.current);
+    let index = 0;
+    setDhSubtitle(sentences[0] || '');
+    const step = () => {
+      if (index >= sentences.length - 1) {
+        subtitleTimer.current = null;
+        return;
+      }
+      const current = sentences[index];
+      const duration = Math.max(900, Math.min(6000, current.length * 230));
+      subtitleTimer.current = setTimeout(() => {
+        index += 1;
+        setDhSubtitle(sentences[index] || '');
+        step();
+      }, duration);
+    };
+    step();
+  }, []);
+
+  const stopSubtitleQueue = useCallback(() => {
+    if (subtitleTimer.current) {
+      clearTimeout(subtitleTimer.current);
+      subtitleTimer.current = null;
+    }
+  }, []);
   const [dhLoadingText, setDhLoadingText] = useState('正在准备数字人…');
+  const dhLoadStartedAt = useRef(Date.now());
   const dhRef = useRef<OceanDigitalHuman | null>(null);
   const sdkContainerRef = useRef<HTMLDivElement>(null);
 
@@ -194,8 +235,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   useEffect(() => {
     return () => {
       controller.current?.abort();
+      stopSubtitleQueue();
       dhRef.current?.destroy();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- load persisted chat history for this session (re-fetch on session change) ---
@@ -268,6 +311,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
   // --- init digital human ---
   useEffect(() => {
+    dhLoadStartedAt.current = Date.now();
     let cancelled = false;
     const container = sdkContainerRef.current;
     if (!container) return;
@@ -300,10 +344,15 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         });
         dh.on('ready', () => {
           if (!cancelled) {
-            setDhReady(true);
-            setDhProgress(100);
-            setDhLoadingText('数字人已就绪');
-            setDhStatus('idle');
+            // 确保加载提示至少可见一小段时间，避免“闪一下”造成突兀感。
+            const remaining = Math.max(0, 420 - (Date.now() - dhLoadStartedAt.current));
+            window.setTimeout(() => {
+              if (cancelled) return;
+              setDhReady(true);
+              setDhProgress(100);
+              setDhLoadingText('数字人已就绪');
+              setDhStatus('idle');
+            }, remaining);
           }
         });
         dh.on('speakStart', () => {
@@ -312,6 +361,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         dh.on('speakEnd', () => {
           if (!cancelled) {
             setDhStatus('idle');
+            stopSubtitleQueue();
             setDhSubtitle('');
           }
         });
@@ -390,13 +440,22 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               item.id === assistantId ? { ...item, content: fullContent } : item,
             ),
           );
+          // 流式字幕：按句实时显示（完整句 + 正在生成的尾部）
+          if (dhOn && dhReady) {
+            const parts = splitIntoSentences(fullContent);
+            setDhSubtitle(parts.length ? parts[parts.length - 1] : fullContent);
+          }
         }, abortController.signal);
 
-        // After streaming done, drive digital human to speak
+        // After streaming done, drive digital human to speak（逐句推进字幕，配合播报节奏）
         if (dhOn && dhReady && dhRef.current && fullContent) {
           setDhStatus('speaking');
-          // 回答完整生成后再展示整段字幕并播报，避免加载与半句字幕来回跳变。
-          setDhSubtitle(fullContent);
+          const sentences = splitIntoSentences(fullContent);
+          if (sentences.length > 1) {
+            startSubtitleQueue(sentences);
+          } else {
+            setDhSubtitle(fullContent);
+          }
           dhRef.current.speak(fullContent, { isStart: true, isEnd: true });
         } else {
           setDhSubtitle('');
@@ -425,6 +484,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
   const stop = () => {
     controller.current?.abort();
+    stopSubtitleQueue();
     setBusy(false);
     setDhSubtitle('');
     if (dhRef.current) {
@@ -445,6 +505,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
   const clearMessages = () => {
     controller.current?.abort();
+    stopSubtitleQueue();
     // 新建会话：旧记录保留在数据库，但本页重新开始一段新的对话
     const fresh = uuid();
     window.sessionStorage.setItem(SESSION_KEY, fresh);
@@ -472,14 +533,22 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         <div className="og-asub">Ocean Guardian</div>
 
         <div className="og-awrap" ref={sdkContainerRef} id="og-sdk-container" />
-        {!dhReady && dhOn && <div className="og-avatar-loading"><LoaderCircle className="spin" size={18} /><span>{dhLoadingText}</span>{dhProgress > 0 && <em>{Math.round(dhProgress)}%</em>}</div>}
+        {!dhReady && dhOn && (
+          <div className="og-avatar-loading" role="status" aria-live="polite">
+            <LoaderCircle className="spin" size={18} />
+            <span>{dhLoadingText}</span>
+            <div className="og-avatar-progress" aria-hidden="true"><i style={{ width: `${Math.max(6, dhProgress)}%` }} /></div>
+            <em>{dhProgress > 0 ? `${Math.round(dhProgress)}%` : '准备中'}</em>
+          </div>
+        )}
 
         {/* Thinking overlay on the stage */}
         <ThinkingOverlay visible={showThinking} />
 
         {/* Custom streaming subtitle */}
         <div className={`og-subtitle${showSubtitle ? ' og-subtitle-visible' : ''}`}>
-          <span>{dhSubtitle}</span>
+          <span className="og-subtitle-text">{dhSubtitle}</span>
+          {dhStatus === 'thinking' && <i className="og-subtitle-caret" aria-hidden="true" />}
         </div>
 
         <div className="og-stl">

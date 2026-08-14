@@ -7,6 +7,12 @@ Qwen2 HuggingFace → GGUF 转换脚本
   pip install gguf  (已安装于 xa_code 环境)
 
 用法:
+  # DeepSeek-R1-1.5B 海洋 LoRA 合并产物（v9 链路，Qwen2 架构）
+  python src/LLM/deploy/convert_to_gguf.py \
+    --model-dir models/llm/deepseek-r1-ocean-merged \
+    --output    models/llm/deepseek-r1-ocean.gguf
+
+  # 旧 0.5B 本地模型
   python src/LLM/deploy/convert_to_gguf.py \
     --model-dir models/llm/ocean-0.5b-merged \
     --output    models/llm/ocean-0.5b.gguf
@@ -17,9 +23,9 @@ Qwen2 HuggingFace → GGUF 转换脚本
     --output    models/llm/ocean-7b.gguf
 
 注意:
-  - F16 精度，7B 约 14 GB，0.5B 约 1 GB
+  - F16 精度，1.5B 约 3 GB，7B 约 14 GB，0.5B 约 1 GB
   - 转换完成后可用 llama-quantize 进行量化（Q4_K_M 推荐）
-  - 量化命令: ollama show ocean-assistant --modelfile 查看基础 Modelfile
+  - 量化命令: ollama show deepseek-r1-ocean:1.5b --modelfile 查看基础 Modelfile
 """
 
 import os
@@ -118,7 +124,7 @@ def convert_to_gguf(model_dir: str, output_path: str) -> None:
     writer = GGUFWriter(str(output_path), arch)
 
     # 通用元数据
-    writer.add_name(f"Ocean-Assistant-Qwen2-{hidden_size//1024}B")
+    writer.add_name(f"DeepSeek-R1-Ocean-{hidden_size / 1024:.1f}B")
     writer.add_description("水下垃圾识别与海洋污染分析 LoRA 微调模型")
     writer.add_file_type(1)   # F16
 
@@ -190,18 +196,18 @@ def convert_to_gguf(model_dir: str, output_path: str) -> None:
     print(f"\n✅ GGUF 转换完成!")
     print(f"   输出文件: {output_path}")
     print(f"   文件大小: {size_mb:.1f} MB")
-    print(f"   下一步: 将文件复制到 src/LLM/deploy/ocean-assistant.gguf，然后运行:")
-    print(f"           cd src/LLM/deploy && ollama create ocean-assistant -f Modelfile")
+    print(f"   下一步: 按 README 用 GGUF 创建 deepseek-r1-ocean:1.5b（Ollama 打包），例如:")
+    print(f"           ollama create deepseek-r1-ocean:1.5b --experimental --quantize q4_K_M -f Modelfile")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Qwen2 HF→GGUF 转换脚本")
     parser.add_argument(
-        "--model-dir", default="models/llm/ocean-0.5b-merged",
+        "--model-dir", default="models/llm/deepseek-r1-ocean-merged",
         help="合并后的 HF 模型目录（包含 model*.safetensors 和 config.json）"
     )
     parser.add_argument(
-        "--output", default="models/llm/ocean-0.5b.gguf",
+        "--output", default="models/llm/deepseek-r1-ocean.gguf",
         help="输出 GGUF 文件路径"
     )
     args = parser.parse_args()

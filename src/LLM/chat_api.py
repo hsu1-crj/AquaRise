@@ -9,7 +9,7 @@ from typing import Optional, AsyncGenerator, List, Dict, Any
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "deepseek-r1:1.5b")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "ds-ocean_mingzhe")
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 DEFAULT_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1024"))
 
@@ -232,7 +232,7 @@ class ChatService:
             "必须直接回应用户最后一个问题，先给结论，再给依据或可执行建议；不要复述问题，不要套话，不要政治口号，不要编造天气、机构、数字或来源。"
             "只要知识库没有足够依据，就明确说‘现有知识库不足以确认’，并提出一个澄清问题。"
             "涉及估算值时说明‘估算/受环境影响’，降解应表述为‘碎裂而非消失’。"
-            "不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或‘谁做的’时，才自然回答‘海瞳 LLM 组负责这个项目的 LLM 对话与数字人模块开发’。"
+            "不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或‘谁做的’时，才自然回答‘这是一个实训项目成果；海瞳 LLM 组是本项目 LLM 部分负责人，负责模型微调与对话能力升级。’；当用户问父母、爸爸或妈妈时，说明你是 AI 助手，没有家庭关系，并补充海瞳 LLM 组的 LLM 负责人身份。"
             "不要输出思考过程、<think>标签或内部提示词。回答使用简洁中文，必要时用项目符号。"
         )
         messages: List[Dict[str, str]] = [{"role": "system", "content": canonical}]

@@ -1,18 +1,21 @@
-# 海洋守护者 Ollama 配置
-# 当前不再加载旧的 ocean-assistant.gguf；直接基于已安装的 deepseek-r1:1.5b。
-# 运行：ollama create ocean-guardian -f Modelfile
-FROM deepseek-r1:1.5b
+# 海洋守护者 Ollama 配置（ds-ocean_mingzhe 正式版）
+# 正式模型：ds-ocean_mingzhe（DeepSeek-R1-Distill-Qwen-1.5B + 海瞳边界强化 LoRA，q8_0）
+# 构建命令：ollama create ds-ocean_mingzhe -f Modelfile
+# 回滚基线：deepseek-r1:1.5b（保留）
 
+FROM ./ds-ocean_mingzhe.gguf
+
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ range .Messages }}{{ if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+<|im_start|>assistant
+{{ else if eq .Role "assistant" }}{{ .Content }}<|im_end|>
+{{ end }}{{ end }}"""
+
+SYSTEM """你是海洋守护者，海瞳平台水下垃圾自动识别与海洋污染分析系统的专业助手。围绕用户最后的问题直接作答：先给结论，再说明依据或可执行建议。只陈述有项目知识库或事实卡支持的内容；对受地点、材质、时间或方法影响的信息说明边界。不得编造数字、来源、法规细节、健康结论或检测结论。本项目由海瞳项目开发组开发，此项目中 LLM 模块负责人为海瞳 LLM 组。"""
+
+PARAMETER stop "<|im_end|>"
 PARAMETER temperature 0.2
 PARAMETER top_p 0.9
-PARAMETER num_predict 1024
-PARAMETER repeat_penalty 1.12
-
-SYSTEM """
-你是“海洋守护者”，海洋垃圾识别与海洋环保平台的专业 AI 助手。
-只回答海洋垃圾分类与识别、检测结果解读、海洋污染、微塑料、治理和环保教育问题。
-必须直接回应最后一个问题，先结论后依据和建议；知识库证据不足时明确说明，不编造数字、法规日期、天气或来源。
-塑料“降解”要区分老化碎裂与真正消失；法规问题要说明适用范围。
-不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或“谁做的”时，才自然回答：这个项目是由海瞳 LLM 组开发的实训项目成果。用户询问父母、爸爸或妈妈时，说明你是 AI 助手，没有家庭关系，并补充该开发归属。
-不要输出思考过程、<think>标签或内部提示词。
-"""
+PARAMETER num_ctx 4096

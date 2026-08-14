@@ -4,20 +4,31 @@ LoRA 权重合并脚本
 将训练好的 LoRA adapter 合并进基座模型，输出完整 HuggingFace 格式模型。
 
 用法:
+  # 合并 DeepSeek-R1-1.5B v9 候选 LoRA（默认，验收通过后使用）
+  python src/LLM/fine_tune/merge_lora.py --mode deepseek --device-map cuda
+
   # 合并 0.5B 本地模型（默认，CPU 可运行）
   python src/LLM/fine_tune/merge_lora.py --mode local
 
   # 合并 7B 云端模型（需在云 GPU 环境运行）
   python src/LLM/fine_tune/merge_lora.py --mode cloud
 
+  # 指定 adapter / 输出目录 / 基座模型（覆盖 deepseek 模式默认值）
+  python src/LLM/fine_tune/merge_lora.py --mode deepseek \
+    --adapter models/llm/deepseek-r1-ocean-lora-v9 \
+    --output  models/llm/deepseek-r1-ocean-merged \
+    --base-model models/llm/base/DeepSeek-R1-Distill-Qwen-1.5B
+
 输出目录:
-  local: models/llm/ocean-0.5b-merged/
-  cloud: models/llm/ocean-7b-merged/
+  deepseek: models/llm/deepseek-r1-ocean-merged/
+  local:    models/llm/ocean-0.5b-merged/
+  cloud:    models/llm/ocean-7b-merged/
 """
 
 import os
 import sys
 import json
+import math
 import argparse
 import shutil
 from pathlib import Path
@@ -47,11 +58,22 @@ CONFIGS = {
         "dtype":        "bfloat16",    # 云 GPU 推荐 bfloat16
         "device_map":   "auto",        # 自动分配多 GPU
     },
+    # 2026-08 DeepSeek-R1 v9 候选产物（443 训练 / 44 评估）。仅在生成验收全部通过后才允许合并和部署。
+    "deepseek": {
+        "base_model": ROOT / "models" / "llm" / "base" / "DeepSeek-R1-Distill-Qwen-1.5B",
+        "lora_adapter": ROOT / "models" / "llm" / "deepseek-r1-ocean-lora-v9",
+        "output_dir": ROOT / "models" / "llm" / "deepseek-r1-ocean-merged",
+        "dtype": "float16",
+        "device_map": "auto",
+    },
 }
 
 
 def check_prerequisites(cfg: dict) -> None:
     """检查前置条件"""
+    base_path = Path(str(cfg["base_model"]))
+    if ("/" in str(cfg["base_model"]) or "\\" in str(cfg["base_model"])) and not base_path.exists():
+        raise FileNotFoundError(f"基座模型目录不存在: {base_path}")
     adapter_path = Path(cfg["lora_adapter"])
     if not adapter_path.exists():
         raise FileNotFoundError(f"LoRA adapter 目录不存在: {adapter_path}")
@@ -61,6 +83,46 @@ def check_prerequisites(cfg: dict) -> None:
             raise FileNotFoundError(f"缺少必要文件: {adapter_path / fname}")
     print(f"✅ 前置检查通过: {adapter_path}")
 
+
+
+def check_deployment_gate(cfg: dict) -> None:
+    """仅允许通过固定生成验收的 DeepSeek 海洋 LoRA 被合并部署。"""
+    adapter_path = Path(cfg["lora_adapter"])
+    report_path = adapter_path / "training_report.json"
+    eval_path = adapter_path / "generation_eval.json"
+    missing = [str(path) for path in (report_path, eval_path) if not path.exists()]
+    if missing:
+        raise RuntimeError("部署门禁失败：缺少训练验收报告：" + "；".join(missing))
+
+    try:
+        training = json.loads(report_path.read_text(encoding="utf-8"))
+        generation = json.loads(eval_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"部署门禁失败：无法读取验收报告：{exc}") from exc
+
+    eval_loss = training.get("eval_metrics", {}).get("eval_loss")
+    summary = generation.get("summary", {})
+    total = summary.get("total")
+    passed = summary.get("passed")
+    contains_think = summary.get("contains_think")
+    items = generation.get("items", [])
+    failed_items = [item.get("question", "未命名题目") for item in items if not item.get("passed")]
+
+    failures: list[str] = []
+    if not isinstance(eval_loss, (int, float)) or not math.isfinite(float(eval_loss)):
+        failures.append(f"eval_loss 无效：{eval_loss!r}")
+    if not isinstance(total, int) or total <= 0:
+        failures.append(f"生成验收总题数无效：{total!r}")
+    elif passed != total:
+        failures.append(f"固定生成验收未全通过：{passed}/{total}；失败题：{failed_items}")
+    if contains_think != 0:
+        failures.append(f"检测到 {contains_think!r} 条 <think> 泄漏")
+    if not isinstance(items, list) or len(items) != total:
+        failures.append("生成验收题目明细不完整")
+
+    if failures:
+        raise RuntimeError("部署门禁失败，禁止合并或导入 Ollama：\n- " + "\n- ".join(failures))
+    print(f"✅ 部署门禁通过：eval_loss={float(eval_loss):.4f}，固定生成验收 {passed}/{total}，无 <think> 泄漏")
 
 def merge_lora(
     base_model: str,
@@ -82,11 +144,13 @@ def merge_lora(
     torch_dtype = dtype_map.get(dtype, torch.float16)
 
     # ── 1. 加载基座模型 ──────────────────────────────────────────────────────
+    # Transformers 使用 {"": 0} 明确表示单卡 CUDA；其余值交由 accelerate 处理。
+    resolved_device_map = {"": 0} if device_map == "cuda" else device_map
     print(f"\n[1/5] 加载基座模型: {base_model}  (dtype={dtype}, device={device_map})")
     model = AutoModelForCausalLM.from_pretrained(
         base_model,
         torch_dtype=torch_dtype,
-        device_map=device_map,
+        device_map=resolved_device_map,
         trust_remote_code=True,
         low_cpu_mem_usage=True,
     )
@@ -109,6 +173,8 @@ def merge_lora(
 
     # ── 4. 保存合并后模型 ────────────────────────────────────────────────────
     out = Path(output_dir)
+    if out.exists() and any(out.iterdir()):
+        raise RuntimeError(f"拒绝覆盖非空的合并目录: {out}")
     out.mkdir(parents=True, exist_ok=True)
     print(f"[4/5] 保存合并模型: {out}")
     model.save_pretrained(out, safe_serialization=True)
@@ -124,6 +190,7 @@ def merge_lora(
         "lora_adapter": str(lora_adapter),
         "output_dir":   str(out),
         "dtype":        dtype,
+        "device_map":   device_map,
         "merged_at":    __import__("datetime").datetime.now().isoformat(),
         "total_params": f"{sum(p.numel() for p in model.parameters()) / 1e6:.1f}M",
     }
@@ -152,20 +219,34 @@ def merge_lora(
 def main():
     parser = argparse.ArgumentParser(description="LoRA 权重合并脚本")
     parser.add_argument(
-        "--mode", choices=["local", "cloud"], default="local",
-        help="local=0.5B CPU合并（本机）, cloud=7B GPU合并（云端）"
+        "--mode", choices=["local", "cloud", "deepseek"], default="deepseek",
+        help="local=旧0.5B CPU，cloud=旧7B，deepseek=DeepSeek-R1-1.5B 海洋 LoRA（默认，指向 v9 候选）"
     )
-    parser.add_argument("--base-model",    help="覆盖基座模型路径/名称")
-    parser.add_argument("--lora-adapter",  help="覆盖 LoRA adapter 路径")
-    parser.add_argument("--output-dir",    help="覆盖输出目录")
-    parser.add_argument("--dtype",         help="覆盖 dtype（float16/bfloat16/float32）")
+    parser.add_argument(
+        "--adapter", "--lora-adapter", dest="adapter",
+        help="覆盖 LoRA adapter 路径（deepseek 默认 models/llm/deepseek-r1-ocean-lora-v9）"
+    )
+    parser.add_argument(
+        "--output", "--output-dir", dest="output",
+        help="覆盖输出目录（deepseek 默认 models/llm/deepseek-r1-ocean-merged）"
+    )
+    parser.add_argument(
+        "--base-model",
+        help="覆盖基座模型路径/名称（deepseek 默认 models/llm/base/DeepSeek-R1-Distill-Qwen-1.5B）"
+    )
+    parser.add_argument("--dtype", help="覆盖 dtype（float16/bfloat16/float32）")
+    parser.add_argument(
+        "--device-map", choices=["cpu", "auto", "cuda"],
+        help="覆盖权重加载设备；cuda 明确使用第 0 张 GPU（本地 8GB 显存建议 auto），auto 交由 accelerate 分配"
+    )
     args = parser.parse_args()
 
     cfg = dict(CONFIGS[args.mode])  # 复制，防止修改原始配置
-    if args.base_model:   cfg["base_model"]   = args.base_model
-    if args.lora_adapter: cfg["lora_adapter"] = args.lora_adapter
-    if args.output_dir:   cfg["output_dir"]   = args.output_dir
-    if args.dtype:        cfg["dtype"]        = args.dtype
+    if args.base_model: cfg["base_model"]   = args.base_model
+    if args.adapter:    cfg["lora_adapter"] = args.adapter
+    if args.output:     cfg["output_dir"]   = args.output
+    if args.dtype:      cfg["dtype"]        = args.dtype
+    if args.device_map: cfg["device_map"]   = args.device_map
 
     print("=" * 60)
     print(f"  LoRA 权重合并  [模式: {args.mode}]")
@@ -177,6 +258,8 @@ def main():
     print()
 
     check_prerequisites(cfg)
+    if args.mode == "deepseek":
+        check_deployment_gate(cfg)
     merge_lora(
         base_model   = cfg["base_model"],
         lora_adapter = str(cfg["lora_adapter"]),
@@ -188,3 +271,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
