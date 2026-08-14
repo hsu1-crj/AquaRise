@@ -29,10 +29,34 @@ const SYSTEM_PROMPT: ChatMessagePayload = {
 // 重新进入海洋小助手页面时能看到自己的历史对话；"清空"则新建会话。
 const SESSION_KEY = 'aquarise-chat-session';
 
+// 生成会话/消息 id。crypto.randomUUID 仅在安全上下文（HTTPS 或 localhost）可用；
+// 通过局域网 IP 访问（如 http://192.0.2.10:5173）时不满足，会抛 TypeError 导致白屏。
+// 这里优先用 randomUUID，不可用时退化到 crypto.getRandomValues（非安全上下文同样可用）。
+function uuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  try {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  } catch {
+    // 极端情况下 crypto 不可用，退回 Math.random（仅用于会话/消息 id，非安全敏感）
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+}
+
 function getOrCreateSessionId(): string {
   const existing = window.sessionStorage.getItem(SESSION_KEY);
   if (existing) return existing;
-  const fresh = crypto.randomUUID();
+  const fresh = uuid();
   window.sessionStorage.setItem(SESSION_KEY, fresh);
   return fresh;
 }
@@ -187,7 +211,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         if (history.length > 0) {
           setMessages(
             history.map((m) => ({
-              id: crypto.randomUUID(),
+              id: uuid(),
               role: m.role === 'user' ? 'user' : 'assistant',
               content: m.content,
             })),
@@ -331,8 +355,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       setError('');
       setDhSubtitle('');
 
-      const userMessage: UiMessage = { id: crypto.randomUUID(), role: 'user', content: text };
-      const assistantId = crypto.randomUUID();
+      const userMessage: UiMessage = { id: uuid(), role: 'user', content: text };
+      const assistantId = uuid();
       const nextMessages = [...messages, userMessage];
       setMessages([...nextMessages, { id: assistantId, role: 'assistant', content: '' }]);
 
@@ -422,7 +446,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const clearMessages = () => {
     controller.current?.abort();
     // 新建会话：旧记录保留在数据库，但本页重新开始一段新的对话
-    const fresh = crypto.randomUUID();
+    const fresh = uuid();
     window.sessionStorage.setItem(SESSION_KEY, fresh);
     setSessionId(fresh);
     setMessages([{ id: 'welcome', role: 'assistant', content: WELCOME_MD }]);
