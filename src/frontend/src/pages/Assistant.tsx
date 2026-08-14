@@ -70,6 +70,19 @@ function splitIntoSentences(text: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/** 按固定字数切行（单行字幕用），保证每行能在一屏内完整显示 */
+function splitIntoLines(text: string, maxChars = 30): string[] {
+  if (!text) return [];
+  const lines: string[] = [];
+  let rest = text;
+  while (rest.length > maxChars) {
+    lines.push(rest.slice(0, maxChars));
+    rest = rest.slice(maxChars);
+  }
+  if (rest) lines.push(rest);
+  return lines;
+}
+
 const QUICK_QUESTIONS = [
   { label: '海瞳平台', q: '海瞳平台是做什么的？' },
   { label: '识别复核', q: '识别结果置信度较低时，为什么不能直接纳入正式统计？' },
@@ -440,19 +453,21 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               item.id === assistantId ? { ...item, content: fullContent } : item,
             ),
           );
-          // 流式字幕：按句实时显示（完整句 + 正在生成的尾部）
+          // 流式字幕：按句实时显示（完整句 + 正在生成的尾部），每次只显示一行
           if (dhOn && dhReady) {
             const parts = splitIntoSentences(fullContent);
-            setDhSubtitle(parts.length ? parts[parts.length - 1] : fullContent);
+            const last = parts.length ? parts[parts.length - 1] : fullContent;
+            const lines = splitIntoLines(last);
+            setDhSubtitle(lines[lines.length - 1]);
           }
         }, abortController.signal);
 
-        // After streaming done, drive digital human to speak（逐句推进字幕，配合播报节奏）
+        // After streaming done, drive digital human to speak（逐行推进字幕，配合播报节奏）
         if (dhOn && dhReady && dhRef.current && fullContent) {
           setDhStatus('speaking');
-          const sentences = splitIntoSentences(fullContent);
-          if (sentences.length > 1) {
-            startSubtitleQueue(sentences);
+          const lines = splitIntoSentences(fullContent).flatMap((s) => splitIntoLines(s));
+          if (lines.length > 1) {
+            startSubtitleQueue(lines);
           } else {
             setDhSubtitle(fullContent);
           }
