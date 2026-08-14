@@ -16,6 +16,7 @@ class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=1)
     platform: Literal["pc", "mobile"] = Field(default="pc", description="设备类型：pc=主机端 / mobile=移动端，并发登录按此分组")
+    remember_me: bool = Field(default=False, description="保持登录：签发长有效期 token（30 天），跨浏览器重启自动登录直到退出")
 
 
 class RegisterRequest(BaseModel):
@@ -116,6 +117,8 @@ class ResultResponse(BaseModel):
     results: list[DetectionResultItem] = []
     material_breakdown: dict = {}  # {"塑料": N, "金属": N, ...}
     annotated_video_url: Optional[str] = None  # 逐帧画框后的标注视频（可回放）URL
+    preview_urls: Optional[list[str]] = None  # 视频：场景预览帧（按场景逐张累积）
+    media_url: Optional[str] = None  # 图片：把已入库检测框画回原图的标注图 URL
 
 
 # ============ 聊天 ============
@@ -251,6 +254,26 @@ class FrontendTrendPoint(BaseModel):
     date: str
     count: int
     density: float = 0.0
+
+
+class ClassRankItem(BaseModel):
+    """类别排名单项（前端 ClassRankItem）"""
+    name: str  # 中文类别名
+    count: int
+
+
+class StatsAnalysis(BaseModel):
+    """分析页聚合（前端 api.getAnalysis，全部基于已完成任务）：
+    当前窗口为近 30 天，*_prev 为前 30 天（用于"较上月"环比）；材质/类别分布按近 30 天汇总。"""
+    pollution_index: float = 0.0  # 综合污染指数 0-10（污染等级加权 ×2）
+    pollution_index_prev: float = 0.0
+    plastic_percent: float = 0.0  # 塑料类目标占已分类目标比例（%）
+    plastic_percent_prev: float = 0.0
+    severe_count: int = 0  # 近 30 天严重污染任务数（高风险监测点）
+    severe_count_prev: int = 0
+    total_objects: int = 0  # 近 30 天检出垃圾总数
+    material_breakdown: dict = {}  # {材质桶: 数量}，按数量降序
+    class_ranking: list[ClassRankItem] = []  # 近 30 天高频类别 TOP 6
 
 
 class FrontendDetectionRecord(BaseModel):

@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import config
@@ -29,6 +30,7 @@ from schemas import (
     ResultResponse,
     TaskStatusResponse,
     VideoDetectResponse,
+    POLLUTION_LEVEL_ZH,
     POLLUTION_SCORE,
     TASK_STATUS_ZH,
     TASK_TYPE_ZH,
@@ -199,14 +201,28 @@ async def detect_images(
 async def list_detections(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    level: str = Query("", description="中文污染等级过滤：优/良/中/差/严重，空=全部"),
+    query: str = Query("", description="搜索：任务编号（精确）或文件名（模糊）"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """检测历史列表（前端 History 页）：当前用户任务分页"""
-    query = db.query(DetectionTask).filter(DetectionTask.user_id == current_user.id)
-    total = query.count()
+    """检测历史列表（前端 History 页）：当前用户任务分页，支持等级过滤与编号/文件名搜索"""
+    q = db.query(DetectionTask).filter(DetectionTask.user_id == current_user.id)
+    # 等级过滤：前端传中文（优/良/…），映射回后端英文枚举
+    if level:
+        level_key = {v: k for k, v in POLLUTION_LEVEL_ZH.items()}.get(level)
+        if level_key:
+            q = q.filter(DetectionTask.pollution_level == level_key)
+    # 搜索：纯数字按任务编号精确匹配，否则按文件名模糊匹配（点位固定为"近岸监测点"无检索意义）
+    if query and query.strip():
+        kw = query.strip()
+        if kw.isdigit():
+            q = q.filter(or_(DetectionTask.id == int(kw), DetectionTask.file_name.contains(kw)))
+        else:
+            q = q.filter(DetectionTask.file_name.contains(kw))
+    total = q.count()
     tasks = (
-        query.order_by(DetectionTask.id.desc())
+        q.order_by(DetectionTask.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -333,6 +349,13 @@ async def task_result(
         if r.material_type:
             material_breakdown[r.material_type] = material_breakdown.get(r.material_type, 0) + 1
 
+    # 视频：内存进度里的预览帧（按场景逐张累积）；图片：把已入库检测框画回原图
+    live = detector.get_video_progress(task.id) if task.task_type == TaskType.video else {}
+    preview_urls = live.get("preview_urls") or None
+    media_url = None
+    if task.task_type == TaskType.image:
+        media_url = detector._annotated_image_url(task.id, task.file_path, rows)
+
     return ResultResponse(
         task_id=task.id,
         task_type=task.task_type.value,
@@ -343,5 +366,7 @@ async def task_result(
         processing_time=task.processing_time,
         results=items,
         material_breakdown=material_breakdown,
-        annotated_video_url=detector.get_video_progress(task.id).get("annotated_video_url"),
+        annotated_video_url=live.get("annotated_video_url"),
+        preview_urls=preview_urls,
+        media_url=media_url,
     )

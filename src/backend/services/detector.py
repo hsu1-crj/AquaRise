@@ -73,6 +73,70 @@ def get_video_progress(task_id: int) -> dict:
     return VIDEO_PROGRESS.get(task_id, {})
 
 
+def restore_video_indexes() -> None:
+    """后端重启后重建视频媒体索引。
+
+    预览帧 / 标注视频文件已落盘（uploads/video_preview、uploads/video_annotated），
+    但它们的 URL 索引存在内存 VIDEO_PROGRESS，进程重启即丢。启动时扫描磁盘目录，
+    把已完成视频任务的媒体 URL 恢复回去，保证重启后「查看详情」仍可预览/回放。
+    """
+    preview_root = os.path.join(config.UPLOAD_DIR, "video_preview")
+    ann_root = os.path.join(config.UPLOAD_DIR, "video_annotated")
+    restored = 0
+
+    def _entry(task_id: int) -> dict:
+        return VIDEO_PROGRESS.setdefault(
+            task_id,
+            {
+                "progress": 100.0,
+                "processed_frames": 0,
+                "total_frames": 0,
+                "preview_url": None,
+                "preview_urls": [],
+                "annotated_video_url": None,
+            },
+        )
+
+    if os.path.isdir(preview_root):
+        for name in os.listdir(preview_root):
+            task_dir = os.path.join(preview_root, name)
+            if not os.path.isdir(task_dir):
+                continue
+            try:
+                task_id = int(name)
+            except ValueError:
+                continue
+            # 帧文件为 {index}.jpg，需按数字排序（"10.jpg" 应在 "2.jpg" 之后）
+            urls = sorted(
+                (
+                    f"/uploads/video_preview/{task_id}/{f}"
+                    for f in os.listdir(task_dir)
+                    if f.lower().endswith(".jpg") and f.rsplit(".", 1)[0].isdigit()
+                ),
+                key=lambda url: int(url.rsplit("/", 1)[1].split(".")[0]),
+            )
+            if not urls:
+                continue
+            entry = _entry(task_id)
+            entry["preview_urls"] = urls
+            entry["preview_url"] = urls[-1]  # 最新一帧作封面
+            restored += 1
+
+    if os.path.isdir(ann_root):
+        for name in os.listdir(ann_root):
+            mp4 = os.path.join(ann_root, name, "annotated.mp4")
+            if not (os.path.isfile(mp4) and os.path.getsize(mp4) > 0):
+                continue
+            try:
+                task_id = int(name)
+            except ValueError:
+                continue
+            _entry(task_id)["annotated_video_url"] = f"/uploads/video_annotated/{task_id}/annotated.mp4"
+            restored += 1
+
+    print(f"[detector] restored {restored} video media index entries from disk")
+
+
 # 中文字体缓存（按字号懒加载，标注视频逐帧绘制时避免重复加载字体）
 _CHINESE_FONT_CACHE: dict[int, object] = {}
 
@@ -141,6 +205,54 @@ def _save_preview(task_id: int, index: int, img) -> str | None:
     with open(file_path, "wb") as f:
         f.write(buf.tobytes())
     return f"/uploads/video_preview/{task_id}/{index}.jpg"
+
+
+def _annotated_image_url(task_id: int, file_path: str, rows) -> str | None:
+    """图片任务：把已入库的检测框+中文标签画回原图，存 uploads/image_detail/{task_id}.jpg。
+
+    供检测历史「查看详情」使用（内存 VIDEO_PROGRESS 在重启后丢失，无法拿到实时标注图）。
+    复用 _draw_preview 的画框/中文标签逻辑；文件已生成则直接复用缓存。失败返回 None。
+    """
+    import cv2
+    import numpy as np
+
+    try:
+        dir_path = os.path.join(config.UPLOAD_DIR, "image_detail")
+        os.makedirs(dir_path, exist_ok=True)
+        out_path = os.path.join(dir_path, f"{task_id}.jpg")
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            return f"/uploads/image_detail/{task_id}.jpg"
+
+        img = cv2.imread(file_path)
+        if img is None:
+            return None
+        labels: list[tuple[int, int, str]] = []
+        for r in rows:
+            bbox = (r.bbox_x1, r.bbox_y1, r.bbox_x2, r.bbox_y2)
+            if any(v is None for v in bbox):
+                continue
+            x1, y1, x2, y2 = (int(v) for v in bbox)
+            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 200, 255), 2)
+            labels.append((x1, max(y1 - 18, 0), f"{r.class_name} {r.confidence * 100:.0f}%"))
+
+        if labels:
+            from PIL import Image, ImageDraw
+
+            pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil_img)
+            font = _get_chinese_font(16)
+            for x, y, text in labels:
+                draw.text((x, y), text, fill=(255, 200, 0), font=font)
+            img = cv2.cvtColor(np.asarray(pil_img), cv2.COLOR_RGB2BGR)
+
+        ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        if not ok:
+            return None
+        with open(out_path, "wb") as f:
+            f.write(buf.tobytes())
+        return f"/uploads/image_detail/{task_id}.jpg"
+    except Exception:
+        return None
 
 
 def _scene_changed(frame, last_preview, threshold: float = SCENE_CHANGE_THRESHOLD) -> bool:

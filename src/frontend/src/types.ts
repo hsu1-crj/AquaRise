@@ -26,6 +26,24 @@ export interface TrendPoint {
   density: number;
 }
 
+export interface ClassRankItem {
+  name: string; // 中文类别名
+  count: number;
+}
+
+/** 分析页聚合数据（后端 /stats/analysis；近 30 天 vs 前 30 天环比） */
+export interface StatsAnalysis {
+  pollutionIndex: number; // 综合污染指数 0-10
+  pollutionIndexPrev: number;
+  plasticPercent: number; // 塑料类目标占比 %
+  plasticPercentPrev: number;
+  severeCount: number; // 高风险（严重）任务数
+  severeCountPrev: number;
+  totalObjects: number; // 近 30 天检出垃圾总数
+  materialBreakdown: Record<string, number>; // 材质桶 → 数量
+  classRanking: ClassRankItem[]; // 高频类别 TOP N
+}
+
 export interface DetectionBox {
   id: string;
   label: string;
@@ -78,6 +96,9 @@ export interface VideoDetectResult {
   processingTime?: number | null;
   results: VideoObjectItem[];
   materialBreakdown: Record<string, number>;
+  previewUrls?: string[] | null; // 视频：场景预览帧 URL（检测历史详情直接以 result 为准）
+  annotatedVideoUrl?: string | null; // 视频：标注视频回放 URL
+  mediaUrl?: string | null; // 图片：把已入库检测框画回原图的标注图 URL
 }
 
 export interface MultiImageDetectItem {

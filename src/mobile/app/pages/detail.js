@@ -10,7 +10,7 @@
  *   - 下拉刷新
  */
 
-import { api, isLoggedIn } from '../api.js';
+import { api, getApiBase, isLoggedIn } from '../api.js';
 import { el, clear, icon, toast, levelBadge, statusBadge, emptyState, errorState, timeAgo } from '../ui.js';
 
 // 污染等级 → 环境质量分（与后端 POLLUTION_SCORE 对齐）
@@ -136,6 +136,10 @@ function renderDetailContent(content, data, statusInfo, navigate) {
     return;
   }
 
+  // ---- 识别媒体（视频预览帧 / 标注视频 / 图片标注图） ----
+  const mediaSection = buildMediaSection(data);
+  if (mediaSection) content.append(mediaSection);
+
   // ---- 材质分布 ----
   const materials = data.material_breakdown || {};
   const materialKeys = Object.keys(materials);
@@ -226,4 +230,68 @@ function levelFromEn(en) {
 function statusZh(en) {
   const map = { pending: '处理中', processing: '处理中', completed: '已完成', failed: '失败' };
   return map[en] || en || '处理中';
+}
+
+/** 相对路径媒体 URL 拼接 API base：移动端从静态服务器(8080)访问后端(局域网 8000)时，
+ *  后端返回的 /uploads/... 必须指向 API 基址，否则会被解析到静态服务器导致 404。 */
+function resolveMediaUrl(url) {
+  if (!url) return '';
+  return /^https?:\/\//i.test(url) ? url : `${getApiBase()}${url}`;
+}
+
+/** 识别媒体区：视频 → 预览帧画廊 + 标注视频；图片 → 标注图（与主机端「查看详情」对齐）。
+ *  无任何媒体时返回 null，不渲染空区块。 */
+function buildMediaSection(data) {
+  const isVideo = data.task_type === 'video';
+  const urls = (data.preview_urls || []).filter(Boolean);
+  const annotatedUrl = data.annotated_video_url;
+  const imageUrl = data.media_url;
+
+  if (isVideo) {
+    if (!urls.length && !annotatedUrl) return null;
+    const section = el('section', { className: 'section-block detail-media' }, [
+      el('h3', { className: 'section-title', textContent: '识别预览' }),
+    ]);
+
+    if (urls.length) {
+      // ---- 预览帧画廊：大图 + 缩略图条 ----
+      let active = 0;
+      const main = el('img', { className: 'media-gallery-main', src: resolveMediaUrl(urls[0]), alt: '预览帧 1', loading: 'lazy' });
+      section.append(main);
+
+      if (urls.length > 1) {
+        const strip = el('div', { className: 'media-thumb-strip' });
+        urls.forEach((url, i) => {
+          strip.append(el('button', {
+            className: `media-thumb${i === 0 ? ' active' : ''}`,
+            'aria-label': `预览帧 ${i + 1}`,
+            onClick: () => {
+              active = i;
+              main.src = resolveMediaUrl(url);
+              main.alt = `预览帧 ${i + 1}`;
+              strip.querySelectorAll('.media-thumb').forEach((t, j) => t.classList.toggle('active', j === active));
+            },
+          }, [el('img', { src: resolveMediaUrl(url), alt: `预览 ${i + 1}`, loading: 'lazy' })]));
+        });
+        section.append(strip);
+      }
+    } else {
+      section.append(el('div', { className: 'media-empty' }, ['暂无标注预览']));
+    }
+
+    // ---- 标注视频（逐帧画框后回放） ----
+    if (annotatedUrl) {
+      section.append(el('div', { className: 'media-video-wrap' }, [
+        el('video', { className: 'media-video', src: resolveMediaUrl(annotatedUrl), controls: true, playsInline: true, preload: 'metadata' }),
+      ]));
+    }
+    return section;
+  }
+
+  // ---- 图片任务：标注图（已入库检测框画回原图） ----
+  if (!imageUrl) return null;
+  return el('section', { className: 'section-block detail-media' }, [
+    el('h3', { className: 'section-title', textContent: '标注图' }),
+    el('img', { className: 'media-image', src: resolveMediaUrl(imageUrl), alt: '标注图', loading: 'lazy' }),
+  ]);
 }

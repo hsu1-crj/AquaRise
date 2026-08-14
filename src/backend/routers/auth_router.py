@@ -141,8 +141,10 @@ async def api_login(body: LoginRequest, db: Session = Depends(get_db)):
         user = db.query(User).filter(User.phone_num == account).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
-    token = create_access_token(user)
-    record_login_session(db, user, token, platform=body.platform)
+    # 保持登录：签发长有效期 token（30 天），否则用默认 8 小时
+    expires_hours = config.JWT_REMEMBER_DAYS * 24 if body.remember_me else None
+    token = create_access_token(user, expires_hours=expires_hours)
+    record_login_session(db, user, token, platform=body.platform, expires_hours=expires_hours)
     return TokenResponse(access_token=token)
 
 

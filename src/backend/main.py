@@ -115,6 +115,14 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
+    # 重建视频媒体索引：预览帧/标注视频文件已落盘，从磁盘恢复 URL（进程重启不丢）
+    from services import detector
+
+    try:
+        detector.restore_video_indexes()
+    except Exception:
+        pass
+
     # 预热 Ollama 对话服务（不可用则回退存根，不影响启动）
     try:
         chat_router._get_ollama_service()
