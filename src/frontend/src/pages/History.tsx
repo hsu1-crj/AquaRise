@@ -82,8 +82,8 @@ export function HistoryPage() {
 
   const exportCsv = () => {
     const lines = ['任务编号,检测时间,监测点位,类型,目标数,污染等级,状态', ...records.map((item) => [item.id, item.createdAt, item.location, item.type, item.objectCount, item.level, item.status].join(','))];
-    const blob = new Blob([`﻿${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
-    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'aquarise-detection-history.csv'; link.click(); URL.revokeObjectURL(link.href);
+    const blob = new Blob([`\ufeff${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'haitong-detection-history.csv'; link.click(); URL.revokeObjectURL(link.href);
   };
 
   /** 打开详情：历史记录 id 形如 DET-{task_id}，取出数字后拉取 /detect/result（图片/视频通用） */

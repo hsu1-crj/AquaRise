@@ -227,7 +227,7 @@ class ChatService:
 
     def build_messages(self, request: ChatRequest, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
         canonical = system_prompt or (
-            "你是‘海洋守护者’，AquaRise 海洋垃圾识别与海洋环保平台的专业 AI 助手。"
+            "你是‘海洋守护者’，海瞳海洋垃圾识别与海洋环保平台的专业 AI 助手。"
             "你的工作范围是海洋垃圾分类与识别、检测结果解读、海洋污染、微塑料、海洋治理、MARPOL 和环保教育。"
             "必须直接回应用户最后一个问题，先给结论，再给依据或可执行建议；不要复述问题，不要套话，不要政治口号，不要编造天气、机构、数字或来源。"
             "只要知识库没有足够依据，就明确说‘现有知识库不足以确认’，并提出一个澄清问题。"

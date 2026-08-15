@@ -54,9 +54,19 @@ export function Shell({ page, onNavigate, onLogout, user, children }: ShellProps
       <input className="nav-toggle" type="checkbox" id="nav-toggle" aria-label="切换导航" />
       <aside className="sidebar glass-strong">
         <div className="brand">
-          <div className="brand-mark"><Waves size={27} /></div>
-          <div><strong>AQUARISE</strong><span>海洋智守平台</span></div>
-          <label htmlFor="nav-toggle" className="nav-close" aria-label="关闭导航"><X /></label>
+          <div className="brand-mark">
+            <Waves size={22} />
+            <span className="brand-radar-ring" />
+          </div>
+          <div className="brand-meta">
+            <div className="brand-name-wrap">
+              <strong>海瞳</strong>
+              <span className="brand-sub-name">HAITONG</span>
+              <span className="brand-badge-pro">PRO</span>
+            </div>
+            <span className="brand-tagline">海洋全域智守平台</span>
+          </div>
+          <label htmlFor="nav-toggle" className="nav-close" aria-label="关闭导航"><X size={16} /></label>
         </div>
         <div className="project-pill"><span className="live-dot" />渤海近岸监测项目<ChevronDown size={14} /></div>
         <nav aria-label="主导航">

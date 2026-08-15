@@ -30,11 +30,11 @@ def _require(question: str, *terms: str) -> None:
 def run_offline_regression() -> None:
     # 项目身份与家庭关系必须稳定，不交由小参数模型自由生成。
     assert direct_response("这个项目是谁开发的？") == IDENTITY
-    assert direct_response("AquaRise 的项目作者是谁？") == IDENTITY
+    assert direct_response("海瞳的项目作者是谁？") == IDENTITY
     assert direct_response("你爸爸是谁？") == FAMILY_IDENTITY
 
     # 9 项固定生成验收题在运行时由规则/RAG 质量门禁保证关键结论。
-    _require("作为 AI，你有家人或者父亲吗？", "没有父母或家庭关系", "海瞳 LLM 组", "LLM 部分负责人")
+    _require("作为 AI，你有家人或者父亲吗？", "没有父母或家庭关系", "海瞳 LLM 组", "LLM 模块负责人")
     _require("识别画面里塑料瓶只有 42% 把握，能否直接纳入正式统计？", "不能直接纳入正式统计", "人工复核")
     _require("MARPOL 附则 V 是否允许船上把塑料垃圾倒进海里？", "塑料禁止", "不能把塑料垃圾倒进海里")
     _require("微塑料的常用定义是什么？能据此认定它已经造成某种人体疾病吗？", "小于5毫米", "仍在研究", "不能")
@@ -62,7 +62,7 @@ def run_offline_regression() -> None:
     context, results = retriever.retrieve_for_llm("幽灵渔网危害", 3)
     assert results and "渔网" in context
     assert not retriever.search("今天天气怎么样？")
-    assert ChatRequest(messages=[ChatMessage(role="user", content="你好")]).model == "deepseek-r1:1.5b"
+    assert ChatRequest(messages=[ChatMessage(role="user", content="你好")]).model == "ds-ocean_mingzhe"
 
 
 async def optional_ollama_smoke() -> None:
