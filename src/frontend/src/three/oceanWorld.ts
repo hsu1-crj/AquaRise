@@ -15,6 +15,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Water } from 'three/examples/jsm/objects/Water.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import type { DiffusionResult } from './diffusion';
+import { GarbageStory, RovUnit, loadCoastline } from './story';
+import type { GarbageStoryState } from './story';
 
 export interface SiteVisual {
   id: number;
@@ -201,6 +203,8 @@ export class OceanWorld {
   private garbage: GarbageItem[] = [];
   private garbageGroup = new THREE.Group();
   private gulls: Gull[] = [];
+  private story?: GarbageStory;
+  private rov?: RovUnit;
 
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
@@ -277,6 +281,7 @@ export class OceanWorld {
 
     // ---------- 真实测深地形 + 水下要素 + 生物 ----------
     void this.loadBathymetry();
+    void loadCoastline(this.scene, 'data/zhoushan_coastline.json');
     this.buildShafts();
     this.buildSnow();
     this.buildFish();
@@ -429,7 +434,7 @@ export class OceanWorld {
     this.scene.add(this.fish);
   }
 
-  private updateFish(dt: number, time: number): void {
+  private updateFish(dt: number, time: number, pollution: { center: THREE.Vector3; radius: number } | null): void {
     if (!this.fish) return;
     const fish = this.fishData;
     const center = new THREE.Vector3(0, -3.5, 0);
@@ -450,6 +455,12 @@ export class OceanWorld {
       const speed = Math.max(2.2, Math.min(6.5, f.vel.length()));
       f.vel.setLength(speed);
       f.pos.addScaledVector(f.vel, dt);
+      // 污染区规避(科普叙事: 鱼群逃离微塑料污染云)
+      if (pollution) {
+        tmp.copy(f.pos).sub(pollution.center);
+        const d = tmp.length();
+        if (d < pollution.radius) f.vel.addScaledVector(tmp.normalize(), (pollution.radius - d) * 0.5 * dt);
+      }
       // 越界回拉
       if (f.pos.length() > 130) { tmp.copy(center).sub(f.pos).normalize(); f.vel.addScaledVector(tmp, 3 * dt); }
       f.pos.y = Math.max(-7.5, Math.min(-0.8, f.pos.y));
@@ -513,6 +524,8 @@ export class OceanWorld {
     if (this.snow) this.snow.visible = underwater;
     if (this.fish) this.fish.visible = underwater;
     for (const g of this.gulls) g.group.visible = !underwater;
+    if (!this.rov) this.rov = new RovUnit(this.scene, this.camera);
+    this.rov.setVisible(underwater);
     if (underwater) {
       this.scene.fog = new THREE.FogExp2(0x0a4256, 0.0085);
       this.scene.background = new THREE.Color(0x073546);
@@ -649,6 +662,8 @@ export class OceanWorld {
   private garbageKey = 'bag';
 
   dropGarbage(point: THREE.Vector3, key: string, _color: string): void {
+    this.story?.dispose();
+    this.story = new GarbageStory(this.scene, point, key);
     const model = makeGarbageModel(key);
     model.position.set(point.x, 0.3, point.z);
     this.garbageGroup.add(model);
@@ -691,6 +706,8 @@ export class OceanWorld {
     const underwater = this.view === 'underwater';
 
     (this.water.material as THREE.ShaderMaterial).uniforms.time.value += dt * 0.7;
+    this.story?.update(dt);
+    if (underwater) this.rov?.update(dt, t);
 
     for (const { ring, phase } of this.pulseRings) {
       const f = (t * 0.55 + phase) % 1;
@@ -711,7 +728,7 @@ export class OceanWorld {
         }
         pos.needsUpdate = true;
       }
-      this.updateFish(dt, t);
+      this.updateFish(dt, t, this.story?.getPollution() ?? null);
     } else {
       this.updateGulls(t);
     }
@@ -749,8 +766,15 @@ export class OceanWorld {
     this.renderer.render(this.scene, this.camera);
   }
 
+  /** 科普时间加速叙事状态(页面HUD轮询) */
+  getGarbageStoryState(): GarbageStoryState {
+    return this.story?.getState() ?? { active: false, year: 0, stage: -1, stageLabel: '', degradationYears: 0 };
+  }
+
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    this.story?.dispose();
+    this.rov?.dispose();
     this.resizeOb.disconnect();
     this.controls.dispose();
     this.clearDiffusion();

@@ -6,6 +6,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Wind, Crosshair, Info, Pause, Play, Radar, Sprout, Trash2, Waves, X } from 'lucide-react';
 import type { OceanView } from '../three/oceanWorld';
+import { formatStoryYear } from '../three/story';
+import type { GarbageStoryState } from '../three/story';
 import { api } from '../services/api';
 import type { SiteStat } from '../types';
 import { OceanWorld } from '../three/oceanWorld';
@@ -35,6 +37,7 @@ export function Ocean3DPage() {
   const [siteDetail, setSiteDetail] = useState<SiteVisual | null>(null);
   const [impact, setImpact] = useState<GarbageImpact | null>(null);
   const [dropCount, setDropCount] = useState(0);
+  const [story, setStory] = useState<GarbageStoryState | null>(null);
   const [garbageKey, setGarbageKey] = useState('bag');
 
   // 扩散推演参数与播放状态
@@ -83,6 +86,15 @@ export function Ocean3DPage() {
     setSiteDetail(null);
   }, [mode]);
   useEffect(() => { garbageKeyRef.current = garbageKey; }, [garbageKey]);
+
+  // 科普叙事HUD: 轮询时间加速状态(投放后激活)
+  useEffect(() => {
+    if (mode !== 'volunteer') { setStory(null); return; }
+    const timer = window.setInterval(() => {
+      setStory(worldRef.current?.getGarbageStoryState() ?? null);
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, [mode]);
 
   const stopPlay = () => {
     if (playTimerRef.current) { window.clearInterval(playTimerRef.current); playTimerRef.current = null; }
@@ -270,6 +282,24 @@ export function Ocean3DPage() {
           </div>
           <p className="ocean3d-stat">{impact.stat}</p>
           <p className="ocean3d-disclaimer"><Info size={12} />来源：项目海洋知识库（data/knowledge）</p>
+        </div>
+      )}
+
+      {/* 时间加速叙事HUD（科普模式投放后） */}
+      {story?.active && (
+        <div className="ocean3d-story glass">
+          <div className="ocean3d-story-time">
+            <span className="live-dot" />
+            <b>{formatStoryYear(story.year)}</b>
+            <em>时间加速中 ×10⁵</em>
+          </div>
+          <p>{story.stageLabel}</p>
+          <div className="ocean3d-story-stages">
+            {[0, 1, 2, 3].map((i) => <i key={i} className={story.stage >= i ? 'on' : ''} />)}
+          </div>
+          {story.stage >= 2 && story.degradationYears > 0 && (
+            <small>距完全降解还需约 <b>{Math.max(0, story.degradationYears - Math.floor(story.year))} 年</b></small>
+          )}
         </div>
       )}
 

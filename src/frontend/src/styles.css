@@ -1447,3 +1447,15 @@
 
 /* F2 视角切换按钮组 */
 .ocean3d-topbar-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+
+/* F2 科普时间加速叙事HUD */
+.ocean3d-story{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:6;padding:12px 20px;border-radius:14px;width:min(460px,92%);text-align:center}
+.ocean3d-story-time{display:flex;align-items:center;justify-content:center;gap:10px}
+.ocean3d-story-time b{font-size:24px;color:#ffd76a;letter-spacing:.04em}
+.ocean3d-story-time em{font-style:normal;font-size:9px;color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:2px 8px}
+.ocean3d-story p{margin:7px 0 8px;font-size:11px;color:#ffe9e9;line-height:1.6}
+.ocean3d-story-stages{display:flex;gap:6px;justify-content:center}
+.ocean3d-story-stages i{width:34px;height:4px;border-radius:2px;background:rgba(94,214,255,.15)}
+.ocean3d-story-stages i.on{background:linear-gradient(90deg,#27dafa,#ff6f91)}
+.ocean3d-story small{display:block;margin-top:7px;font-size:10px;color:var(--muted)}
+.ocean3d-story small b{color:#ff9d3c}
