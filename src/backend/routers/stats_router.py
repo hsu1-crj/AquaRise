@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models import DetectionResult, DetectionTask, PollutionLevel, TaskStatus, User
-from schemas import ClassRankItem, FrontendSummary, FrontendTrendPoint, StatsAnalysis
+from models import DetectionResult, DetectionTask, MonitoringSite, PollutionLevel, TaskStatus, User
+from schemas import ClassRankItem, FrontendSummary, FrontendTrendPoint, SiteStatItem, StatsAnalysis
 
 router = APIRouter(prefix="/api/v1/stats", tags=["stats"])
 
@@ -195,3 +195,73 @@ async def stats_analysis(
         material_breakdown=material_breakdown,
         class_ranking=class_ranking,
     )
+
+
+@router.get("/sites", response_model=list[SiteStatItem])
+async def stats_sites(
+    days: int = Query(30, ge=1, le=365, description="统计窗口（天），默认近 30 天"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """分站点聚合（F0）：所有监测站点 + 各站近 N 天已完成任务统计。
+
+    无任务的站点照常返回（taskCount=0, pollutionIndex=null），前端据此展示空态。
+    detection_tasks.sea_area_id 为软外键，此处在应用层按站点分组。"""
+    since = datetime.now() - timedelta(days=days)
+    rows = (
+        db.query(
+            DetectionTask.sea_area_id,
+            func.count(DetectionTask.id),
+            func.coalesce(func.sum(DetectionTask.total_objects), 0),
+            func.max(DetectionTask.completed_at),
+        )
+        .filter(
+            DetectionTask.status == TaskStatus.completed,
+            DetectionTask.sea_area_id.isnot(None),
+            DetectionTask.created_at >= since,
+        )
+        .group_by(DetectionTask.sea_area_id)
+        .all()
+    )
+    by_site = {int(r[0]): r for r in rows}
+
+    # 污染指数在应用层计算（避免方言相关的 SQL CASE）：各站点等级分布 → 加权平均 × 2
+    level_rows = (
+        db.query(
+            DetectionTask.sea_area_id,
+            DetectionTask.pollution_level,
+            func.count(DetectionTask.id),
+        )
+        .filter(
+            DetectionTask.status == TaskStatus.completed,
+            DetectionTask.sea_area_id.isnot(None),
+            DetectionTask.created_at >= since,
+            DetectionTask.pollution_level.isnot(None),
+        )
+        .group_by(DetectionTask.sea_area_id, DetectionTask.pollution_level)
+        .all()
+    )
+    weight_sum: dict[int, float] = {}
+    for site_id, level, cnt in level_rows:
+        weight_sum[int(site_id)] = (
+            weight_sum.get(int(site_id), 0.0)
+            + _LEVEL_WEIGHT.get(str(level), 3) * int(cnt)
+        )
+
+    items: list[SiteStatItem] = []
+    for site in db.query(MonitoringSite).order_by(MonitoringSite.code).all():
+        r = by_site.get(site.id)
+        if r:
+            task_count = int(r[1])
+            index = round(weight_sum.get(site.id, 0.0) / task_count * 2, 2) if task_count else None
+            items.append(SiteStatItem(
+                id=site.id, code=site.code, name=site.name, lat=site.lat, lng=site.lng,
+                taskCount=task_count, totalObjects=int(r[2]),
+                pollutionIndex=index,
+                lastTaskAt=f"{r[3]:%Y-%m-%d %H:%M}" if r[3] else None,
+            ))
+        else:
+            items.append(SiteStatItem(
+                id=site.id, code=site.code, name=site.name, lat=site.lat, lng=site.lng,
+            ))
+    return items

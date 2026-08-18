@@ -182,6 +182,29 @@ class DetectionResult(Base):
         return f"<DetectionResult id={self.id} class={self.class_name} conf={self.confidence}>"
 
 
+# ============ 3b. 监测站点表（F0） ============
+class MonitoringSite(Base):
+    """监测站点：检测任务的软外键归属（detection_tasks.sea_area_id 指向本表 id）。
+
+    设计说明（契约 v1.1 §1）：故意不在 detection_tasks 上建物理外键——
+    该表已存在且 create_all 不会 ALTER 旧表，物理 FK 需手工 ALTER 现网表（风险最高的一步），
+    而应用行为只依赖 API 层校验 site_id 合法性（detect_router._validate_site）。
+    """
+
+    __tablename__ = "monitoring_sites"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(16), unique=True, nullable=False)   # 如 "A-01"
+    name = Column(String(64), nullable=False)                # 如 "舟山-朱家尖近岸监测点"
+    lat = Column(Float, nullable=False)                      # WGS84 纬度
+    lng = Column(Float, nullable=False)                      # WGS84 经度
+    depth_m = Column(Float, nullable=True)                   # 平均水深（米）
+    note = Column(String(255), nullable=True)
+
+    def __repr__(self):
+        return f"<MonitoringSite id={self.id} code={self.code!r} name={self.name!r}>"
+
+
 # ============ 4. 对话历史表 ============
 class ChatHistory(Base):
     """海洋小助手对话记录"""

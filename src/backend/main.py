@@ -112,6 +112,7 @@ async def lifespan(app: FastAPI):
                 admin.password_hash = admin.password_hash or hash_password("123456")
                 admin.role = models.UserRole.admin
                 db.commit()
+        _ensure_monitoring_sites(db)
     finally:
         db.close()
 
@@ -130,6 +131,27 @@ async def lifespan(app: FastAPI):
         pass
 
     yield
+
+
+def _ensure_monitoring_sites(db) -> None:
+    """播种监测站点（幂等：表为空才插入）。
+
+    monitoring_sites 是新表，由 create_all 直接创建，无需 ALTER 旧表；
+    detection_tasks.sea_area_id 保持软外键（见 models.MonitoringSite 设计说明）。
+    站点为演示用途的真实近岸坐标（舟山/大鹏湾/万山群岛/胶州湾）。"""
+    if db.query(models.MonitoringSite).count() > 0:
+        return
+    seeds = [
+        ("A-01", "舟山·朱家尖近岸监测点", 29.93, 122.41, 12, "长江口外，渔业活动密集"),
+        ("A-02", "舟山·嵊泗列岛监测点", 30.72, 122.45, 18, "列岛海域，航运通道附近"),
+        ("B-01", "深圳·大鹏湾监测点", 22.58, 114.30, 9, "近岸湾区，城市径流影响"),
+        ("B-02", "珠海·万山群岛监测点", 21.95, 113.72, 15, "群岛海域，旅游与渔业的交汇区"),
+        ("C-01", "青岛·胶州湾口监测点", 36.05, 120.35, 11, "半封闭海湾，入海河口下游"),
+    ]
+    for code, name, lat, lng, depth, note in seeds:
+        db.add(models.MonitoringSite(code=code, name=name, lat=lat, lng=lng,
+                                     depth_m=depth, note=note))
+    db.commit()
 
 
 # ============ 创建应用 ============

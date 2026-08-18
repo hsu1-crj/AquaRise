@@ -293,6 +293,30 @@ class FrontendDetectionListResponse(BaseModel):
     total: int = 0
 
 
+class SiteItem(BaseModel):
+    """监测站点（前端 SiteInfo，GET /api/v1/sites）"""
+    id: int
+    code: str
+    name: str
+    lat: float
+    lng: float
+    depthM: float | None = None
+    note: str | None = None
+
+
+class SiteStatItem(BaseModel):
+    """单站点聚合（GET /api/v1/stats/sites，近 30 天已完成任务）"""
+    id: int
+    code: str
+    name: str
+    lat: float
+    lng: float
+    taskCount: int = 0
+    totalObjects: int = 0
+    pollutionIndex: float | None = None  # 无任务时为 null（前端显示空态）
+    lastTaskAt: str | None = None
+
+
 class FrontendDetectionBox(BaseModel):
     """单个目标框（前端 DetectionBox）"""
     id: str

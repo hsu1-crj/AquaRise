@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -132,24 +132,29 @@ export const api = {
     if (filters?.query?.trim()) params.set('query', filters.query.trim());
     return request<{ items: DetectionRecord[]; total: number }>(`/api/v1/detections?${params.toString()}`);
   },
+  /** 监测站点列表（含近30天聚合；上传下拉与海域对比图共用同一端点） */
+  async getSiteStats(): Promise<SiteStat[]> {
+    if (isMockMode) { await wait(400); return []; }
+    return request<SiteStat[]>('/api/v1/stats/sites');
+  },
 
   async getReports(): Promise<Report[]> {
     if (isMockMode) { await wait(); return mockReports; }
     const payload = await request<{ items: Report[] }>('/api/v1/reports/?page=1&page_size=50');
     return payload.items;
   },
-
-  async detectImage(file: File, width: number, height: number): Promise<DetectionResult> {
+  async detectImage(file: File, width: number, height: number, siteId?: number): Promise<DetectionResult> {
     if (isMockMode) { await wait(1300); return createMockDetection(width, height); }
     const form = new FormData();
     form.append('file', file);
     form.append('width', String(width));
     form.append('height', String(height));
+    if (siteId) form.append('site_id', String(siteId));
     return request<DetectionResult>('/api/v1/detect/image', { method: 'POST', body: form });
   },
 
-  /** 批量识别多张图片：每张图独立返回结果（单张失败不影响其余） */
-  async detectImages(files: File[], onProgress?: (current: number, total: number) => void): Promise<MultiImageDetectResponse> {
+  /** 批量识别多张图片：每张图独立返回结果（单张失败不影响其余）；siteId 整批共用 */
+  async detectImages(files: File[], onProgress?: (current: number, total: number) => void, siteId?: number): Promise<MultiImageDetectResponse> {
     if (isMockMode) {
       const items: MultiImageDetectItem[] = [];
       for (let i = 0; i < files.length; i += 1) {
@@ -162,13 +167,15 @@ export const api = {
     }
     const form = new FormData();
     files.forEach((file) => form.append('files', file));
+    if (siteId) form.append('site_id', String(siteId));
     return request<MultiImageDetectResponse>('/api/v1/detect/images', { method: 'POST', body: form });
   },
 
-  async createVideoTask(file: File): Promise<{ taskId: string }> {
+  async createVideoTask(file: File, siteId?: number): Promise<{ taskId: string }> {
     if (isMockMode) { await wait(700); return { taskId: `VID-${Date.now().toString().slice(-8)}` }; }
     const form = new FormData();
     form.append('file', file);
+    if (siteId) form.append('site_id', String(siteId));
     const response = await request<{ task_id?: string; taskId?: string }>('/api/v1/detect/video', { method: 'POST', body: form });
     return { taskId: response.taskId ?? response.task_id ?? '' };
   },

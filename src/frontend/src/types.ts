@@ -31,6 +31,19 @@ export interface ClassRankItem {
   count: number;
 }
 
+
+/** 监测站点分维度统计（后端 /stats/sites；无任务的站点 taskCount=0、pollutionIndex=null） */
+export interface SiteStat {
+  id: number;
+  code: string;
+  name: string;
+  lat: number;
+  lng: number;
+  taskCount: number;
+  totalObjects: number;
+  pollutionIndex: number | null;
+  lastTaskAt: string | null;
+}
 /** 分析页聚合数据（后端 /stats/analysis；近 30 天 vs 前 30 天环比） */
 export interface StatsAnalysis {
   pollutionIndex: number; // 综合污染指数 0-10

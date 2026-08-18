@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
-import { AlertCircle, ArrowRight, CheckCircle2, FileImage, FileText, FileVideo2, LoaderCircle, RotateCcw, ScanLine, ShieldCheck, UploadCloud, WandSparkles, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, FileImage, FileText, FileVideo2, LoaderCircle, MapPinned, RotateCcw, ScanLine, ShieldCheck, UploadCloud, WandSparkles, X } from 'lucide-react';
 import { api } from '../services/api';
-import type { DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, PageKey, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, PageKey, SiteStat, VideoDetectResult, VideoTaskStatus } from '../types';
 import { PreviewGallery, VideoResultCard, levelZh, QUALITY_SCORE } from '../components/resultViews';
 
 const imageTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -25,6 +25,14 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [creatingReport, setCreatingReport] = useState(false); // 唯一"生成质量评估报告"按钮状态
   const [reportError, setReportError] = useState('');
+  // 监测站点（F0）：上传时可选归属站点，写入任务 sea_area_id；空值=不归属
+  const [sites, setSites] = useState<SiteStat[]>([]);
+  const [siteId, setSiteId] = useState<number | ''>('');
+  useEffect(() => {
+    let mounted = true;
+    api.getSiteStats().then((list) => { if (mounted) setSites(list); }).catch(() => { /* 站点列表失败不阻塞上传 */ });
+    return () => { mounted = false; };
+  }, []);
 
   // 预览 object URL 生命周期：
   // 仅在真正移除/替换/卸载时回收，避免误回收仍被后续 previews 引用的 URL
@@ -119,7 +127,7 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
     if (mode === 'image') {
       setBatchProgress({ current: 0, total: files.length });
       try {
-        const res = await api.detectImages(files, (current, total) => setBatchProgress({ current, total }));
+        const res = await api.detectImages(files, (current, total) => setBatchProgress({ current, total }), siteId === '' ? undefined : siteId);
         setResult(res);
         if (res.successCount === 0 && res.failCount > 0) {
           setStatus('error');
@@ -135,7 +143,7 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
       }
     } else {
       try {
-        const { taskId } = await api.createVideoTask(files[0]);
+        const { taskId } = await api.createVideoTask(files[0], siteId === '' ? undefined : siteId);
         if (!taskId) { throw new Error('未获取到任务编号'); }
         setVideoProgress(0); setVideoStatus(null);
         // 轮询实时进度：展示真实帧处理进度 + 标注预览帧，直到完成/失败
@@ -262,7 +270,7 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
               <small>页面可安全离开，任务会在后台继续处理</small>
             </div>
           )}
-          <footer><button className="secondary-button" onClick={reset} disabled={files.length === 0 || status === 'processing'}><RotateCcw />重新选择</button><button className="primary-button wide" disabled={files.length === 0 || status === 'processing'} onClick={runDetection}>{status === 'processing' ? <><LoaderCircle className="spin" />正在识别</> : mode === 'image' ? <><ScanLine />识别 {files.length} 张图片</> : <><ScanLine />开始 AI 识别</>}</button></footer>
+          <footer><div className="site-select-row"><label className="period-select" title="任务归属的监测站点（可选），用于分海域统计与对比"><MapPinned /><select value={siteId} onChange={(event) => setSiteId(event.target.value === '' ? '' : Number(event.target.value))} disabled={status === 'processing'}><option value="">不指定监测点</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.code} · {site.name}</option>)}</select></label>{sites.length === 0 && <small className="site-select-hint">监测点列表加载中/不可用，任务将不归属站点</small>}</div><button className="secondary-button" onClick={reset} disabled={files.length === 0 || status === 'processing'}><RotateCcw />重新选择</button><button className="primary-button wide" disabled={files.length === 0 || status === 'processing'} onClick={runDetection}>{status === 'processing' ? <><LoaderCircle className="spin" />正在识别</> : mode === 'image' ? <><ScanLine />识别 {files.length} 张图片</> : <><ScanLine />开始 AI 识别</>}</button></footer>
         </article>
 
         <article className="result-panel panel glass">

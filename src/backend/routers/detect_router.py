@@ -56,6 +56,17 @@ PROGRESS = {
 }
 
 
+def _validate_site(db: Session, site_id: int | None) -> int | None:
+    """软外键校验（契约 v1.1 §1）：site_id 必须存在于 monitoring_sites，否则 400。
+    site_id 缺省（None）合法——历史行为完全不变。"""
+    if site_id is None:
+        return None
+    from models import MonitoringSite
+
+    if not db.query(MonitoringSite).filter(MonitoringSite.id == site_id).first():
+        raise HTTPException(status_code=400, detail=f"监测站点不存在：{site_id}")
+    return site_id
+
 def _save_upload(file: UploadFile, subdir: str) -> str:
     """保存上传文件到 uploads/<subdir>/，返回相对路径"""
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -67,7 +78,8 @@ def _save_upload(file: UploadFile, subdir: str) -> str:
     return file_path
 
 
-def _process_single_image(file: UploadFile, current_user: User, db: Session) -> FrontendDetectionResult:
+def _process_single_image(file: UploadFile, current_user: User, db: Session,
+                          site_id: int | None = None) -> FrontendDetectionResult:
     """单张图片：保存 → YOLO 推理 → 建任务/结果 → 返回前端 DetectionResult 形状。
     单图与多图端点共用，保证行为一致。"""
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -89,6 +101,7 @@ def _process_single_image(file: UploadFile, current_user: User, db: Session) -> 
         file_name=file.filename or file_path,
         file_path=file_path,
         status=TaskStatus.processing,
+        sea_area_id=site_id,
     )
     db.add(task)
     db.commit()
@@ -154,17 +167,19 @@ async def detect_image(
     file: UploadFile = File(...),
     width: int = Form(1280),
     height: int = Form(720),
+    site_id: int | None = Form(None, description="监测站点ID（可选，软外键）"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """图片检测：上传 → YOLO 推理 → 结果写库 → 返回前端 DetectionResult 形状
     （sourceWidth/Height 取自图片真实尺寸；width/height 表单参数仅向前端契约保留）"""
-    return _process_single_image(file, current_user, db)
+    return _process_single_image(file, current_user, db, _validate_site(db, site_id))
 
 
 @router.post("/detect/images", response_model=MultiImageDetectResponse)
 async def detect_images(
     files: list[UploadFile] = File(...),
+    site_id: int | None = Form(None, description="监测站点ID（可选，整批共用）"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -177,10 +192,11 @@ async def detect_images(
 
     items: list[MultiImageDetectItem] = []
     success_count = 0
+    valid_site_id = _validate_site(db, site_id)
     for file in files:
         name = file.filename or "未命名图片"
         try:
-            result = _process_single_image(file, current_user, db)
+            result = _process_single_image(file, current_user, db, valid_site_id)
             items.append(MultiImageDetectItem(success=True, fileName=name, result=result))
             success_count += 1
         except HTTPException as exc:
@@ -246,6 +262,7 @@ async def list_detections(
 @router.post("/detect/video", response_model=VideoDetectResponse)
 async def detect_video(
     file: UploadFile = File(...),
+    site_id: int | None = Form(None, description="监测站点ID（可选，软外键）"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -262,6 +279,7 @@ async def detect_video(
         file_name=file.filename or file_path,
         file_path=file_path,
         status=TaskStatus.pending,
+        sea_area_id=_validate_site(db, site_id),
     )
     db.add(task)
     db.commit()
