@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Wind, Crosshair, Info, Pause, Play, Radar, Sprout, Trash2, Waves, X } from 'lucide-react';
+import type { OceanView } from '../three/oceanWorld';
 import { api } from '../services/api';
 import type { SiteStat } from '../types';
 import { OceanWorld } from '../three/oceanWorld';
@@ -27,7 +28,8 @@ export function Ocean3DPage() {
   const modeRef = useRef<Mode>('monitor');
   const garbageKeyRef = useRef('bag');
   const playTimerRef = useRef<number | null>(null);
-
+  const [view, setView] = useState<OceanView>('surface');
+  useEffect(() => { worldRef.current?.setView(view); }, [view]);
   const [mode, setMode] = useState<Mode>('monitor');
   const [sites, setSites] = useState<SiteStat[]>([]);
   const [siteDetail, setSiteDetail] = useState<SiteVisual | null>(null);
@@ -136,13 +138,23 @@ export function Ocean3DPage() {
           <span className="eyebrow"><i /> OCEAN DIGITAL TWIN</span>
           <h1>海洋 3D 态势</h1>
         </div>
-        <div className="ocean3d-mode" role="tablist" aria-label="场景模式">
-          <button className={mode === 'monitor' ? 'active' : ''} onClick={() => setMode('monitor')} role="tab" aria-selected={mode === 'monitor'}>
-            <Radar size={15} />监测模式
-          </button>
-          <button className={mode === 'volunteer' ? 'active' : ''} onClick={() => setMode('volunteer')} role="tab" aria-selected={mode === 'volunteer'}>
-            <Sprout size={15} />科普模式
-          </button>
+        <div className="ocean3d-topbar-actions">
+          <div className="ocean3d-mode" role="tablist" aria-label="场景模式">
+            <button className={mode === 'monitor' ? 'active' : ''} onClick={() => setMode('monitor')} role="tab" aria-selected={mode === 'monitor'}>
+              <Radar size={15} />监测模式
+            </button>
+            <button className={mode === 'volunteer' ? 'active' : ''} onClick={() => setMode('volunteer')} role="tab" aria-selected={mode === 'volunteer'}>
+              <Sprout size={15} />科普模式
+            </button>
+          </div>
+          <div className="ocean3d-mode" role="tablist" aria-label="观察视角">
+            <button className={view === 'surface' ? 'active' : ''} onClick={() => setView('surface')} role="tab" aria-selected={view === 'surface'}>
+              <Waves size={15} />水面视角
+            </button>
+            <button className={view === 'underwater' ? 'active' : ''} onClick={() => setView('underwater')} role="tab" aria-selected={view === 'underwater'}>
+              <Waves size={15} />水下视角
+            </button>
+          </div>
         </div>
       </header>
 

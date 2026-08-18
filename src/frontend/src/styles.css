@@ -1444,3 +1444,6 @@
 .ocean3d-legend{position:absolute;left:14px;bottom:14px;z-index:5;display:flex;gap:14px;padding:8px 14px;border-radius:10px;font-size:10px;color:var(--muted)}
 .ocean3d-legend span{display:flex;align-items:center;gap:6px}
 .ocean3d-legend i{width:9px;height:9px;border-radius:50%}
+
+/* F2 视角切换按钮组 */
+.ocean3d-topbar-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
