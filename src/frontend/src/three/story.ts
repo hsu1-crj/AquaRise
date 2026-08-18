@@ -10,6 +10,7 @@
  */
 
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { impactByKey } from './impactData';
 
 export interface GarbageStoryState {
@@ -18,6 +19,22 @@ export interface GarbageStoryState {
   stage: number; // 0漂浮 1碎裂 2微塑料扩散 3长期滞留
   stageLabel: string;
   degradationYears: number;
+}
+
+/** 外部GLB模型归一化: 包围盒缩放到目标尺寸并居中(模型来源各异, 统一比例) */
+export function normalizeModelSize(model: THREE.Object3D, targetSize: number): THREE.Group {
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const k = targetSize / maxDim;
+  model.scale.setScalar(k);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  model.position.sub(center.multiplyScalar(k));
+  const wrap = new THREE.Group();
+  wrap.add(model);
+  return wrap;
 }
 
 const STAGE_LABELS = [
@@ -251,7 +268,16 @@ export class RovUnit {
     this.group.position.set(14, -2.2, 10);
     this.group.visible = false;
     scene.add(this.group);
+
+    // 真实ROV模型热插拔: models/rov.glb 存在时替换程序化本体(保留监视屏/探照灯)
+    this.proceduralParts = [body, frame, dome];
+    new GLTFLoader().load('models/rov.glb', (gltf) => {
+      const real = normalizeModelSize(gltf.scene, 4.6);
+      for (const part of this.proceduralParts) part.visible = false;
+      this.group.add(real);
+    }, undefined, () => undefined);
   }
+  private proceduralParts: THREE.Object3D[] = [];
 
   setVisible(v: boolean): void {
     this.group.visible = v;

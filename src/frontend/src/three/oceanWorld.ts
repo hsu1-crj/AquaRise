@@ -12,8 +12,12 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Water } from 'three/examples/jsm/objects/Water.js';
-import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { normalizeModelSize } from './story';
 import type { DiffusionResult } from './diffusion';
 import { GarbageStory, RovUnit, loadCoastline } from './story';
 import type { GarbageStoryState } from './story';
@@ -176,12 +180,13 @@ export class OceanWorld {
   private clock = new THREE.Clock();
   private raf = 0;
   private resizeOb: ResizeObserver;
-  private pmrem: THREE.PMREMGenerator;
-  private water: Water;
-  private waterTex: THREE.Texture;
   private pickPlane: THREE.Mesh;
-  private sky?: THREE.Mesh;
   private sun = new THREE.Vector3();
+  private grid?: THREE.GridHelper;
+  private scanRing?: THREE.Mesh;
+  private composer?: EffectComposer;
+  private gltfLoader = new GLTFLoader();
+  private garbageModelCache: Record<string, THREE.Group> = {};
   private view: OceanView = 'surface';
 
   // 水下要素
@@ -189,9 +194,8 @@ export class OceanWorld {
   private terrainHeights: { nx: number; nz: number; data: number[][] } | null = null;
   private shafts: Array<{ mesh: THREE.Mesh; phase: number }> = [];
   private snow?: THREE.Points;
-  private fish?: THREE.InstancedMesh;
+  private fish?: THREE.Points;
   private fishData: FishState[] = [];
-  private fishDummy = new THREE.Object3D();
 
   private siteGroup = new THREE.Group();
   private siteData: SiteVisual[] = [];
@@ -235,42 +239,46 @@ export class OceanWorld {
     this.controls.autoRotateSpeed = 0.3;
     this.controls.addEventListener('start', () => { this.controls.autoRotate = false; });
 
-    // ---------- 天空 + 太阳 + 环境光 ----------
-    const sky = new Sky();
-    sky.scale.setScalar(10000);
-    const u = sky.material.uniforms;
-    u.turbidity.value = 7;
-    u.rayleigh.value = 2.2;
-    u.mieCoefficient.value = 0.005;
-    u.mieDirectionalG.value = 0.8;
-    const phi = THREE.MathUtils.degToRad(90 - 14);
-    const theta = THREE.MathUtils.degToRad(165);
-    this.sun.setFromSphericalCoords(1, phi, theta);
-    u.sunPosition.value.copy(this.sun);
-    this.scene.add(sky);
-    this.sky = sky;
-
-    this.pmrem = new THREE.PMREMGenerator(this.renderer);
-    const envScene = new THREE.Scene();
-    envScene.add(sky.clone());
-    this.scene.environment = this.pmrem.fromScene(envScene as THREE.Scene).texture;
-
-    const sunLight = new THREE.DirectionalLight(0xfff3e0, 2.2);
-    sunLight.position.copy(this.sun).multiplyScalar(100);
+    // ---------- 全息海洋表面（数字孪生沙盘范式） ----------
+    this.scene.background = new THREE.Color(0x020c14);
+    const sunLight = new THREE.DirectionalLight(0x9fd8ff, 1.6);
+    sunLight.position.set(40, 80, 30);
     this.scene.add(sunLight);
-    this.scene.add(new THREE.HemisphereLight(0xbfe3ff, 0x0a2a3a, 0.65));
+    this.scene.add(new THREE.HemisphereLight(0x9fd4ff, 0x06202e, 0.7));
 
-    // ---------- 真实水面 ----------
-    this.waterTex = new THREE.TextureLoader().load('textures/waternormals.jpg');
-    this.waterTex.wrapS = this.waterTex.wrapT = THREE.RepeatWrapping;
-    this.water = new Water(new THREE.PlaneGeometry(8000, 8000), {
-      textureWidth: 512, textureHeight: 512,
-      waterNormals: this.waterTex,
-      sunDirection: this.sun.clone().normalize(),
-      sunColor: 0xffffff, waterColor: 0x0c5a78, distortionScale: 2.8, fog: false,
-    });
-    this.water.rotation.x = -Math.PI / 2;
-    this.scene.add(this.water);
+    // 深色基底海面（半透明, 隐约透出真实测深地形与岛屿）
+    const baseGeo = new THREE.PlaneGeometry(900, 900);
+    baseGeo.rotateX(-Math.PI / 2);
+    this.scene.add(new THREE.Mesh(baseGeo, new THREE.MeshBasicMaterial({
+      color: 0x03141f, transparent: true, opacity: 0.74, depthWrite: false,
+    })));
+
+    // 发光数据网格
+    const grid = new THREE.GridHelper(900, 90, 0x1e7fa8, 0x0c3a54);
+    (grid.material as THREE.Material).transparent = true;
+    (grid.material as THREE.Material).opacity = 0.34;
+    grid.position.y = 0.02;
+    this.scene.add(grid);
+    this.grid = grid;
+
+    // 声呐扫描环（周期性扩散）
+    const scanGeo = new THREE.RingGeometry(0.96, 1, 72);
+    scanGeo.rotateX(-Math.PI / 2);
+    this.scanRing = new THREE.Mesh(scanGeo, new THREE.MeshBasicMaterial({
+      color: 0x27dafa, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false,
+    }));
+    this.scanRing.position.y = 0.06;
+    this.scene.add(this.scanRing);
+
+    // bloom 辉光后处理（全息风格的视觉倍增器）
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.composer.addPass(new UnrealBloomPass(
+      new THREE.Vector2(container.clientWidth, container.clientHeight), 0.9, 0.55, 0.22));
+    this.composer.addPass(new OutputPass());
+
+    // 外部真实模型预载（models/garbage_*.glb 存在则自动替换程序化模型）
+    this.preloadExternalModels();
 
     const pickGeo = new THREE.PlaneGeometry(8000, 8000);
     pickGeo.rotateX(-Math.PI / 2);
@@ -307,6 +315,7 @@ export class OceanWorld {
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h);
+      this.composer?.setSize(w, h);
     });
     this.resizeOb.observe(container);
 
@@ -420,11 +429,13 @@ export class OceanWorld {
   // ---------- 鱼群（boids 群体行为） ----------
   private buildFish(): void {
     const N = 60;
-    const geo = new THREE.ConeGeometry(0.32, 1.5, 6);
-    geo.rotateX(Math.PI / 2); // 头朝 +z
-    const mat = new THREE.MeshStandardMaterial({ color: 0x8fb8cc, roughness: 0.4, metalness: 0.5 });
-    this.fish = new THREE.InstancedMesh(geo, mat, N);
-    this.fish.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+    this.fish = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: 0x39e6ff, size: 0.55, transparent: true, opacity: 0.85,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    (this.fish.geometry.attributes.position as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < N; i++) {
       this.fishData.push({
         pos: new THREE.Vector3((Math.random() - 0.5) * 120, -1 - Math.random() * 6, (Math.random() - 0.5) * 120),
@@ -464,21 +475,19 @@ export class OceanWorld {
       // 越界回拉
       if (f.pos.length() > 130) { tmp.copy(center).sub(f.pos).normalize(); f.vel.addScaledVector(tmp, 3 * dt); }
       f.pos.y = Math.max(-7.5, Math.min(-0.8, f.pos.y));
-      // 写入实例矩阵
-      this.fishDummy.position.copy(f.pos);
-      this.fishDummy.lookAt(tmp.copy(f.pos).add(f.vel));
-      this.fishDummy.rotateY(Math.PI); // cone 朝向修正
-      this.fishDummy.scale.setScalar(1 + (i % 5) * 0.12);
-      this.fishDummy.updateMatrix();
-      this.fish.setMatrixAt(i, this.fishDummy.matrix);
+      // 声呐回波: 写位置(带轻微高度脉冲模拟回波闪动)
+      const arr = (this.fish!.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+      arr[i * 3] = f.pos.x;
+      arr[i * 3 + 1] = f.pos.y + Math.sin(time * 6 + i) * 0.08;
+      arr[i * 3 + 2] = f.pos.z;
     }
-    this.fish.instanceMatrix.needsUpdate = true;
+    (this.fish!.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }
 
   // ---------- 海鸥（水面拍翅盘旋） ----------
   private buildGulls(): void {
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xf2f5f7, roughness: 0.7 });
-    const wingMat = new THREE.MeshStandardMaterial({ color: 0xe8edf1, roughness: 0.7, side: THREE.DoubleSide });
+    const bodyMat = new THREE.MeshBasicMaterial({ color: 0x39e6ff, wireframe: true, transparent: true, opacity: 0.85 });
+    const wingMat = new THREE.MeshBasicMaterial({ color: 0x7fe9ff, wireframe: true, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
     for (let i = 0; i < 7; i++) {
       const group = new THREE.Group();
       const body = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.1, 6).rotateX(Math.PI / 2), bodyMat);
@@ -517,12 +526,10 @@ export class OceanWorld {
 
   private applyView(): void {
     const underwater = this.view === 'underwater';
-    if (this.sky) this.sky.visible = !underwater;
-    this.water.visible = !underwater;
     this.pickPlane.visible = !underwater && this.clickMode === 'water';
     for (const s of this.shafts) s.mesh.visible = underwater;
     if (this.snow) this.snow.visible = underwater;
-    if (this.fish) this.fish.visible = underwater;
+    // 声呐回波双视角可见; 无人机仅水面
     for (const g of this.gulls) g.group.visible = !underwater;
     if (!this.rov) this.rov = new RovUnit(this.scene, this.camera);
     this.rov.setVisible(underwater);
@@ -535,12 +542,25 @@ export class OceanWorld {
       this.controls.maxPolarAngle = 2.9; // 水下可抬头看水面
       this.controls.autoRotate = false;
     } else {
-      this.scene.fog = null;
-      this.scene.background = null; // 天空盒负责背景
-      this.renderer.toneMappingExposure = 0.52;
+      this.scene.fog = new THREE.FogExp2(0x02121f, 0.0015);
+      this.scene.background = new THREE.Color(0x020c14);
+      this.renderer.toneMappingExposure = 0.62;
       this.camera.position.set(0, 26, 96);
       this.controls.target.set(0, 6, 0);
       this.controls.maxPolarAngle = 1.50;
+    }
+  }
+
+  // ---------- 外部真实模型热插拔 ----------
+  /** models/garbage_{key}.glb 存在时自动替换程序化模型（下载CC0模型拖入即可, 零代码改动） */
+  private preloadExternalModels(): void {
+    for (const key of ['bag', 'net', 'bottle', 'can', 'wrapper', 'rope']) {
+      this.gltfLoader.load(
+        `models/garbage_${key}.glb`,
+        (gltf) => { this.garbageModelCache[key] = normalizeModelSize(gltf.scene, 3.4); },
+        undefined,
+        () => undefined, // 文件不存在(404)静默, 继续用程序化模型
+      );
     }
   }
 
@@ -664,7 +684,7 @@ export class OceanWorld {
   dropGarbage(point: THREE.Vector3, key: string, _color: string): void {
     this.story?.dispose();
     this.story = new GarbageStory(this.scene, point, key);
-    const model = makeGarbageModel(key);
+    const model = this.garbageModelCache[key] ?? makeGarbageModel(key);
     model.position.set(point.x, 0.3, point.z);
     this.garbageGroup.add(model);
     this.garbage.push({
@@ -705,9 +725,14 @@ export class OceanWorld {
     const t = this.clock.getElapsedTime();
     const underwater = this.view === 'underwater';
 
-    (this.water.material as THREE.ShaderMaterial).uniforms.time.value += dt * 0.7;
     this.story?.update(dt);
     if (underwater) this.rov?.update(dt, t);
+    // 声呐扫描环周期扩散
+    if (this.scanRing) {
+      const f = (t % 5) / 5;
+      this.scanRing.scale.setScalar(1 + f * 88);
+      (this.scanRing.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - f);
+    }
 
     for (const { ring, phase } of this.pulseRings) {
       const f = (t * 0.55 + phase) % 1;
@@ -763,7 +788,8 @@ export class OceanWorld {
       if (this.controls.target.distanceTo(this.focusGoal) < 0.4) this.focusGoal = null;
     }
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   /** 科普时间加速叙事状态(页面HUD轮询) */
@@ -790,8 +816,7 @@ export class OceanWorld {
         (sprite.material as THREE.SpriteMaterial).dispose();
       }
     });
-    this.waterTex.dispose();
-    this.pmrem.dispose();
+    this.composer?.dispose();
     this._onRemove();
     this.renderer.dispose();
     this.renderer.domElement.remove();
