@@ -1,14 +1,17 @@
 /**
- * Ocean3D 世界 —— Three.js 场景管理（F2 MVP）。
+ * Ocean3D 世界 —— 真实感海洋场景（Three.js Water + Sky 方案）。
  *
- * 内容: 程序化海底地形 + 深海雾/体积光束 + 漂浮微粒(marine snow)
- *      + 监测站点数据柱(高度=污染指数, 颜色=严重度, 数据来自 /stats/sites)
- *      + 扩散粒子推演(F3 内核轨迹渲染) + 科普模式垃圾投放物
- * 约定: 场景单位 1 ≈ 150m（扩散轨迹米制 → 场景缩放）; 站点布局为示意布局(非真实地理距离)。
+ * 视觉: 物理水面(法线波浪/太阳反射) + 大气天空 + PMREM 环境光照 + ACES 色调映射。
+ * 数据: 监测站点发光数据柱(高度=污染指数,颜色=严重度,数据来自 /stats/sites)
+ *      + 扩散粒子推演(F3内核, 漂浮于水面) + 科普模式垃圾投放(漂浮→下沉)。
+ * 约定: 场景单位 1 ≈ 150m; 站点布局为示意布局(真实地理距离单场景无法等比呈现)。
+ * 依赖: public/textures/waternormals.jpg(本地资源, 运行时不访问外网)。
  */
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { Water } from 'three/examples/jsm/objects/Water.js';
+import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import type { DiffusionResult } from './diffusion';
 
 export interface SiteVisual {
@@ -28,32 +31,12 @@ export interface OceanHandlers {
 
 /** 米 → 场景单位 */
 const M_TO_SCENE = 1 / 150;
-const WATER_Y = 26;
+const WATER_LEVEL = 0;
 
-/** 站点示意布局（x, z 场景坐标；真实地理距离在单场景中无法等比呈现，标注为示意） */
+/** 站点示意布局（x, z 场景坐标） */
 const SITE_LAYOUT: Record<number, [number, number]> = {
   1: [-52, -38], 2: [18, -62], 3: [58, 26], 4: [-8, 52], 5: [-62, 30],
 };
-
-// ---------- 噪声与地形高度（几何与采样共用，保证柱体贴地） ----------
-function hashNoise(x: number, z: number): number {
-  const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
-  return s - Math.floor(s);
-}
-function valueNoise(x: number, z: number): number {
-  const xi = Math.floor(x), zi = Math.floor(z);
-  const xf = x - xi, zf = z - zi;
-  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
-  const a = hashNoise(xi, zi), b = hashNoise(xi + 1, zi);
-  const c = hashNoise(xi, zi + 1), d = hashNoise(xi + 1, zi + 1);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-}
-export function terrainHeight(x: number, z: number): number {
-  let h = valueNoise(x * 0.03, z * 0.03) * 6.5 + valueNoise(x * 0.09, z * 0.09) * 2.2;
-  const d = Math.sqrt(x * x + z * z);
-  h += Math.max(0, (d - 96) * 0.3); // 外圈抬升成盆地轮廓
-  return h;
-}
 
 function colorForIndex(index: number | null): number {
   if (index == null) return 0x2a7f9e;
@@ -68,19 +51,18 @@ function makeLabelSprite(code: string, name: string, color: number): THREE.Sprit
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = 'rgba(4,22,36,.78)';
   ctx.beginPath();
-  const r = 26;
-  ctx.roundRect(6, 6, canvas.width - 12, canvas.height - 12, r);
+  ctx.roundRect(6, 6, canvas.width - 12, canvas.height - 12, 26);
   ctx.fill();
-  ctx.strokeStyle = `#${new THREE.Color(color).getHexString()}88`;
+  ctx.strokeStyle = `#${new THREE.Color(color).getHexString()}aa`;
   ctx.lineWidth = 3;
   ctx.stroke();
-  ctx.fillStyle = '#eaffff';
+  ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 58px "Microsoft YaHei"';
   ctx.fillText(code, 28, 78);
-  ctx.fillStyle = 'rgba(207,232,244,.85)';
+  ctx.fillStyle = 'rgba(225,240,250,.9)';
   ctx.font = '38px "Microsoft YaHei"';
   ctx.fillText(name.replace('监测点', ''), 130, 72);
-  ctx.fillStyle = 'rgba(120,200,230,.7)';
+  ctx.fillStyle = 'rgba(160,210,235,.75)';
   ctx.font = '30px "Microsoft YaHei"';
   ctx.fillText('点击查看详情', 30, 128);
   const tex = new THREE.CanvasTexture(canvas);
@@ -106,15 +88,15 @@ export class OceanWorld {
   private clock = new THREE.Clock();
   private raf = 0;
   private resizeOb: ResizeObserver;
-  private disposers: Array<() => void> = [];
+  private pmrem: THREE.PMREMGenerator;
+  private water: Water;
+  private waterTex: THREE.Texture;
+  private pickPlane: THREE.Mesh;
 
   private siteGroup = new THREE.Group();
   private siteData: SiteVisual[] = [];
   private hitSpheres: THREE.Mesh[] = [];
   private pulseRings: Array<{ ring: THREE.Mesh; phase: number }> = [];
-  private snow?: THREE.Points;
-  private shafts: Array<{ mesh: THREE.Mesh; phase: number }> = [];
-  private waterPlane: THREE.Mesh;
 
   private diffusionPoints?: THREE.Points;
   private diffusion?: { result: DiffusionResult; origin: THREE.Vector3 };
@@ -127,38 +109,80 @@ export class OceanWorld {
   private downPos = { x: 0, y: 0 };
   private focusGoal: THREE.Vector3 | null = null;
   private clickMode: 'site' | 'water' = 'site';
+  private sun = new THREE.Vector3();
 
   constructor(private container: HTMLElement, private handlers: OceanHandlers) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.52;
     container.appendChild(this.renderer.domElement);
 
-    this.scene.background = new THREE.Color(0x03101c);
-    this.scene.fog = new THREE.FogExp2(0x041420, 0.0042);
-
-    this.camera = new THREE.PerspectiveCamera(55, container.clientWidth / Math.max(1, container.clientHeight), 0.1, 800);
-    this.camera.position.set(0, 52, 108);
+    this.camera = new THREE.PerspectiveCamera(55, container.clientWidth / Math.max(1, container.clientHeight), 1, 20000);
+    this.camera.position.set(0, 26, 96);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.target.set(0, 8, 0);
+    this.controls.target.set(0, 6, 0);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.06;
-    this.controls.maxPolarAngle = 1.42;
-    this.controls.minDistance = 28;
-    this.controls.maxDistance = 240;
+    this.controls.maxPolarAngle = 1.50; // 不允许钻到水面以下视角
+    this.controls.minDistance = 24;
+    this.controls.maxDistance = 420;
     this.controls.autoRotate = true;
-    this.controls.autoRotateSpeed = 0.35;
+    this.controls.autoRotateSpeed = 0.3;
     this.controls.addEventListener('start', () => { this.controls.autoRotate = false; });
 
-    this.scene.add(new THREE.AmbientLight(0x7fb8d8, 0.55));
-    const dir = new THREE.DirectionalLight(0xbfefff, 1.15);
-    dir.position.set(30, 90, 20);
-    this.scene.add(dir);
-    this.buildTerrain();
-    this.waterPlane = this.buildWater();
-    this.buildShafts();
-    this.buildSnow();
+    // ---------- 天空 + 太阳 + 环境光照 ----------
+    const sky = new Sky();
+    sky.scale.setScalar(10000);
+    const skyUniforms = sky.material.uniforms;
+    skyUniforms.turbidity.value = 7;
+    skyUniforms.rayleigh.value = 2.2;
+    skyUniforms.mieCoefficient.value = 0.005;
+    skyUniforms.mieDirectionalG.value = 0.8;
+    const elevation = 14, azimuth = 165;
+    const phi = THREE.MathUtils.degToRad(90 - elevation);
+    const theta = THREE.MathUtils.degToRad(azimuth);
+    this.sun.setFromSphericalCoords(1, phi, theta);
+    skyUniforms.sunPosition.value.copy(this.sun);
+    this.scene.add(sky);
+
+    this.pmrem = new THREE.PMREMGenerator(this.renderer);
+    const skyEnvScene = new THREE.Scene();
+    skyEnvScene.add(sky.clone());
+    const envRT = this.pmrem.fromScene(skyEnvScene as THREE.Scene);
+    this.scene.environment = envRT.texture;
+
+    const sunLight = new THREE.DirectionalLight(0xfff3e0, 2.2);
+    sunLight.position.copy(this.sun).multiplyScalar(100);
+    this.scene.add(sunLight);
+    this.scene.add(new THREE.HemisphereLight(0xbfe3ff, 0x0a2a3a, 0.65));
+
+    // ---------- 真实水面 ----------
+    this.waterTex = new THREE.TextureLoader().load('textures/waternormals.jpg');
+    this.waterTex.wrapS = this.waterTex.wrapT = THREE.RepeatWrapping;
+    this.water = new Water(new THREE.PlaneGeometry(8000, 8000), {
+      textureWidth: 512,
+      textureHeight: 512,
+      waterNormals: this.waterTex,
+      sunDirection: this.sun.clone().normalize(),
+      sunColor: 0xffffff,
+      waterColor: 0x0c5a78,
+      distortionScale: 2.8,
+      fog: false,
+    });
+    this.water.rotation.x = -Math.PI / 2;
+    this.water.position.y = WATER_LEVEL;
+    this.scene.add(this.water);
+
+    // 拾取用不可见水面（Water着色器网格不做射线拾取, 用独立平面保证交互稳定）
+    const pickGeo = new THREE.PlaneGeometry(8000, 8000);
+    pickGeo.rotateX(-Math.PI / 2);
+    this.pickPlane = new THREE.Mesh(pickGeo, new THREE.MeshBasicMaterial({ visible: false }));
+    this.pickPlane.position.y = WATER_LEVEL;
+    this.scene.add(this.pickPlane);
+
     this.scene.add(this.siteGroup, this.garbageGroup);
 
     // 指针拾取（区分点击与拖拽）
@@ -171,7 +195,10 @@ export class OceanWorld {
     };
     el.addEventListener('pointerdown', onDown);
     el.addEventListener('pointerup', onUp);
-    this.disposers.push(() => { el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointerup', onUp); });
+    const onRemove = () => {
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointerup', onUp);
+    };
 
     this.resizeOb = new ResizeObserver(() => {
       const w = container.clientWidth, h = Math.max(1, container.clientHeight);
@@ -181,67 +208,11 @@ export class OceanWorld {
     });
     this.resizeOb.observe(container);
 
+    this.animate = this.animate.bind(this);
+    this._onRemove = onRemove;
     this.animate();
   }
-
-  // ---------- 构建 ----------
-  private buildTerrain(): void {
-    const geo = new THREE.PlaneGeometry(240, 240, 110, 110);
-    geo.rotateX(-Math.PI / 2);
-    const pos = geo.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i), z = pos.getZ(i);
-      pos.setY(i, terrainHeight(x, z));
-    }
-    geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x0e2a40, flatShading: true, roughness: 0.95, metalness: 0.05 });
-    this.scene.add(new THREE.Mesh(geo, mat));
-    this.disposers.push(() => { geo.dispose(); mat.dispose(); });
-  }
-
-  private buildWater(): THREE.Mesh {
-    const geo = new THREE.PlaneGeometry(420, 420);
-    geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x0d5c85, transparent: true, opacity: 0.16, depthWrite: false });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.y = WATER_Y;
-    this.scene.add(mesh);
-    return mesh;
-  }
-
-  private buildShafts(): void {
-    for (let i = 0; i < 6; i++) {
-      const geo = new THREE.PlaneGeometry(4 + i * 1.4, 46);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x7fd8ff, transparent: true, opacity: 0.05 + (i % 3) * 0.022,
-        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      const angle = (i / 6) * Math.PI * 2;
-      mesh.position.set(Math.cos(angle) * 34, WATER_Y - 22, Math.sin(angle) * 34);
-      mesh.rotation.z = 0.22;
-      mesh.rotation.y = -angle;
-      this.scene.add(mesh);
-      this.shafts.push({ mesh, phase: i * 1.7 });
-      this.disposers.push(() => { geo.dispose(); mat.dispose(); });
-    }
-  }
-
-  private buildSnow(): void {
-    const N = 650;
-    const geo = new THREE.BufferGeometry();
-    const arr = new Float32Array(N * 3);
-    for (let i = 0; i < N; i++) {
-      arr[i * 3] = (Math.random() - 0.5) * 230;
-      arr[i * 3 + 1] = Math.random() * WATER_Y;
-      arr[i * 3 + 2] = (Math.random() - 0.5) * 230;
-    }
-    geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-    const mat = new THREE.PointsMaterial({ color: 0x9fd8e8, size: 0.32, transparent: true, opacity: 0.5, depthWrite: false });
-    this.snow = new THREE.Points(geo, mat);
-    this.scene.add(this.snow);
-    this.disposers.push(() => { geo.dispose(); mat.dispose(); });
-  }
+  private _onRemove: () => void;
 
   // ---------- 站点 ----------
   setSites(sites: SiteVisual[]): void {
@@ -251,37 +222,36 @@ export class OceanWorld {
     this.pulseRings = [];
     for (const site of sites) {
       const [x, z] = SITE_LAYOUT[site.id] ?? [0, 0];
-      const ground = terrainHeight(x, z);
       const color = colorForIndex(site.pollutionIndex);
       const group = new THREE.Group();
-      group.position.set(x, ground, z);
+      group.position.set(x, WATER_LEVEL, z);
 
-      // 数据柱: 高度 = 2 + 污染指数×1.1（无数据 1.2）
+      // 数据柱: 从水面拔起的发光柱, 高度 = 2 + 污染指数×1.1（无数据 1.2）
       const h = site.pollutionIndex != null ? 2 + site.pollutionIndex * 1.1 : 1.2;
       const pillarGeo = new THREE.CylinderGeometry(1.5, 1.9, h, 20);
-      const pillarMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.88 });
+      const pillarMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.92 });
       const pillar = new THREE.Mesh(pillarGeo, pillarMat);
       pillar.position.y = h / 2;
       group.add(pillar);
 
-      // 底座环 + 脉冲扩散环
-      const baseGeo = new THREE.RingGeometry(2.2, 2.8, 40);
-      baseGeo.rotateX(-Math.PI / 2);
-      const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
-      group.add(new THREE.Mesh(baseGeo, ringMat));
+      // 浮台底座 + 水面脉冲环
+      const baseGeo = new THREE.CylinderGeometry(3.4, 3.8, 0.8, 28);
+      const baseMat = new THREE.MeshStandardMaterial({ color: 0x14384e, roughness: 0.6, metalness: 0.3 });
+      const base = new THREE.Mesh(baseGeo, baseMat);
+      base.position.y = 0.1;
+      group.add(base);
 
-      const pulseGeo = new THREE.RingGeometry(2.9, 3.25, 40);
+      const pulseGeo = new THREE.RingGeometry(4.1, 4.5, 44);
       pulseGeo.rotateX(-Math.PI / 2);
       const pulseMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
       const pulse = new THREE.Mesh(pulseGeo, pulseMat);
-      pulse.position.y = 0.15;
+      pulse.position.y = 0.25;
       group.add(pulse);
-      this.pulseRings.push({ ring: pulse, phase: sites.indexOf(site) * 0.9 });
+
 
       // 不可见拾取球
-      const hitGeo = new THREE.SphereGeometry(6.5);
-      const hitMat = new THREE.MeshBasicMaterial({ visible: false });
-      const hit = new THREE.Mesh(hitGeo, hitMat);
+      const hitGeo = new THREE.SphereGeometry(7);
+      const hit = new THREE.Mesh(hitGeo, new THREE.MeshBasicMaterial({ visible: false }));
       hit.position.y = Math.max(4, h);
       hit.userData.siteId = site.id;
       group.add(hit);
@@ -296,40 +266,36 @@ export class OceanWorld {
   }
 
   focusSite(siteId: number): void {
-    const site = this.siteData.find((s) => s.id === siteId);
     const [x, z] = SITE_LAYOUT[siteId] ?? [0, 0];
-    if (site) {
-      this.focusGoal = new THREE.Vector3(x, Math.max(6, terrainHeight(x, z) + 6), z);
-      this.controls.autoRotate = false;
-    }
+    this.focusGoal = new THREE.Vector3(x, 6, z);
+    this.controls.autoRotate = false;
   }
 
-  // ---------- 扩散推演 ----------
+  // ---------- 扩散推演（粒子漂浮于水面） ----------
   setDiffusion(result: DiffusionResult, originSiteId: number): void {
     this.clearDiffusion();
     const [ox, oz] = SITE_LAYOUT[originSiteId] ?? [0, 0];
-    const origin = new THREE.Vector3(ox, WATER_Y - 4, oz);
+    const origin = new THREE.Vector3(ox, WATER_LEVEL + 0.5, oz);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(result.nParticles * 3), 3));
     const mat = new THREE.PointsMaterial({
-      color: 0x54f1a9, size: 0.55, transparent: true, opacity: 0.85,
+      color: 0xff7043, size: 1.7, transparent: true, opacity: 0.95,
       blending: THREE.AdditiveBlending, depthWrite: false,
     });
     this.diffusionPoints = new THREE.Points(geo, mat);
     this.scene.add(this.diffusionPoints);
-    // 原点标记环
-    const oGeo = new THREE.RingGeometry(1.4, 1.8, 32);
+    // 原点标记环（浮于水面）
+    const oGeo = new THREE.RingGeometry(2.2, 2.7, 36);
     oGeo.rotateX(-Math.PI / 2);
-    const oMat = new THREE.MeshBasicMaterial({ color: 0x54f1a9, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+    const oMat = new THREE.MeshBasicMaterial({ color: 0xff7043, transparent: true, opacity: 0.95, side: THREE.DoubleSide });
     const oRing = new THREE.Mesh(oGeo, oMat);
-    oRing.position.copy(origin).setY(WATER_Y - 3.6);
+    oRing.position.set(ox, WATER_LEVEL + 0.35, oz);
     oRing.name = 'diffusion-origin';
     this.scene.add(oRing);
     this.diffusion = { result, origin };
     this.setDiffusionTime(0);
   }
 
-  /** t ∈ [0,1] 线性插值整条轨迹（播放器每帧调用） */
   setDiffusionTime(t: number): void {
     if (!this.diffusion || !this.diffusionPoints) return;
     const { result, origin } = this.diffusion;
@@ -344,10 +310,9 @@ export class OceanWorld {
       const k1 = (i * (steps + 1) + s1) * 3;
       const x = tracks[k0] + (tracks[k1] - tracks[k0]) * frac;
       const y = tracks[k0 + 1] + (tracks[k1 + 1] - tracks[k0 + 1]) * frac;
-      // 轻微竖直扰动让粒子有厚度感（确定性, 同粒子同值）
-      const dy = ((i * 37) % 11) * 0.14;
+      const dz = ((i * 37) % 11) * 0.10; // 粒子层厚感（确定性）
       arr[i * 3] = origin.x + x * M_TO_SCENE;
-      arr[i * 3 + 1] = WATER_Y - 3.5 - dy;
+      arr[i * 3 + 1] = WATER_LEVEL + 0.5 + dz;
       arr[i * 3 + 2] = origin.z + y * M_TO_SCENE;
     }
     pos.needsUpdate = true;
@@ -369,7 +334,7 @@ export class OceanWorld {
     this.diffusion = undefined;
   }
 
-  // ---------- 科普投放 ----------
+  // ---------- 科普投放（漂浮 → 下沉） ----------
   setGarbageKey(key: string): void { this.garbageKey = key; }
 
   dropGarbage(point: THREE.Vector3, key: string, color: string): void {
@@ -378,14 +343,14 @@ export class OceanWorld {
     const ctx = canvas.getContext('2d')!;
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(64, 64, 26, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 5; ctx.stroke();
-    ctx.fillStyle = '#04222f';
+    ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 5; ctx.stroke();
+    ctx.fillStyle = '#08303f';
     ctx.font = 'bold 34px "Microsoft YaHei"';
     ctx.fillText('圾', 48, 76);
     const tex = new THREE.CanvasTexture(canvas);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-    sprite.scale.set(3.4, 3.4, 1);
-    sprite.position.set(point.x, WATER_Y - 1.5, point.z);
+    sprite.scale.set(3.6, 3.6, 1);
+    sprite.position.set(point.x, WATER_LEVEL + 0.6, point.z);
     this.garbageGroup.add(sprite);
     this.garbage.push({ sprite, bornAt: this.clock.getElapsedTime(), vx: 0.55 + Math.random() * 0.3, vz: -0.18, impactFired: false, key });
   }
@@ -405,49 +370,42 @@ export class OceanWorld {
       if (site) { this.handlers.onSiteClick(site); return; }
     }
     if (this.clickMode === 'water') {
-      const waterHits = this.raycaster.intersectObject(this.waterPlane, false);
+      const waterHits = this.raycaster.intersectObject(this.pickPlane, false);
       if (waterHits.length > 0 && this.handlers.onWaterClick) this.handlers.onWaterClick(waterHits[0].point);
     }
   }
 
   // ---------- 主循环 ----------
-  private animate = (): void => {
+  private animate(): void {
     this.raf = requestAnimationFrame(this.animate);
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.getElapsedTime();
 
+    // 水面波浪推进
+    (this.water.material as THREE.ShaderMaterial).uniforms.time.value += dt * 0.7;
+
     for (const { ring, phase } of this.pulseRings) {
       const f = (t * 0.55 + phase) % 1;
-      ring.scale.setScalar(1 + f * 1.5);
-      (ring.material as THREE.MeshBasicMaterial).opacity = 0.65 * (1 - f);
+      ring.scale.setScalar(1 + f * 1.6);
+      (ring.material as THREE.MeshBasicMaterial).opacity = 0.6 * (1 - f);
     }
-    for (const { mesh, phase } of this.shafts) {
-      (mesh.material as THREE.MeshBasicMaterial).opacity = 0.045 + 0.035 * (0.5 + 0.5 * Math.sin(t * 0.5 + phase));
-      mesh.rotation.z = 0.22 + Math.sin(t * 0.22 + phase) * 0.05;
-    }
-    if (this.snow) {
-      const pos = this.snow.geometry.attributes.position as THREE.BufferAttribute;
-      const arr = pos.array as Float32Array;
-      for (let i = 1; i < arr.length; i += 3) {
-        arr[i] += dt * 0.55;
-        if (arr[i] > WATER_Y) arr[i] = 0;
-      }
-      pos.needsUpdate = true;
-    }
-    // 垃圾漂移 + 缓沉 + 定时触发影响
+    // 垃圾漂浮 → 2.2s后触发危害 → 缓慢沉没 → 60s清理
     for (let i = this.garbage.length - 1; i >= 0; i--) {
       const g = this.garbage[i];
       g.sprite.position.x += g.vx * dt;
       g.sprite.position.z += g.vz * dt;
-      g.sprite.position.y = Math.max(terrainHeight(g.sprite.position.x, g.sprite.position.z) + 1, g.sprite.position.y - dt * 1.15);
-      if (!g.impactFired && t - g.bornAt > 2.2) {
+      const age = t - g.bornAt;
+      if (age > 3.5) g.sprite.position.y -= dt * 1.4; // 下沉
+      const mat = g.sprite.material as THREE.SpriteMaterial;
+      if (age > 3.5) mat.opacity = Math.max(0, 1 - (age - 3.5) / 8); // 沉没渐隐
+      if (!g.impactFired && age > 2.2) {
         g.impactFired = true;
         this.handlers.onGarbageImpact?.(g.key);
       }
-      if (t - g.bornAt > 60) { // 60s 后清理
+      if (age > 12) { // 12s 后回收（演示节奏更快, 避免场景堆积）
         this.garbageGroup.remove(g.sprite);
-        (g.sprite.material as THREE.SpriteMaterial).map?.dispose();
-        (g.sprite.material as THREE.SpriteMaterial).dispose();
+        mat.map?.dispose();
+        mat.dispose();
         this.garbage.splice(i, 1);
       }
     }
@@ -457,7 +415,7 @@ export class OceanWorld {
     }
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
-  };
+  }
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
@@ -476,7 +434,9 @@ export class OceanWorld {
         (sprite.material as THREE.SpriteMaterial).dispose();
       }
     });
-    this.disposers.forEach((fn) => fn());
+    this.waterTex.dispose();
+    this.pmrem.dispose();
+    this._onRemove();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
