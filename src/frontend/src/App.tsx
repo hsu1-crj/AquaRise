@@ -31,6 +31,8 @@ export default function App() {
     return validPages[hash] ? hash : 'dashboard';
   });
   const [user, setUser] = useState<UserInfo | null>(null);
+  // 全局搜索跳转：携带查询词（及可选目标报告）到业务页，页面挂载时据此过滤/打开
+  const [searchFocus, setSearchFocus] = useState<{ page: 'history' | 'reports'; query: string; reportId?: string } | null>(null);
 
   useEffect(() => {
     if (!authenticated) { setUser(null); return; }
@@ -47,8 +49,15 @@ export default function App() {
   }, []);
 
   const navigate = (target: PageKey) => {
+    setSearchFocus(null);
     setPage(target);
     window.location.hash = target;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const searchJump = (target: { page: 'history' | 'reports'; query: string; reportId?: string }) => {
+    setSearchFocus({ page: target.page, query: target.query, reportId: target.reportId });
+    setPage(target.page);
+    window.location.hash = target.page;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const login = () => { sessionStorage.setItem('aquarise-session', 'active'); setAuthenticated(true); window.location.hash = 'dashboard'; };
@@ -57,13 +66,13 @@ export default function App() {
   if (!authenticated) return <LoginScreen onLogin={login} />;
   if (page === 'screen') return <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入指挥大屏…</div>}><CommandScreen onExit={() => navigate('dashboard')} /></Suspense>;
 
-  return <Shell page={page} onNavigate={navigate} onLogout={logout} user={user}>
+  return <Shell page={page} onNavigate={navigate} onSearchJump={searchJump} onLogout={logout} user={user}>
     <Suspense fallback={<div className="page-state glass"><i className="loader-orbit" /><p>正在载入海洋工作台…</p></div>}>
       {page === 'dashboard' && <Dashboard onNavigate={navigate} />}
       {page === 'detection' && <Detection onNavigate={navigate} />}
-      {page === 'history' && <HistoryPage />}
+      {page === 'history' && <HistoryPage initialQuery={searchFocus?.page === 'history' ? searchFocus.query : ''} />}
       {page === 'analysis' && <AnalysisPage />}
-      {page === 'reports' && <ReportsPage />}
+      {page === 'reports' && <ReportsPage initialQuery={searchFocus?.page === 'reports' ? searchFocus.query : ''} initialReportId={searchFocus?.page === 'reports' ? searchFocus.reportId : undefined} />}
       {page === 'assistant' && <AssistantPage user={user} />}
       {page === 'knowledge' && <KnowledgePage />}
       {page === 'profile' && <ProfilePage user={user} onUserUpdated={setUser} />}

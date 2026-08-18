@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BarChart3,
   Bell,
@@ -9,6 +9,7 @@ import {
   History,
   LayoutDashboard,
   Library,
+  LoaderCircle,
   LogOut,
   Maximize2,
   Menu,
@@ -19,12 +20,14 @@ import {
   Waves,
   X,
 } from 'lucide-react';
-import type { PageKey, UserInfo } from '../types';
-import { isMockMode } from '../services/api';
+import type { DetectionRecord, PageKey, Report, UserInfo } from '../types';
+import { api, isMockMode } from '../services/api';
 
 interface ShellProps {
   page: PageKey;
   onNavigate: (page: PageKey) => void;
+  /** 全局搜索跳转：携带查询词（及可选的目标报告）跳转到对应业务页 */
+  onSearchJump: (target: { page: 'history' | 'reports'; query: string; reportId?: string }) => void;
   onLogout: () => void;
   user?: UserInfo | null;
   children: ReactNode;
@@ -47,7 +50,68 @@ const navGroups: Array<{ title: string; items: Array<{ id: PageKey; label: strin
   ] },
 ];
 
-export function Shell({ page, onNavigate, onLogout, user, children }: ShellProps) {
+export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children }: ShellProps) {
+  // ---- 全局搜索：输入防抖拉取检测任务与报告，下拉展示匹配结果，点击跳转对应页面 ----
+  const [searchText, setSearchText] = useState('');
+  const [taskHits, setTaskHits] = useState<DetectionRecord[]>([]);
+  const [reportHits, setReportHits] = useState<Report[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [dropOpen, setDropOpen] = useState(false);
+  const searchTimer = useRef<number | null>(null);
+  const searchBoxRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 点击搜索框外或按 Esc 关闭下拉；按 ⌘/Ctrl+K 聚焦搜索框
+  useEffect(() => {
+    const onDown = (event: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) setDropOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setDropOpen(false); return; }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    };
+  }, []);
+
+  const changeSearch = (value: string) => {
+    setSearchText(value);
+    const keyword = value.trim();
+    if (!keyword) {
+      if (searchTimer.current) window.clearTimeout(searchTimer.current);
+      setTaskHits([]); setReportHits([]); setDropOpen(false);
+      return;
+    }
+    setDropOpen(true); setSearching(true);
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    searchTimer.current = window.setTimeout(async () => {
+      try {
+        // 检测任务走后端 query（编号/文件名），报告较少则全量拉取后前端过滤（标题/海域/编号/摘要）
+        const [taskPage, reports] = await Promise.all([
+          api.getHistory(1, 20, { query: keyword }).catch(() => ({ items: [], total: 0 })),
+          api.getReports().catch(() => []),
+        ]);
+        const kw = keyword.toLowerCase();
+        setTaskHits(taskPage.items);
+        setReportHits(reports.filter((r) => [r.title, r.area, r.summary, r.id].some((f) => f?.toLowerCase().includes(kw))).slice(0, 5));
+      } catch { /* 搜索失败静默，不阻塞页面 */ }
+      finally { setSearching(false); }
+    }, 250);
+  };
+
+  const jumpSearch = (page: 'history' | 'reports', reportId?: string) => {
+    setDropOpen(false); setSearchText('');
+    onSearchJump({ page, query: searchText.trim(), reportId });
+  };
+
   return (
     <div className="app-shell">
       <div className="ocean-ambient" aria-hidden="true"><i /><i /><i /></div>
@@ -93,7 +157,7 @@ export function Shell({ page, onNavigate, onLogout, user, children }: ShellProps
       <main className="main-area">
         <header className="topbar glass">
           <label htmlFor="nav-toggle" className="menu-button" aria-label="打开导航"><Menu /></label>
-          <div className="search-box"><Search size={18} /><input aria-label="全局搜索" placeholder="搜索检测任务、海域或报告…" /><kbd>⌘ K</kbd></div>
+          <div className="search-box" ref={searchBoxRef}><Search size={18} /><input ref={searchInputRef} aria-label="全局搜索" placeholder="搜索检测任务、海域或报告…" value={searchText} onChange={(event) => changeSearch(event.target.value)} onFocus={() => searchText.trim() && setDropOpen(true)} /><kbd>⌘ K</kbd>{dropOpen && <div className="search-results" role="listbox">{searching ? <div className="search-status"><LoaderCircle className="spin" />搜索中…</div> : taskHits.length === 0 && reportHits.length === 0 ? <div className="search-status">没有匹配的检测任务或报告</div> : <>{taskHits.length > 0 && <><div className="search-group">检测任务</div>{taskHits.slice(0, 6).map((item) => <button key={item.id} className="search-item" role="option" onClick={() => jumpSearch('history')}><History size={15} /><span><strong>{item.id}</strong><small>{item.createdAt} · {item.type} · {item.location} · {item.level}度</small></span></button>)}</>}{reportHits.length > 0 && <><div className="search-group">质量报告</div>{reportHits.map((item) => <button key={item.id} className="search-item" role="option" onClick={() => jumpSearch('reports', item.id)}><FileBarChart size={15} /><span><strong>{item.title}</strong><small>{item.area} · {item.createdAt.slice(0, 10)} · {item.level}度污染</small></span></button>)}</>}</>}</div>}</div>
           <div className="top-actions">
             {isMockMode && <span className="demo-badge"><FlaskConical size={14} />演示数据</span>}
             <button className="icon-button" aria-label="消息通知"><Bell size={19} /><i /></button>
