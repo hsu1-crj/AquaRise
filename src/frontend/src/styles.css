@@ -1387,3 +1387,60 @@
 .site-select-hint{color:var(--muted);font-size:9px;flex:1}
 .chart-empty{min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--muted);font-size:11px;text-align:center;line-height:1.8}
 .chart-empty small{font-size:9px;opacity:.7}
+
+
+/* F2 海洋3D态势页 */
+.ocean3d-page{position:relative;height:calc(100vh - 84px);min-height:560px;border-radius:14px;overflow:hidden;background:#03101c}
+.ocean3d-canvas{position:absolute;inset:0}
+.ocean3d-canvas canvas{display:block;width:100%;height:100%}
+.ocean3d-topbar{position:absolute;top:14px;left:14px;right:14px;z-index:5;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-radius:12px}
+.ocean3d-topbar h1{margin:2px 0 0;font-size:17px;letter-spacing:.06em}
+.ocean3d-mode{display:flex;gap:6px}
+.ocean3d-mode button{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:9px;border:1px solid var(--line);background:rgba(5,32,48,.6);color:var(--muted);font-size:11px;cursor:pointer;transition:all .2s}
+.ocean3d-mode button.active{color:#03212f;background:linear-gradient(140deg,#5cf2ae,#2bdcff);border-color:transparent;font-weight:700}
+.ocean3d-panel{position:absolute;top:86px;right:14px;z-index:5;width:308px;max-height:calc(100% - 168px);overflow:auto;padding:14px;border-radius:12px}
+.ocean3d-panel-left{right:auto;left:14px;width:270px}
+.ocean3d-panel h2{display:flex;align-items:center;gap:7px;font-size:12px;color:#9fd0e8;margin:0 0 10px}
+.ocean3d-section{margin-top:14px}
+.ocean3d-hint{font-size:10px;color:var(--muted);line-height:1.7;margin:0 0 10px}
+.ocean3d-sites{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.ocean3d-sites button{width:100%;display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;border:1px solid transparent;background:rgba(5,32,48,.45);color:#dff6fa;font-size:11px;cursor:pointer;text-align:left}
+.ocean3d-sites button:hover{border-color:rgba(42,214,255,.4)}
+.ocean3d-sites .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.ocean3d-sites .code{font-weight:700;color:#eaffff}
+.ocean3d-sites .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px}
+.ocean3d-sites em{font-style:normal;font-weight:700}
+.ocean3d-sites em small{display:block;font-weight:400;color:var(--muted);font-size:9px}
+.ocean3d-empty{font-size:10px;color:var(--muted);padding:8px}
+.ocean3d-sliders{display:flex;flex-direction:column;gap:9px}
+.ocean3d-sliders label{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--muted)}
+.ocean3d-sliders output{color:#eaffff;font-weight:600;min-width:64px;text-align:right}
+.ocean3d-sliders input[type=range]{flex:1;accent-color:#2bdcff}
+.ocean3d-actions{display:flex;gap:8px;margin-top:12px}
+.ocean3d-actions .primary-button,.ocean3d-actions .secondary-button{display:flex;align-items:center;gap:6px;font-size:11px;padding:8px 14px}
+.ocean3d-siminfo{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:10px;color:var(--muted)}
+.ocean3d-siminfo b{color:#54f1a9}
+.ocean3d-siminfo input[type=range]{flex:1;min-width:90px;accent-color:#54f1a9}
+.ocean3d-disclaimer{display:flex;align-items:center;gap:5px;font-size:9px;color:rgba(143,199,224,.55);margin:12px 0 0;line-height:1.6}
+.ocean3d-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ocean3d-chips button{display:flex;align-items:center;gap:6px;padding:6px 11px;border-radius:16px;border:1px solid var(--line);background:rgba(5,32,48,.5);color:#dff6fa;font-size:11px;cursor:pointer}
+.ocean3d-chips button.active{background:rgba(42,214,255,.14)}
+.ocean3d-chips .dot{width:7px;height:7px;border-radius:50%}
+.ocean3d-card{position:absolute;left:50%;bottom:86px;transform:translateX(-50%);z-index:6;width:min(430px,90%);padding:16px 18px;border-radius:14px}
+.ocean3d-card h3{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px;color:#eaffff}
+.ocean3d-card h3 .dot{width:9px;height:9px;border-radius:50%}
+.ocean3d-close{position:absolute;top:10px;right:10px;background:none;border:0;color:var(--muted);cursor:pointer}
+.ocean3d-kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:11px;margin-bottom:12px}
+.ocean3d-kv span{color:var(--muted)}
+.ocean3d-kv b{color:#eaffff}
+.ocean3d-impact .ocean3d-chain{margin:0 0 12px;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:7px}
+.ocean3d-impact .ocean3d-chain li{position:relative;padding:7px 10px 7px 30px;border-radius:8px;background:rgba(255,111,145,.08);border:1px solid rgba(255,111,145,.18);font-size:11px;color:#ffe3ea;opacity:0;transform:translateY(6px);animation:ocean3dStep .45s forwards}
+.ocean3d-impact .ocean3d-chain li::before{content:attr(data-i);position:absolute;left:9px;top:7px;font-weight:700;color:#ff6f91}
+.ocean3d-impact .ocean3d-chain li::before{content:'⚠';left:8px}
+.ocean3d-degrade{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:9px 12px;border-radius:8px;background:rgba(255,189,102,.08);border:1px solid rgba(255,189,102,.2);font-size:11px;color:var(--muted)}
+.ocean3d-degrade b{font-size:19px;color:#ffbd66}
+.ocean3d-stat{font-size:10px;color:#9fd0e8;line-height:1.7;margin:10px 0 0}
+@keyframes ocean3dStep{to{opacity:1;transform:none}}
+.ocean3d-legend{position:absolute;left:14px;bottom:14px;z-index:5;display:flex;gap:14px;padding:8px 14px;border-radius:10px;font-size:10px;color:var(--muted)}
+.ocean3d-legend span{display:flex;align-items:center;gap:6px}
+.ocean3d-legend i{width:9px;height:9px;border-radius:50%}

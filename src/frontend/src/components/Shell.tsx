@@ -11,6 +11,7 @@ import {
   Library,
   LogOut,
   Maximize2,
+  Orbit,
   Menu,
   Radar,
   Search,
@@ -33,6 +34,7 @@ interface ShellProps {
 const navGroups: Array<{ title: string; items: Array<{ id: PageKey; label: string; icon: typeof Waves }> }> = [
   { title: '监测中心', items: [
     { id: 'dashboard', label: '态势总览', icon: LayoutDashboard },
+    { id: 'ocean3d', label: '海洋 3D 态势', icon: Orbit },
     { id: 'detection', label: '智能识别', icon: Radar },
     { id: 'history', label: '检测历史', icon: History },
   ] },

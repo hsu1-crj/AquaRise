@@ -8,13 +8,14 @@ const AnalysisPage = lazy(() => import('./pages/Analysis').then((module) => ({ d
 const AssistantPage = lazy(() => import('./pages/Assistant').then((module) => ({ default: module.AssistantPage })));
 const CommandScreen = lazy(() => import('./pages/CommandScreen').then((module) => ({ default: module.CommandScreen })));
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
+const Ocean3DPage = lazy(() => import('./pages/Ocean3D').then((module) => ({ default: module.Ocean3DPage })));
 const Detection = lazy(() => import('./pages/Detection').then((module) => ({ default: module.Detection })));
 const HistoryPage = lazy(() => import('./pages/History').then((module) => ({ default: module.HistoryPage })));
 const ReportsPage = lazy(() => import('./pages/Reports').then((module) => ({ default: module.ReportsPage })));
 const KnowledgePage = lazy(() => import('./pages/UtilityPages').then((module) => ({ default: module.KnowledgePage })));
 const ProfilePage = lazy(() => import('./pages/UtilityPages').then((module) => ({ default: module.ProfilePage })));
 
-const validPages: Record<PageKey, true> = { dashboard: true, detection: true, history: true, analysis: true, screen: true, reports: true, assistant: true, knowledge: true, profile: true };
+const validPages: Record<PageKey, true> = { dashboard: true, ocean3d: true, detection: true, history: true, analysis: true, screen: true, reports: true, assistant: true, knowledge: true, profile: true };
 
 /** 启动时是否已有登录态：本次会话标记存在，或本地存有 token（保持登录） */
 function hasStoredAuth(): boolean {
@@ -60,6 +61,7 @@ export default function App() {
   return <Shell page={page} onNavigate={navigate} onLogout={logout} user={user}>
     <Suspense fallback={<div className="page-state glass"><i className="loader-orbit" /><p>正在载入海洋工作台…</p></div>}>
       {page === 'dashboard' && <Dashboard onNavigate={navigate} />}
+      {page === 'ocean3d' && <Ocean3DPage />}
       {page === 'detection' && <Detection onNavigate={navigate} />}
       {page === 'history' && <HistoryPage />}
       {page === 'analysis' && <AnalysisPage />}
