@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, KnowledgeDocInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -281,6 +281,18 @@ export const api = {
         phone_num: data.phoneNum?.trim() || null,
       }),
     });
+  },
+
+  /** 上传文档到 RAG 知识库（海洋守护者「导入质量分析报告」），返回入库后的文档记录 */
+  async uploadKnowledgeDoc(file: File): Promise<KnowledgeDocInfo> {
+    const form = new FormData();
+    form.append('file', file);
+    return request<KnowledgeDocInfo>('/api/v1/knowledge/upload', { method: 'POST', body: form });
+  },
+
+  /** 删除知识库文档（磁盘文件与向量分片一并移除） */
+  async deleteKnowledgeDoc(docId: number): Promise<{ message: string }> {
+    return request<{ message: string }>(`/api/v1/knowledge/${docId}`, { method: 'DELETE' });
   },
 };
 

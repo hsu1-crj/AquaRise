@@ -32,8 +32,12 @@ class LocalKnowledgeRetriever:
 
     def _load(self) -> None:
         self.chunks.clear()
-        for path in sorted(self.knowledge_dir.glob("*.md")):
-            text = path.read_text(encoding="utf-8")
+        for path in sorted(self.knowledge_dir.glob("*.md")) + sorted(self.knowledge_dir.glob("*.txt")) + sorted(self.knowledge_dir.glob("*.html")):
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if path.suffix.lower() == ".html":
+                # 与向量链路一致：剥掉标签再分词，避免把 HTML 标签当成检索词
+                text = re.sub(r"<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>|<[^>]+>", "", text, flags=re.I | re.S)
+                text = re.sub(r"[ \t\u3000]+", " ", text)
             # 以标题/段落为边界，避免跨主题拼接。
             raw_parts = re.split(r"(?=^#{1,3}\s)", text, flags=re.M)
             for part in raw_parts:
