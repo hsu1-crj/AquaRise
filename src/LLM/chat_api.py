@@ -171,6 +171,7 @@ class RAGService:
     def __init__(self):
         self._retriever = None
         self._initialized = False
+        self._vector_ok = False
 
     def initialize(self):
         if self._initialized:
@@ -180,8 +181,10 @@ class RAGService:
             from .rag.retriever import OceanRetriever
             self._retriever = OceanRetriever(OceanKnowledgeBase())
             self._retriever.kb.build()
+            self._vector_ok = True
             logger.info("RAG 向量知识库初始化完成")
         except Exception as exc:
+            self._vector_ok = False
             logger.warning("向量 RAG 不可用，切换到本地词法检索: %s", exc)
             try:
                 from .rag.lexical_retriever import LocalKnowledgeRetriever
@@ -190,6 +193,17 @@ class RAGService:
                 logger.exception("本地知识库检索也初始化失败")
                 self._retriever = None
         self._initialized = True
+
+    def reload(self):
+        """上传新文档后调用：向量链路实时查询无需重载；词法回退需重建文件索引。"""
+        if not self._initialized or self._vector_ok or self._retriever is None:
+            return
+        try:
+            from .rag.lexical_retriever import LocalKnowledgeRetriever
+            self._retriever = LocalKnowledgeRetriever()
+            logger.info("词法知识库已重载，可检索新上传文档")
+        except Exception as exc:
+            logger.warning("词法知识库重载失败: %s", exc)
 
     def retrieve_context(self, query: str, k: Optional[int] = None) -> str:
         if not self._initialized:
@@ -272,3 +286,9 @@ chat_service = ChatService()
 
 def init_chat_service(ollama_base_url: Optional[str] = None):
     chat_service.initialize(ollama_base_url)
+
+
+def reload_knowledge_retriever() -> None:
+    """上传新文档后调用：让回退检索链路（词法）立即感知新文件；向量链路无需操作。"""
+    if chat_service._initialized:
+        chat_service.rag.reload()

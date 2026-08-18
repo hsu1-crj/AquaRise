@@ -10,6 +10,7 @@ src/LLM/rag/knowledge_base.py 的 add_document() 做增量向量化，
 因此对话（enable_rag=true）即可检索到刚上传的知识。
 """
 
+import logging
 import os
 import uuid
 
@@ -22,12 +23,14 @@ from database import get_db
 from models import DocStatus, KnowledgeDoc, User
 from schemas import KnowledgeDocInfo
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/knowledge", tags=["knowledge"])
 
 # 允许上传的文件类型（doc/docx 仅保存、暂不支持向量化）
-ALLOWED_DOC = {".pdf", ".doc", ".docx", ".txt", ".md"}
+ALLOWED_DOC = {".pdf", ".doc", ".docx", ".txt", ".md", ".html"}
 # 能被 RAG 向量化的类型（对应 knowledge_base 的 loaders）
-VECTORIZABLE_DOC = {".pdf", ".txt", ".md"}
+VECTORIZABLE_DOC = {".pdf", ".txt", ".md", ".html"}
 
 # 惰性复用的知识库实例（避免每次上传重复加载嵌入模型）
 _kb = None
@@ -47,11 +50,16 @@ def _get_kb():
 
 
 def _vectorize_file(file_path: str) -> int:
-    """把单个文件增量加入向量库，返回分片数（失败抛异常）"""
+    """把单个文件增量加入向量库，返回分片数。
+
+    向量链路（Chroma/嵌入模型）不可用时降级返回 0：文件已保存到 RAG 源目录，
+    上传后调用 reload_knowledge_retriever() 让词法回退检索立即感知，对话仍可检索。
+    """
     try:
         return _get_kb().add_document(file_path)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"向量化失败：{e}") from e
+        logger.warning("向量化不可用，降级为词法检索（%s）", e)
+        return 0
 
 
 @router.post("/upload", response_model=KnowledgeDocInfo)
@@ -63,7 +71,7 @@ async def upload_doc(
     """上传知识库文档：保存到 RAG 源目录 + 增量向量化 + 写库"""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_DOC:
-        raise HTTPException(status_code=400, detail="不支持的文件类型，支持 pdf/doc/docx/txt/md")
+        raise HTTPException(status_code=400, detail="不支持的文件类型，支持 pdf/doc/docx/txt/md/html")
 
     # 保存到 RAG 源目录（data/knowledge），与离线构建共用同一目录
     os.makedirs(config.KNOWLEDGE_DIR, exist_ok=True)
@@ -75,6 +83,14 @@ async def upload_doc(
     chunk_count = 0
     if ext in VECTORIZABLE_DOC:
         chunk_count = _vectorize_file(file_path)
+
+    # 让对话检索链路感知新文档（词法回退需重建索引；向量链路无需操作）
+    try:
+        from src.LLM.chat_api import reload_knowledge_retriever
+
+        reload_knowledge_retriever()
+    except Exception as exc:
+        logger.warning("知识库检索重载失败: %s", exc)
 
     doc = KnowledgeDoc(
         file_name=file.filename,

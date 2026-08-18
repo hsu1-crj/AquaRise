@@ -1316,6 +1316,340 @@
   box-shadow: 0 4px 15px rgba(255, 109, 136, 0.3);
 }
 
+/* --- 质量分析报告导入条 --- */
+.og-import-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 8px;
+  flex-wrap: wrap;
+}
+
+.og-import-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 14px;
+  border: 1px solid rgba(43, 220, 255, 0.25);
+  background: rgba(43, 220, 255, 0.07);
+  color: var(--cyan);
+  font-size: 10.5px;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+}
+
+.og-import-btn:hover:not(:disabled) {
+  background: rgba(43, 220, 255, 0.16);
+  border-color: var(--cyan);
+  transform: translateY(-1px);
+}
+
+.og-import-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.og-import-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
+  padding: 3px 6px 3px 9px;
+  border-radius: 12px;
+  border: 1px solid rgba(92, 242, 174, 0.25);
+  background: rgba(92, 242, 174, 0.08);
+  color: var(--green);
+  font-size: 10px;
+}
+
+.og-import-chip-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.og-import-chip-x {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 109, 136, 0.15);
+  color: var(--coral);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.og-import-chip-x:hover {
+  background: rgba(255, 109, 136, 0.35);
+}
+
+/* --- 语音识别按钮 --- */
+.og-mic-btn {
+  color: var(--cyan) !important;
+}
+
+.og-mic-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.og-mic-btn.listening {
+  border-color: var(--coral) !important;
+  background: rgba(255, 109, 136, 0.14) !important;
+  color: var(--coral) !important;
+  animation: og-mic-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes og-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 109, 136, 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(255, 109, 136, 0); }
+}
+
+.og-mic-wave {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 13px;
+}
+
+.og-mic-wave i {
+  width: 2.5px;
+  border-radius: 2px;
+  background: currentColor;
+  animation: og-mic-bars 0.9s ease-in-out infinite;
+}
+
+.og-mic-wave i:nth-child(2) { animation-delay: 0.15s; }
+.og-mic-wave i:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes og-mic-bars {
+  0%, 100% { height: 5px; }
+  50% { height: 13px; }
+}
+
+.og-mic-tip {
+  color: var(--coral);
+}
+
+/* --- 导入报告弹窗 --- */
+.og-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(2, 10, 16, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.og-import-modal {
+  width: min(680px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: #04121d;
+  border: 1px solid rgba(73, 220, 249, 0.18);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.og-import-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(92, 218, 255, 0.1);
+}
+
+.og-import-modal-head h3 {
+  margin: 2px 0 4px;
+  font-size: 15px;
+  color: #eafaff;
+}
+
+.og-import-modal-head p {
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.og-import-close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(92, 218, 255, 0.14);
+  background: transparent;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.og-import-close:hover {
+  color: var(--coral);
+  border-color: rgba(255, 109, 136, 0.3);
+}
+
+.og-import-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 20px 0;
+}
+
+.og-import-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 9px 9px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  border-bottom: 1px solid rgba(92, 218, 255, 0.1);
+}
+
+.og-import-tabs button.active {
+  color: var(--cyan);
+  border-color: rgba(43, 220, 255, 0.22);
+  border-bottom-color: transparent;
+  background: rgba(43, 220, 255, 0.06);
+}
+
+.og-import-body {
+  padding: 14px 20px 20px;
+  overflow-y: auto;
+  min-height: 220px;
+}
+
+.og-import-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 44px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.og-report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.og-report-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(73, 220, 249, 0.14);
+  background: rgba(3, 28, 42, 0.35);
+}
+
+.og-report-list li:hover {
+  border-color: rgba(43, 220, 255, 0.32);
+}
+
+.og-report-meta {
+  min-width: 0;
+}
+
+.og-report-meta strong {
+  display: block;
+  font-size: 11.5px;
+  color: #dff6fa;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.og-report-meta small {
+  display: block;
+  margin-top: 3px;
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.og-report-import-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 13px;
+  border-radius: 14px;
+  border: 1px solid rgba(43, 220, 255, 0.28);
+  background: rgba(43, 220, 255, 0.1);
+  color: var(--cyan);
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+
+.og-report-import-btn:hover:not(:disabled) {
+  background: rgba(43, 220, 255, 0.2);
+}
+
+.og-upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 34px 10px;
+  border: 1px dashed rgba(43, 220, 255, 0.3);
+  border-radius: 12px;
+  background: rgba(43, 220, 255, 0.03);
+}
+
+.og-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(43, 220, 255, 0.35);
+  background: linear-gradient(135deg, rgba(43, 220, 255, 0.16), rgba(35, 136, 255, 0.16));
+  color: var(--cyan);
+  font-size: 12px;
+}
+
+.og-upload-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(43, 220, 255, 0.28), rgba(35, 136, 255, 0.28));
+  transform: translateY(-1px);
+}
+
+.og-upload-zone p {
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  max-width: 420px;
+}
+
+.og-import-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 109, 136, 0.1);
+  border: 1px solid rgba(255, 109, 136, 0.25);
+  color: var(--coral);
+  font-size: 10.5px;
+}
+
 /* 动效 */
 @keyframes og-msg-in {
   from { opacity: 0; transform: translateY(10px); }
