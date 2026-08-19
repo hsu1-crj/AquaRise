@@ -1,0 +1,242 @@
+{
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v4.2.57",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Scene",
+      "nodes": [
+        0,
+        1
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "namaqualand_rocks_01_a",
+      "translation": [
+        0.6806702613830566,
+        0,
+        -0.020215891301631927
+      ]
+    },
+    {
+      "mesh": 1,
+      "name": "namaqualand_rocks_01_b"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "namaqualand_rocks_01",
+      "normalTexture": {
+        "index": 0
+      },
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 1
+        },
+        "metallicFactor": 0,
+        "metallicRoughnessTexture": {
+          "index": 2
+        }
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "realCap_Model_2.003",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "realCap_Model_2.004",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "indices": 7,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    },
+    {
+      "sampler": 0,
+      "source": 2
+    }
+  ],
+  "images": [
+    {
+      "mimeType": "image/jpeg",
+      "name": "namaqualand_boulders_01_nor_gl",
+      "uri": "textures/namaqualand_boulders_01_nor_gl_1k.jpg"
+    },
+    {
+      "mimeType": "image/jpeg",
+      "name": "namaqualand_boulders_01_diff",
+      "uri": "textures/namaqualand_boulders_01_diff_1k.jpg"
+    },
+    {
+      "mimeType": "image/jpeg",
+      "name": "namaqualand_boulders_01_rough",
+      "uri": "textures/namaqualand_boulders_01_arm_1k.jpg"
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 8423,
+      "max": [
+        0.2177007645368576,
+        0.24912568926811218,
+        0.27545925974845886
+      ],
+      "min": [
+        -0.14528702199459076,
+        -0.002493053674697876,
+        -0.2756328880786896
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 8423,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 8423,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 48174,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 12909,
+      "max": [
+        0.17962539196014404,
+        0.20720647275447845,
+        0.2834411561489105
+      ],
+      "min": [
+        -0.1597679853439331,
+        -0.0016949563287198544,
+        -0.3031897246837616
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 12909,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "count": 12909,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 7,
+      "componentType": 5123,
+      "count": 74376,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 101076,
+      "byteOffset": 0,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 101076,
+      "byteOffset": 101076,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 67384,
+      "byteOffset": 202152,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 96348,
+      "byteOffset": 269536,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 154908,
+      "byteOffset": 365884,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 154908,
+      "byteOffset": 520792,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 103272,
+      "byteOffset": 675700,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 148752,
+      "byteOffset": 778972,
+      "target": 34963
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 927724,
+      "uri": "namaqualand_boulders_01.bin"
+    }
+  ]
+}
