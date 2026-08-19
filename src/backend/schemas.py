@@ -183,13 +183,18 @@ class KnowledgeDocInfo(BaseModel):
 
 
 class DigitalHumanConfig(BaseModel):
-    """数字人 SDK 公开配置（不含 appSecret）"""
+    """数字人 SDK 公开运行配置（不含 appSecret）"""
     enabled: bool
+    configured: bool
+    provider: str
+    app_id: Optional[str] = None
     avatar_id: str
     voice_id: str
     sdk_mode: str
-    api_endpoint: str
-    auth_token: str
+    gateway_server: str
+    sdk_url: str
+    sdk_integrity: Optional[str] = None
+    message: Optional[str] = None
 
 
 # ============ 前端 SPA 契约模型（src/frontend/src/types.ts） ============

@@ -21,4 +21,11 @@ class OceanRetriever:
         )
 
     def retrieve_for_llm(self, query: str, k: Optional[int] = None):
-        return self.format_context(query, k), self.search(query, k)
+        results = self.search(query, k)
+        if not results:
+            return "", []
+        context = "以下是本项目知识库的相关证据：\n\n" + "\n\n".join(
+            f"[证据{i}] 来源：{r['metadata'].get('source', '未知')}\n{r['content']}"
+            for i, r in enumerate(results, 1)
+        )
+        return context, results

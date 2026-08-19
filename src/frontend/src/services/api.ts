@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -21,7 +21,23 @@ function readImageSize(file: File): Promise<{ width: number; height: number }> {
   });
 }
 
-export const isMockMode = API_MODE === 'mock';
+/** 演示模式标记 key（免认证进入项目演示时写入；随 clearStoredAuth 一并清除） */
+export const DEMO_FLAG_KEY = 'aquarise-demo';
+
+/** 是否处于演示模式：免认证进入，全站使用 mock 数据 */
+export function isDemoMode(): boolean {
+  return window.sessionStorage.getItem(DEMO_FLAG_KEY) === '1';
+}
+
+/** 使用 mock 数据：构建期 VITE_API_MODE=mock，或运行时进入演示模式 */
+export function isMockMode(): boolean {
+  return API_MODE === 'mock' || isDemoMode();
+}
+
+/** 进入演示模式：会话级标记，仅当前标签页有效 */
+export function enterDemoMode(): void {
+  window.sessionStorage.setItem(DEMO_FLAG_KEY, '1');
+}
 
 export const AUTH_TOKEN_KEY = 'aquarise-token';
 /** 「保持登录」勾选时 token 存 localStorage（跨浏览器重启自动登录），否则存 sessionStorage */
@@ -48,6 +64,7 @@ export function storeToken(token: string, remember: boolean): void {
 /** 清空全部本地登录态（退出登录 / token 失效时调用） */
 export function clearStoredAuth(): void {
   window.sessionStorage.removeItem('aquarise-session');
+  window.sessionStorage.removeItem(DEMO_FLAG_KEY);
   window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(REMEMBER_FLAG_KEY);
@@ -60,9 +77,10 @@ function authHeaders(init?: RequestInit): Headers {
   return headers;
 }
 
-/** 401 说明 token 已失效（被踢下线 / 过期 / 服务端不认）：清空本地会话并回登录页 */
+/** 401 说明 token 已失效（被踢下线 / 过期 / 服务端不认）：清空本地会话并回登录页。
+ *  演示模式无 token、不请求真实接口，豁免此处理避免被弹回登录页。 */
 function handleUnauthorized(response: Response): void {
-  if (response.status !== 401) return;
+  if (response.status !== 401 || isDemoMode()) return;
   clearStoredAuth();
   window.location.reload();
 }
@@ -89,13 +107,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async getDigitalHumanConfig(): Promise<DigitalHumanPublicConfig> {
+    if (isMockMode()) {
+      return {
+        enabled: false,
+        configured: false,
+        provider: 'xmov',
+        avatar_id: 'ocean_guardian_01',
+        voice_id: 'zh_female_ocean',
+        sdk_mode: 'realtime',
+        gateway_server: 'https://nebula-agent.xingyun3d.com/user/v1/ttsa/session',
+        sdk_url: 'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js',
+        sdk_integrity: 'sha384-x6JED2qbmbCu3552Jzvj9Egb2FvDrnE2hoPUxupzkFphjuoGadVjKQupOjL3sWtu',
+        message: '演示模式使用全息拟态。',
+      };
+    }
+    return request<DigitalHumanPublicConfig>('/api/v1/digital-human/config');
+  },
+
   async getSummary(): Promise<Summary> {
-    if (isMockMode) { await wait(); return mockSummary; }
+    if (isMockMode()) { await wait(); return mockSummary; }
     return request<Summary>('/api/v1/stats/summary');
   },
 
   async getTrend(period = 'month'): Promise<TrendPoint[]> {
-    if (isMockMode) { await wait(560); return mockTrend; }
+    if (isMockMode()) { await wait(560); return mockTrend; }
     const payload = await request<{ items?: TrendPoint[] } | TrendPoint[]>(`/api/v1/stats/trend?period=${encodeURIComponent(period)}`);
     return Array.isArray(payload) ? payload : payload.items ?? [];
   },
@@ -103,7 +139,7 @@ export const api = {
   /** 分析页聚合数据：综合污染指数 / 材质分布 / 高频类别排名（Analysis 与 Dashboard 共用）。
    * 后端返回 snake_case，需显式映射为 camelCase（与 getSummary/getVideoStatus 一致）。 */
   async getAnalysis(): Promise<StatsAnalysis> {
-    if (isMockMode) { await wait(500); return mockAnalysis; }
+    if (isMockMode()) { await wait(500); return mockAnalysis; }
     const response = await request<{
       pollution_index: number; pollution_index_prev: number;
       plastic_percent: number; plastic_percent_prev: number;
@@ -126,7 +162,7 @@ export const api = {
   },
 
   async getHistory(page = 1, pageSize = 50, filters?: { level?: string; query?: string }): Promise<{ items: DetectionRecord[]; total: number }> {
-    if (isMockMode) { await wait(); return { items: mockRecords, total: mockRecords.length }; }
+    if (isMockMode()) { await wait(); return { items: mockRecords, total: mockRecords.length }; }
     const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (filters?.level && filters.level !== '全部等级') params.set('level', filters.level);
     if (filters?.query?.trim()) params.set('query', filters.query.trim());
@@ -134,12 +170,12 @@ export const api = {
   },
   /** 监测站点列表（含近30天聚合；上传下拉与海域对比图共用同一端点） */
   async getSiteStats(): Promise<SiteStat[]> {
-    if (isMockMode) { await wait(400); return []; }
+    if (isMockMode()) { await wait(400); return []; }
     return request<SiteStat[]>('/api/v1/stats/sites');
   },
   /** 真实海况（Open-Meteo 抓取 + 后端缓存, 外网失败返回旧缓存 stale=true） */
   async getMarine(): Promise<MarineInfo> {
-    if (isMockMode) {
+    if (isMockMode()) {
       await wait(350);
       return {
         fetchedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
@@ -168,14 +204,12 @@ export const api = {
   },
 
   async getReports(): Promise<Report[]> {
-    if (isMockMode) { await wait(); return mockReports; }
+    if (isMockMode()) { await wait(); return mockReports; }
     const payload = await request<{ items: Report[] }>('/api/v1/reports/?page=1&page_size=50');
     return payload.items;
   },
   async detectImage(file: File, width: number, height: number, siteId?: number): Promise<DetectionResult> {
-    if (isMockMode) { await wait(1300); return createMockDetection(width, height); }
-    const form = new FormData();
-    form.append('file', file);
+    if (isMockMode()) { await wait(1300); return createMockDetection(width, height); }
     form.append('width', String(width));
     form.append('height', String(height));
     if (siteId) form.append('site_id', String(siteId));
@@ -184,7 +218,7 @@ export const api = {
 
   /** 批量识别多张图片：每张图独立返回结果（单张失败不影响其余）；siteId 整批共用 */
   async detectImages(files: File[], onProgress?: (current: number, total: number) => void, siteId?: number): Promise<MultiImageDetectResponse> {
-    if (isMockMode) {
+    if (isMockMode()) {
       const items: MultiImageDetectItem[] = [];
       for (let i = 0; i < files.length; i += 1) {
         const size = await readImageSize(files[i]);
@@ -201,7 +235,7 @@ export const api = {
   },
 
   async createVideoTask(file: File, siteId?: number): Promise<{ taskId: string }> {
-    if (isMockMode) { await wait(700); return { taskId: `VID-${Date.now().toString().slice(-8)}` }; }
+    if (isMockMode()) { await wait(700); return { taskId: `VID-${Date.now().toString().slice(-8)}` }; }
     const form = new FormData();
     form.append('file', file);
     if (siteId) form.append('site_id', String(siteId));
@@ -211,7 +245,7 @@ export const api = {
 
   /** 查询视频任务实时进度：轮询返回 progress / previewUrl / 帧数，驱动实时可视化 */
   async getVideoStatus(taskId: string | number): Promise<VideoTaskStatus> {
-    if (isMockMode) {
+    if (isMockMode()) {
       await wait(500);
       return { taskId: Number(taskId), status: 'processing', progress: 55, totalObjects: 0 };
     }
@@ -239,7 +273,7 @@ export const api = {
 
   /** 查询视频检测结果：去重后的垃圾目标列表 + 材质汇总（/detect/result） */
   async getVideoResult(taskId: string | number): Promise<VideoDetectResult> {
-    if (isMockMode) {
+    if (isMockMode()) {
       await wait(400);
       return { taskId: Number(taskId), taskType: 'video', fileName: '', status: 'completed', totalObjects: 0, results: [], materialBreakdown: {} };
     }
@@ -276,7 +310,7 @@ export const api = {
   },
 
   async createReport(taskId: string): Promise<Report> {
-    if (isMockMode) { await wait(900); return mockReports[0]; }
+    if (isMockMode()) { await wait(900); return mockReports[0]; }
     return request<Report>('/api/v1/reports/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -286,7 +320,7 @@ export const api = {
 
   /** 多图批量报告：基于多张图片的检测任务聚合生成一份报告 */
   async createBatchReport(taskIds: string[]): Promise<Report> {
-    if (isMockMode) { await wait(900); return mockReports[0]; }
+    if (isMockMode()) { await wait(900); return mockReports[0]; }
     return request<Report>('/api/v1/reports/batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -295,7 +329,7 @@ export const api = {
   },
 
   async getCurrentUser(): Promise<UserInfo> {
-    if (isMockMode) { await wait(200); return { id: 1, username: '林海', email: 'linhai@aquarise.local', role: 'admin' }; }
+    if (isMockMode()) { await wait(200); return { id: 1, username: '林海', email: 'linhai@aquarise.local', role: 'admin' }; }
     return request<UserInfo>('/api/v1/auth/me');
   },
 
@@ -318,13 +352,25 @@ export const api = {
       }),
     });
   },
+
+  /** 上传文档到 RAG 知识库（海洋守护者「导入质量分析报告」），返回入库后的文档记录 */
+  async uploadKnowledgeDoc(file: File): Promise<KnowledgeDocInfo> {
+    const form = new FormData();
+    form.append('file', file);
+    return request<KnowledgeDocInfo>('/api/v1/knowledge/upload', { method: 'POST', body: form });
+  },
+
+  /** 删除知识库文档（磁盘文件与向量分片一并移除） */
+  async deleteKnowledgeDoc(docId: number): Promise<{ message: string }> {
+    return request<{ message: string }>(`/api/v1/knowledge/${docId}`, { method: 'DELETE' });
+  },
 };
 
 export interface ChatMessagePayload { role: 'system' | 'user' | 'assistant'; content: string }
 
 /** 拉取指定会话的对话历史（同一用户自己的记录，按时间正序） */
 export async function getChatHistory(sessionId: string): Promise<ChatMessagePayload[]> {
-  if (isMockMode) { await wait(220); return []; }
+  if (isMockMode()) { await wait(220); return []; }
   const payload = await request<ChatMessagePayload[]>(
     `/api/v1/chat/history?session_id=${encodeURIComponent(sessionId)}`,
   );
@@ -337,7 +383,7 @@ export async function streamChat(
   onChunk: (text: string) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  if (isMockMode) {
+  if (isMockMode()) {
     const reply = '从监测数据看，建议优先处理废弃渔网与大型塑料制品：它们会造成持续缠绕风险，并进一步碎化为微塑料。可先由 ROV 标记坐标和深度，再制定分区打捞路线；作业后复测垃圾密度，并将前后数据纳入质量报告。';
     for (const char of reply) {
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');

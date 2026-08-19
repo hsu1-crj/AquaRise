@@ -126,3 +126,9 @@ src/frontend/.env.*.local
 
 # Local Figma reference package; source is used for visual comparison only.
 AQUARISE Ocean Conservation Super-App (Community)/
+
+# ==============================
+# LAN HTTPS certificates (local dev)
+# ==============================
+# Local CA + server certs generated for LAN camera (getUserMedia); never commit.
+.certs/

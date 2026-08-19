@@ -7,7 +7,7 @@ export type PageKey =
   | 'screen'
   | 'reports'
   | 'assistant'
-  | 'knowledge'
+  | 'atlas'
   | 'profile';
 
 export type PollutionLevel = '优' | '良' | '中' | '差' | '严重';
@@ -173,6 +173,31 @@ export interface Report {
   objectCount: number;
   status: '已生成' | '生成中';
   summary: string;
+}
+
+/** RAG 知识库文档（后端 /api/v1/knowledge 返回形状） */
+export interface KnowledgeDocInfo {
+  id: number;
+  file_name: string;
+  file_type: string;
+  file_size?: number | null;
+  chunk_count: number;
+  status: string;
+  created_at?: string | null;
+}
+
+export interface DigitalHumanPublicConfig {
+  enabled: boolean;
+  configured: boolean;
+  provider: string;
+  app_id?: string | null;
+  avatar_id: string;
+  voice_id: string;
+  sdk_mode: string;
+  gateway_server: string;
+  sdk_url: string;
+  sdk_integrity?: string | null;
+  message?: string | null;
 }
 
 export interface ApiErrorShape {

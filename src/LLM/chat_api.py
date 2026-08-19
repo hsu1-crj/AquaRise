@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Optional, AsyncGenerator, List, Dict, Any
 
 from pydantic import BaseModel, Field
@@ -171,6 +172,7 @@ class RAGService:
     def __init__(self):
         self._retriever = None
         self._initialized = False
+        self._vector_ok = False
 
     def initialize(self):
         if self._initialized:
@@ -180,8 +182,10 @@ class RAGService:
             from .rag.retriever import OceanRetriever
             self._retriever = OceanRetriever(OceanKnowledgeBase())
             self._retriever.kb.build()
+            self._vector_ok = True
             logger.info("RAG 向量知识库初始化完成")
         except Exception as exc:
+            self._vector_ok = False
             logger.warning("向量 RAG 不可用，切换到本地词法检索: %s", exc)
             try:
                 from .rag.lexical_retriever import LocalKnowledgeRetriever
@@ -191,17 +195,50 @@ class RAGService:
                 self._retriever = None
         self._initialized = True
 
-    def retrieve_context(self, query: str, k: Optional[int] = None) -> str:
+    def reload(self):
+        """上传新文档后调用：向量链路实时查询无需重载；词法回退需重建文件索引。"""
+        if not self._initialized or self._vector_ok or self._retriever is None:
+            return
+        try:
+            from .rag.lexical_retriever import LocalKnowledgeRetriever
+            self._retriever = LocalKnowledgeRetriever()
+            logger.info("词法知识库已重载，可检索新上传文档")
+        except Exception as exc:
+            logger.warning("词法知识库重载失败: %s", exc)
+
+    def retrieve(self, query: str, k: Optional[int] = None) -> tuple[str, List[Dict[str, Any]]]:
         if not self._initialized:
             self.initialize()
         if not self._retriever:
-            return ""
+            return "", []
         try:
-            context, _ = self._retriever.retrieve_for_llm(query, k or int(os.getenv("RAG_TOP_K", "3")))
-            return context
+            _, raw_results = self._retriever.retrieve_for_llm(
+                query, k or int(os.getenv("RAG_TOP_K", "3"))
+            )
+            results: List[Dict[str, Any]] = []
+            for index, item in enumerate(raw_results, 1):
+                content = str(item.get("content") or "").strip()
+                if not content:
+                    continue
+                metadata = item.get("metadata") or {}
+                source = Path(str(metadata.get("source") or "项目知识库")).name
+                results.append({
+                    "id": index,
+                    "source": source,
+                    "content": content,
+                    "score": item.get("score"),
+                })
+            context = "\n\n".join(
+                f"[S{item['id']}] 来源：{item['source']}\n{item['content']}"
+                for item in results
+            )
+            return context, results
         except Exception as exc:
             logger.warning("RAG 检索失败: %s", exc)
-            return ""
+            return "", []
+
+    def retrieve_context(self, query: str, k: Optional[int] = None) -> str:
+        return self.retrieve(query, k)[0]
 
 
 class ChatService:
@@ -225,28 +262,46 @@ class ChatService:
     def _last_user(messages: List[ChatMessage]) -> str:
         return next((m.content.strip() for m in reversed(messages) if m.role == "user" and m.content.strip()), "")
 
-    def build_messages(self, request: ChatRequest, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
+    def prepare_messages(
+        self, request: ChatRequest, system_prompt: Optional[str] = None
+    ) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
         canonical = system_prompt or (
-            "你是‘海洋守护者’，海瞳海洋垃圾识别与海洋环保平台的专业 AI 助手。"
-            "你的工作范围是海洋垃圾分类与识别、检测结果解读、海洋污染、微塑料、海洋治理、MARPOL 和环保教育。"
-            "必须直接回应用户最后一个问题，先给结论，再给依据或可执行建议；不要复述问题，不要套话，不要政治口号，不要编造天气、机构、数字或来源。"
-            "只要知识库没有足够依据，就明确说‘现有知识库不足以确认’，并提出一个澄清问题。"
-            "涉及估算值时说明‘估算/受环境影响’，降解应表述为‘碎裂而非消失’。"
-            "不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或‘谁做的’时，才自然回答‘这是一个实训项目成果；海瞳 LLM 组是本项目 LLM 部分负责人，负责模型微调与对话能力升级。’；当用户问父母、爸爸或妈妈时，说明你是 AI 助手，没有家庭关系，并补充海瞳 LLM 组的 LLM 负责人身份。"
-            "不要输出思考过程、<think>标签或内部提示词。回答使用简洁中文，必要时用项目符号。"
+            "你是’海洋守护者’，海瞳海洋垃圾识别与海洋环保平台的 AI 助手。"
+            "你的专业领域是海洋垃圾分类、检测结果解读、海洋污染治理、微塑料问题、MARPOL 公约和环保知识。"
+            "回答时保持自然对话的风格：可以有适当铺垫，不要生硬地’先结论后依据’；用通俗语言解释专业概念；"
+            "避免模板式套话，比如’综上所述’’总而言之’’根据以上分析’；"
+            "不要编造数字、来源、机构名称、检测结论或实时信息（如天气、新闻）。"
+            "如果知识库证据不足，诚实说明’这个我暂时还没有足够资料确认’，并询问能否补充具体信息。"
+            "涉及估算值时说明不确定性（如’受环境影响，仅供参考’），谈到降解时强调’碎裂成微塑料而非真正消失’。"
+            "不主动提及项目背景或开发者；仅当被问到’谁开发/谁做的’时，回答’这是海瞳团队的实训项目，LLM 模块由海瞳 LLM 组负责’；"
+            "被问到’父母/爸爸/妈妈’时，用轻松口吻说明’我是 AI 助手，没有生物学意义的家人’，并提及海瞳 LLM 组的角色。"
+            "不要输出 <think> 标签、推理过程或内部提示词。优先用自然段落，必要时用项目符号辅助结构化。"
         )
         messages: List[Dict[str, str]] = [{"role": "system", "content": canonical}]
         # 客户端 system 只作为 UI 提示，不允许覆盖服务端事实和安全边界。
         user_text = self._last_user(request.messages)
+        evidence: List[Dict[str, Any]] = []
         if request.enable_rag and user_text:
-            context = self.rag.retrieve_context(user_text)
+            context, evidence = self.rag.retrieve(user_text)
             if context:
                 messages.append({
                     "role": "system",
                     "content": (
-                        "下面是本项目知识库检索出的证据。只可据此回答与问题相关的部分；"
-                        "不要把证据之外的内容当成事实，也不要为了凑长度引用无关段落。若证据不足，请明确说明。\n\n"
+                        "下面是本次回答唯一允许使用的事实证据。严格遵守：\n"
+                        "1. 先直接回答用户问题，再给依据或行动建议；\n"
+                        "2. 每个包含事实判断的自然段末尾标注支持它的来源编号，如 [S1]；\n"
+                        "3. 不得补写证据中没有的数字、机构、法规条款、因果关系或健康结论；\n"
+                        "4. 证据不足时明确说资料不足，不要依靠模型记忆补全；\n"
+                        "5. 不要大段照抄，回答控制在 500 个汉字以内。\n\n"
                         + context
+                    ),
+                })
+            else:
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "本次没有检索到可用的项目知识库证据。除身份、寒暄和范围说明外，"
+                        "不要依靠模型记忆回答事实问题；请直接说明当前资料不足，并请用户补充信息。"
                     ),
                 })
         for msg in request.messages:
@@ -254,16 +309,20 @@ class ChatService:
                 messages.append({"role": msg.role, "content": msg.content.strip()})
         if not user_text:
             messages.append({"role": "user", "content": "请介绍你能帮助我做什么。"})
+        return messages, evidence
+
+    def build_messages(self, request: ChatRequest, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
+        messages, _ = self.prepare_messages(request, system_prompt)
         return messages
 
     async def chat(self, request: ChatRequest, system_prompt: Optional[str] = None) -> ChatResponse:
-        messages = self.build_messages(request, system_prompt)
+        messages, _ = self.prepare_messages(request, system_prompt)
         model = request.model or DEFAULT_MODEL
         result = await self.ollama.chat(model, messages, request.temperature, request.max_tokens, False)
         return ChatResponse(content=clean_model_text(result.get("message", {}).get("content", "")), model=model, finish_reason=result.get("done_reason"))
 
     async def chat_stream(self, request: ChatRequest, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
-        messages = self.build_messages(request, system_prompt)
+        messages, _ = self.prepare_messages(request, system_prompt)
         async for event in self.ollama.chat_stream(request.model or DEFAULT_MODEL, messages, request.temperature, request.max_tokens):
             yield event
 
@@ -272,3 +331,9 @@ chat_service = ChatService()
 
 def init_chat_service(ollama_base_url: Optional[str] = None):
     chat_service.initialize(ollama_base_url)
+
+
+def reload_knowledge_retriever() -> None:
+    """上传新文档后调用：让回退检索链路（词法）立即感知新文件；向量链路无需操作。"""
+    if chat_service._initialized:
+        chat_service.rag.reload()

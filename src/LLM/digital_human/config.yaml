@@ -21,6 +21,8 @@ sdk:
 
   # Web SDK CDN地址
   sdk_cdn_url: "https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js"
+  # 当前已验证脚本的 SRI；远端内容变化时浏览器拒绝加载并降级。
+  sdk_integrity: "sha384-x6JED2qbmbCu3552Jzvj9Egb2FvDrnE2hoPUxupzkFphjuoGadVjKQupOjL3sWtu"
 
   # 连接配置
   timeout: 30000

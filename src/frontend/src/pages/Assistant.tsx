@@ -11,26 +11,32 @@ import {
   ChevronRight,
   Copy,
   Download,
+  FileBarChart,
+  FileUp,
   HelpCircle,
   LoaderCircle,
+  Mic,
   RotateCcw,
   Send,
   Sparkles,
   Square,
   ThumbsUp,
   Trash2,
+  UploadCloud,
   Volume2,
   VolumeX,
   Waves,
+  X,
   Zap,
 } from 'lucide-react';
-import { getChatHistory, streamChat, type ChatMessagePayload } from '../services/api';
+import { api, getChatHistory, streamChat, type ChatMessagePayload } from '../services/api';
 import {
   loadXmovSDK,
   OceanDigitalHuman,
   type DigitalHumanStatus,
 } from '../services/digitalHuman';
-import type { UserInfo } from '../types';
+import type { KnowledgeDocInfo, Report, UserInfo } from '../types';
+import { DigitalHumanIcon } from '../components/DigitalHumanIcon';
 
 // ---------- helpers & interfaces ----------
 
@@ -125,15 +131,49 @@ const STATUS_LABELS: Record<DigitalHumanStatus, string> = {
   offline: '纯文本模式',
 };
 
-const WELCOME_MD = `你好，我是 **海洋守护者** 🌊。
+const WELCOME_MD = `你好，我是 **海洋守护者**。
 
 作为海瞳平台的专业环保 AI 助手，已挂载 **海洋知识库** 与 **TrashCan 数据集研判体系**。我可以为你提供：
-- 🔍 **检测结果与可疑目标置信度复核**
-- 🪸 **水下生态与废弃渔网/塑料处置规范**
-- 📜 **MARPOL 公约与海洋环境保护法规解读**
-- 📊 **污染治理方案与海岸巡检优先级建议**
+- **检测结果与可疑目标置信度复核**
+- **水下生态与废弃渔网/塑料处置规范**
+- **MARPOL 公约与海洋环境保护法规解读**
+- **污染治理方案与海岸巡检优先级建议**
 
 你可以直接点击上方的快捷问题，或在下方输入你想咨询的问题。`;
+
+// ---------- 语音识别（Web Speech API，Chrome/Edge） ----------
+
+/** Web Speech API 最小成员接口。TS 无内置声明，这里只声明用到的成员。 */
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  length: number;
+  [index: number]: { transcript: string };
+}
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: { resultIndex: number; results: SpeechRecognitionResultLike[] }) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+interface SpeechRecognitionCtorLike {
+  new (): SpeechRecognitionLike;
+}
+
+// 浏览器事实标准（webkit 前缀）；TS 无内置声明，仅做能力探测，使用前再运行时确认
+const speechRecognitionCtor = (() => {
+  if (typeof window === 'undefined') return undefined;
+  const win = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtorLike;
+    webkitSpeechRecognition?: SpeechRecognitionCtorLike;
+  };
+  return win.SpeechRecognition ?? win.webkitSpeechRecognition;
+})();
+const speechSupported = !!speechRecognitionCtor;
 
 // ---------- 背景粒子动效 ----------
 
@@ -290,7 +330,7 @@ function MessageBubble({
         e.stopPropagation();
         const codeText = pre.querySelector('code')?.innerText || pre.innerText;
         navigator.clipboard.writeText(codeText).then(() => {
-          btn.innerHTML = '<span>已复制 ✓</span>';
+          btn.innerHTML = '<span><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> 已复制</span>';
           setTimeout(() => {
             btn.innerHTML = '<span>复制</span>';
           }, 1800);
@@ -656,6 +696,20 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const [lastQuestion, setLastQuestion] = useState('');
   const [showScrollBottom, setShowScrollBottom] = useState(false);
 
+  // --- 语音识别输入（Web Speech API，Chrome/Edge） ---
+  const [listening, setListening] = useState(false);
+  const listeningRef = useRef(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  // --- 质量分析报告导入 ---
+  const [importOpen, setImportOpen] = useState(false);
+  const [importTab, setImportTab] = useState<'system' | 'upload'>('system');
+  const [systemReports, setSystemReports] = useState<Report[]>([]);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importedDocs, setImportedDocs] = useState<KnowledgeDocInfo[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const controller = useRef<AbortController | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -731,6 +785,15 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       controller.current?.abort();
       stopSubtitleQueue();
       dhRef.current?.destroy();
+      // 停止语音识别（内联实现，避免依赖后定义的 stopListening）
+      listeningRef.current = false;
+      const rec = recognitionRef.current;
+      recognitionRef.current = null;
+      if (rec) {
+        rec.onend = null;
+        rec.onerror = null;
+        try { rec.stop(); } catch { /* 已停止 */ }
+      }
     };
   }, [stopSubtitleQueue]);
 
@@ -803,12 +866,13 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
     async function boot() {
       try {
+        const publicConfig = await api.getDigitalHumanConfig().catch(() => null);
         setDhLoadingText('正在加载数字人引擎…');
-        await loadXmovSDK();
+        await loadXmovSDK(publicConfig?.sdk_url, publicConfig?.sdk_integrity ?? undefined);
         if (cancelled) return;
 
         setDhLoadingText('正在连接数字人服务…');
-        const appId = import.meta.env.VITE_DH_APP_ID || '';
+        const appId = import.meta.env.VITE_DH_APP_ID || publicConfig?.app_id || '';
         const appSecret = import.meta.env.VITE_DH_APP_SECRET || '';
         if (!appId || !appSecret) {
           console.warn('[数字人] 未配置 VITE_DH_APP_ID / VITE_DH_APP_SECRET，已开启全息拟态模式');
@@ -822,6 +886,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           appId,
           appSecret,
           containerId: container!.id || 'og-sdk-container',
+          gatewayServer: publicConfig?.gateway_server,
         });
 
         dh.on('progress', (value) => {
@@ -858,9 +923,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         });
 
         await dh.init();
-        if (!cancelled) {
-          dhRef.current = dh;
-        }
+        if (cancelled) dh.destroy();
+        else dhRef.current = dh;
       } catch {
         if (!cancelled) {
           setDhStatus('offline');
@@ -1021,13 +1085,137 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     }
   };
 
+  // --- 语音识别输入 ---
+  const stopListening = useCallback(() => {
+    listeningRef.current = false;
+    setListening(false);
+    const rec = recognitionRef.current;
+    recognitionRef.current = null;
+    if (rec) {
+      rec.onend = null; // 阻止自动重启
+      rec.onerror = null;
+      try { rec.stop(); } catch { /* 已停止 */ }
+    }
+  }, []);
+
+  const toggleListening = useCallback(() => {
+    if (listeningRef.current) {
+      stopListening();
+      return;
+    }
+    const Ctor = speechRecognitionCtor;
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.lang = 'zh-CN';
+    rec.continuous = true;
+    rec.interimResults = true;
+    let finalText = '';
+    rec.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const res = event.results[i];
+        if (res.isFinal) {
+          finalText += res[0].transcript;
+        } else {
+          interim += res[0].transcript;
+        }
+      }
+      handleInputChange((finalText + interim).trim());
+    };
+    rec.onerror = (event) => {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setError('麦克风权限被拒绝，请在浏览器地址栏允许麦克风后重试');
+      }
+      stopListening();
+    };
+    rec.onend = () => {
+      // continuous 模式偶发自动停止：仍处于聆听状态则自动续听，保证长句不中断
+      if (listeningRef.current) {
+        try { rec.start(); } catch { /* 无法续听 */ }
+      } else {
+        recognitionRef.current = null;
+      }
+    };
+    recognitionRef.current = rec;
+    listeningRef.current = true;
+    setListening(true);
+    try {
+      rec.start();
+    } catch {
+      stopListening();
+    }
+  }, [handleInputChange, stopListening]);
+
+  // --- 质量分析报告导入 ---
+  const openImportModal = useCallback(async () => {
+    setImportOpen(true);
+    setImportError('');
+    setImportTab('system');
+    if (systemReports.length === 0) {
+      try {
+        setSystemReports(await api.getReports());
+      } catch (reason) {
+        setImportError(reason instanceof Error ? reason.message : '报告列表加载失败');
+      }
+    }
+  }, [systemReports.length]);
+
+  const doImport = useCallback(async (file: File) => {
+    setImportBusy(true);
+    setImportError('');
+    try {
+      const doc = await api.uploadKnowledgeDoc(file);
+      setImportedDocs((prev) => [doc, ...prev.filter((d) => d.file_name !== doc.file_name)]);
+      setImportOpen(false);
+    } catch (reason) {
+      setImportError(reason instanceof Error ? reason.message : '报告导入失败');
+    } finally {
+      setImportBusy(false);
+    }
+  }, []);
+
+  const importSystemReport = useCallback(
+    (report: Report) => {
+      const md = [
+        `# 质量分析报告 ${report.id}`,
+        `- 报告标题：${report.title}`,
+        `- 监测海域：${report.area}`,
+        `- 生成时间：${report.createdAt}`,
+        `- 污染等级：${report.level}`,
+        `- 质量评分：${report.score}`,
+        `- 识别目标：${report.objectCount} 件`,
+        `- 状态：${report.status}`,
+        '',
+        '## 评估摘要',
+        '',
+        report.summary,
+      ].join('\n');
+      const file = new File([md], `质量报告_${report.id}.md`, { type: 'text/markdown' });
+      void doImport(file);
+    },
+    [doImport],
+  );
+
+  const removeImportedDoc = useCallback(async (doc: KnowledgeDocInfo) => {
+    try {
+      await api.deleteKnowledgeDoc(doc.id);
+      setImportedDocs((prev) => prev.filter((d) => d.id !== doc.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '移除文档失败');
+    }
+  }, []);
+
   const stop = () => {
     controller.current?.abort();
     stopSubtitleQueue();
     setBusy(false);
     setDhSubtitle('');
     if (dhRef.current) {
+      dhRef.current.interactiveIdle();
       setDhStatus(dhReady ? 'idle' : 'offline');
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
     }
   };
 
@@ -1035,6 +1223,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     const next = !dhOn;
     setDhOn(next);
     if (!next) {
+      dhRef.current?.interactiveIdle();
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
       setDhStatus('offline');
       setDhSubtitle('');
     } else {
@@ -1127,11 +1319,14 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         <div className="og-stage-header">
           <div className="og-stage-brand">
             <div className="og-brand-orb">
-              <Waves size={18} />
+              <DigitalHumanIcon size={22} />
             </div>
             <div>
-              <h3>海洋守护者</h3>
-              <small>Ocean Guardian AI</small>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <h3>海洋守护者</h3>
+                <span className="digital-human-badge">AI 数字人</span>
+              </div>
+              <small>OCEAN GUARDIAN · DIGITAL HUMAN AI</small>
             </div>
           </div>
 
@@ -1347,6 +1542,35 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
         {/* 底部输入工作台 */}
         <div className="og-composer-container">
+          <div className="og-import-bar">
+            <button
+              type="button"
+              className="og-import-btn"
+              onClick={() => void openImportModal()}
+              disabled={busy}
+              title="导入质量分析报告至知识库，可向海洋守护者咨询报告内容"
+            >
+              <FileUp size={13} /> 导入质量分析报告
+            </button>
+            {importedDocs.length > 0 && (
+              <div className="og-import-chips">
+                {importedDocs.map((doc) => (
+                  <span key={doc.id} className="og-import-chip" title={`已导入：${doc.file_name}`}>
+                    <FileBarChart size={12} />
+                    <span className="og-import-chip-name">{doc.file_name}</span>
+                    <button
+                      type="button"
+                      className="og-import-chip-x"
+                      onClick={() => void removeImportedDoc(doc)}
+                      aria-label={`移除 ${doc.file_name}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
           <form className="og-composer-form" onSubmit={submit}>
             <div className="og-composer-input-box">
               <textarea
@@ -1362,13 +1586,39 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
               <div className="og-composer-toolbar">
                 <div className="og-composer-tips">
-                  <span>Enter 发送 · Shift+Enter 换行</span>
+                  {listening ? (
+                    <span className="og-mic-tip">正在聆听… 再说一次即可继续，点击麦克风结束</span>
+                  ) : (
+                    <span>Enter 发送 · Shift+Enter 换行</span>
+                  )}
                   {input.trim().length > 0 && (
                     <span className="og-char-count">{input.trim().length} 字</span>
                   )}
                 </div>
 
                 <div className="og-composer-actions">
+                  {!busy && (
+                    <button
+                      type="button"
+                      className={`og-composer-tool-btn og-mic-btn ${listening ? 'listening' : ''}`}
+                      onClick={toggleListening}
+                      disabled={!speechSupported}
+                      title={
+                        !speechSupported
+                          ? '当前浏览器不支持语音输入，请使用 Chrome/Edge'
+                          : listening
+                            ? '停止语音输入'
+                            : '语音输入（中文）'
+                      }
+                    >
+                      {listening ? (
+                        <span className="og-mic-wave" aria-hidden="true"><i /><i /><i /></span>
+                      ) : (
+                        <Mic size={13} />
+                      )}
+                    </button>
+                  )}
+
                   {input.trim().length > 0 && !busy && (
                     <button
                       type="button"
@@ -1407,6 +1657,106 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           </form>
         </div>
       </section>
+
+      {/* 导入质量分析报告弹窗 */}
+      {importOpen && (
+        <div
+          className="og-modal-mask"
+          onClick={() => { if (!importBusy) setImportOpen(false); }}
+        >
+          <div
+            className="og-import-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="导入质量分析报告"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="og-import-modal-head">
+              <div>
+                <span className="eyebrow"><i /> IMPORT QUALITY REPORT</span>
+                <h3>导入质量分析报告</h3>
+                <p>导入后进入知识库，可直接向海洋守护者咨询报告内容</p>
+              </div>
+              <button className="og-import-close" onClick={() => setImportOpen(false)} aria-label="关闭" disabled={importBusy}>
+                <X size={16} />
+              </button>
+            </header>
+
+            <div className="og-import-tabs">
+              <button
+                type="button"
+                className={importTab === 'system' ? 'active' : ''}
+                onClick={() => { setImportTab('system'); setImportError(''); }}
+              >
+                <FileBarChart size={13} /> 从质量报告导入
+              </button>
+              <button
+                type="button"
+                className={importTab === 'upload' ? 'active' : ''}
+                onClick={() => { setImportTab('upload'); setImportError(''); }}
+              >
+                <UploadCloud size={13} /> 上传报告文件
+              </button>
+            </div>
+
+            <div className="og-import-body">
+              {importTab === 'system' ? (
+                systemReports.length === 0 ? (
+                  <div className="og-import-empty">
+                    <FileBarChart size={22} />
+                    <span>{importError || '暂无质量报告，可切换到「上传报告文件」'}</span>
+                  </div>
+                ) : (
+                  <ul className="og-report-list">
+                    {systemReports.map((report) => (
+                      <li key={report.id}>
+                        <div className="og-report-meta">
+                          <strong>{report.title}</strong>
+                          <small>{report.createdAt} · {report.area} · 等级 {report.level} · 评分 {report.score} · 目标 {report.objectCount} 件</small>
+                        </div>
+                        <button
+                          type="button"
+                          className="og-report-import-btn"
+                          onClick={() => importSystemReport(report)}
+                          disabled={importBusy}
+                        >
+                          {importBusy ? <LoaderCircle className="spin" size={13} /> : <FileUp size={13} />}
+                          {importBusy ? '导入中' : '导入'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
+                <div className="og-upload-zone">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.txt,.md,.html"
+                    hidden
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file) void doImport(file);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="og-upload-btn"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={importBusy}
+                  >
+                    {importBusy ? <LoaderCircle className="spin" size={20} /> : <UploadCloud size={20} />}
+                    {importBusy ? '正在导入…' : '选择报告文件'}
+                  </button>
+                  <p>支持 pdf / txt / md / html 格式。上传后自动进入知识库并建立检索索引，回答问题时将引用报告内容。</p>
+                  {importError && <div className="og-import-error"><AlertCircle size={13} />{importError}</div>}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

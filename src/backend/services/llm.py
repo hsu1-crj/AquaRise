@@ -6,15 +6,26 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, Sequence
 
-IDENTITY = '我是海瞳平台的海洋守护者。本项目由海瞳项目开发组开发，此项目中 LLM 模块负责人为海瞳 LLM 组。'
-FAMILY_IDENTITY = '我是海瞳平台上的 AI 助手，没有父母或家庭关系。本项目由海瞳项目开发组开发，此项目中 LLM 模块负责人为海瞳 LLM 组。'
-PLATFORM_IDENTITY = '我是海瞳平台的海洋守护者，负责海洋垃圾识别、污染分析、检测结果解读与海洋环保知识问答。'
+IDENTITY = (
+    '我是海瞳平台的海洋守护者，这个项目是海瞳团队共同开发的成果。'
+    'LLM 这块主要由海瞳 LLM 组负责，包括模型微调和对话能力升级。有什么海洋环保问题想了解吗？'
+)
+FAMILY_IDENTITY = (
+    '哈哈，我是 AI 助手，没有生物学意义上的父母或家人。'
+    '不过这个项目确实是海瞳团队一起搭建的，LLM 模块由海瞳 LLM 组负责开发。'
+    '要不聊聊海洋垃圾识别？这才是我擅长的领域。'
+)
+PLATFORM_IDENTITY = (
+    '我是海瞳平台的海洋守护者，主要帮你分析水下垃圾检测结果、解读污染风险、'
+    '回答海洋环保相关的问题。比如检测报告怎么看、不同垃圾该怎么处理、MARPOL 公约是什么等等。'
+)
 SCOPE_RESPONSE = (
-    "我目前专注于海洋垃圾识别、海洋污染分析、治理技术和检测结果解读。"
-    "这个问题不在我的知识范围内；如果你提供检测结果或海洋环保问题，我可以继续帮你分析。"
+    "这个问题超出我的专业范围了——我主要聚焦在海洋垃圾识别、污染分析和海洋环保政策这块。"
+    "如果你有检测结果需要解读，或者想了解海洋治理方面的内容，我会更有帮助。"
 )
 
 # 只有命中业务语境的复杂问题才交给小参数模型；其余问题明确收敛范围，
@@ -23,7 +34,12 @@ DOMAIN_TERMS = (
     "海洋", "海岸", "海滩", "海底", "海水", "海域", "海洋生物", "海洋环保",
     "垃圾", "废弃物", "污染", "塑料", "微塑料", "渔网", "渔具", "漂浮物", "漂浮垃圾",
     "珊瑚", "m arpol", "marpol", "船舶", "附则", "清理", "打捞", "回收", "分拣", "治理",
-    "检测", "识别", "置信度", "检测报告", "污染等级", "yolo", "环保",
+    "检测", "识别", "置信度", "检测报告", "污染等级", "yolo", "环保", "trashcan", "数据集",
+)
+
+_CITATION_RE = re.compile(r"\[S(\d+)\]", re.I)
+_UNSUPPORTED_ORG_RE = re.compile(
+    r"[\u4e00-\u9fffA-Za-z·]{2,24}(?:委员会|研究院|保护署|管理局|协会|组织|大学)"
 )
 
 
@@ -55,72 +71,208 @@ def _has_obvious_repetition(text: str) -> bool:
     return False
 
 
-def is_acceptable_model_answer(answer: str, question: str) -> bool:
+def _evidence_text(evidence: Sequence[dict[str, Any]]) -> str:
+    return "\n".join(str(item.get("content") or "") for item in evidence)
+
+
+def _numbers(text: str) -> set[str]:
+    cleaned = _CITATION_RE.sub("", text or "")
+    cleaned = re.sub(r"(?m)^\s*\d+[.、)]\s*", "", cleaned)
+    return set(re.findall(r"(?<![A-Za-z])\d+(?:\.\d+)?%?", cleaned))
+
+
+def _has_unsupported_facts(answer: str, question: str, evidence: Sequence[dict[str, Any]]) -> bool:
+    support = f"{question}\n{_evidence_text(evidence)}"
+    if _numbers(answer) - _numbers(support):
+        return True
+    support_compact = _compact(support).lower()
+    for match in _UNSUPPORTED_ORG_RE.finditer(answer):
+        if _compact(match.group(0)).lower() not in support_compact:
+            return True
+    return False
+
+
+def _claim_terms(text: str) -> set[str]:
+    chars = "".join(re.findall(r"[\u4e00-\u9fff]", text or ""))
+    stop = {"这个", "问题", "主要", "需要", "可以", "应该", "通过", "进行", "以及", "相关", "方面"}
+    return {
+        chars[index:index + 2]
+        for index in range(max(0, len(chars) - 1))
+        if chars[index:index + 2] not in stop
+    }
+
+
+def _claims_have_citations(answer: str, evidence: Sequence[dict[str, Any]]) -> bool:
+    """每个实质性段落/列表项都必须在同一行给出来源，避免用一个引用装饰整篇幻觉。"""
+    for raw_line in (answer or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        visible = re.sub(r"^[#>*\-+\d.、)\s]+", "", line)
+        visible = re.sub(r"[*_`~]", "", visible).strip()
+        if not visible or visible.endswith(("：", ":")) or len(_compact(visible)) < 6:
+            continue
+        citation_ids = [int(value) for value in _CITATION_RE.findall(line)]
+        if not citation_ids:
+            return False
+        claim_terms = _claim_terms(_CITATION_RE.sub("", visible))
+        cited_text = "\n".join(
+            str(evidence[index - 1].get("content") or "")
+            for index in citation_ids
+            if 1 <= index <= len(evidence)
+        )
+        if claim_terms:
+            support_ratio = len(claim_terms & _claim_terms(cited_text)) / len(claim_terms)
+            if support_ratio < 0.16:
+                return False
+    return True
+
+
+def is_acceptable_model_answer(
+    answer: str,
+    question: str,
+    evidence: Optional[Sequence[dict[str, Any]]] = None,
+    require_citations: Optional[bool] = None,
+) -> bool:
     """拦截 R1 1.5B 的复述、空答、推理泄漏和明显事实偏移。"""
     raw = answer or ""
     text = _compact(_strip_think(raw))
     query = _compact(question)
+
+    # 基础质量检查：推理泄漏、空答、完全复述问题
     if "<think" in raw.lower() or len(text) < 24 or text == query or text.startswith(query):
         return False
     if _has_obvious_repetition(raw):
         return False
-    # 这些表达在实际回归中反复出现，但不提供可执行信息或不受知识库支持。
-    unsupported_patterns = (
-        r"确认.*?(渔网|垃圾).*?类型", r"符合.*?(法规|标准)要求", r"环保材料", r"清洁剂",
-        r"长期监测和分类", r"确保.*?(安全|可持续)", r"立即停止活动", r"系统无法直接回答",
+
+    # 只拦截严重的事实错误模板，放宽自然表达的空间
+    critical_errors = (
+        r"系统无法直接回答",  # 回避式模板
+        r"立即停止.*?活动",   # 无依据的紧急指令
     )
-    if any(re.search(pattern, text) for pattern in unsupported_patterns):
+    if any(re.search(pattern, text) for pattern in critical_errors):
         return False
 
-    required_terms = {
-        "渔网": ("缠绕", "打捞", "拖拽", "珊瑚", "专业", "记录"),
-        "微塑料": ("5毫米", "碎片", "颗粒", "摄入", "研究"),
-        "marpol": ("附则", "船舶", "塑料", "排放"),
-        "船舶": ("附则", "船舶", "塑料", "排放"),
-        "降解": ("碎裂", "老化", "微塑料", "环境"),
-        "消失": ("碎裂", "老化", "微塑料", "环境"),
-        "检测": ("置信度", "类别", "数量", "复核", "任务"),
-        "置信度": ("复核", "人工", "确认", "统计"),
+    # RAG 回答必须能追溯到实际检索结果，来源编号必须存在。
+    if evidence is not None:
+        if not evidence:
+            return bool(re.search(r"资料不足|没有足够资料|暂时无法确认|未检索到", text))
+        require = (
+            os.getenv("LLM_REQUIRE_CITATIONS", "true").strip().lower() in {"1", "true", "yes", "on"}
+            if require_citations is None else require_citations
+        )
+        citations = [int(value) for value in _CITATION_RE.findall(raw)]
+        if require and not citations:
+            return False
+        if require and not _claims_have_citations(raw, evidence):
+            return False
+        if any(value < 1 or value > len(evidence) for value in citations):
+            return False
+        if len(text) > 800:
+            return False
+        if _has_unsupported_facts(raw, question, evidence):
+            return False
+
+    # 只对高风险术语检查必需要素，避免拦截自然表达
+    critical_terms = {
+        "微塑料": ("5毫米", "毫米", "碎片", "颗粒", "小于"),  # 尺寸定义必需
+        "marpol": ("附则", "公约", "船舶"),  # 基本概念必需
     }
     q_lower = (question or "").lower()
-    for topic, terms in required_terms.items():
+    for topic, terms in critical_terms.items():
         if topic in q_lower and not any(term in text for term in terms):
             return False
 
-    # 把明显违反知识边界的关键结论挡在模型层，交由确定性规则回答。
+    # 拦截违反核心知识边界的结论
     if "marpol" in q_lower and re.search(r"(允许|可以|能够).{0,12}(塑料|垃圾).{0,12}(倒|排放).{0,8}(海|海里)", text):
         return False
+
     return True
 
 
-def finalize_model_answer(question: str, model_answer: str) -> str:
+def finalize_model_answer(
+    question: str,
+    model_answer: str,
+    evidence: Optional[Sequence[dict[str, Any]]] = None,
+) -> str:
     """统一模型后处理：净化后须通过质量门禁，否则返回可追溯兜底。"""
     cleaned = _strip_think(model_answer)
-    if is_acceptable_model_answer(cleaned, question):
+    if is_acceptable_model_answer(cleaned, question, evidence):
         return cleaned
-    return _fallback_response(question)
+    return _fallback_response(question, evidence)
 
 
-def _knowledge_fallback(message: str) -> Optional[str]:
+def _query_terms(text: str) -> set[str]:
+    compact = "".join(re.findall(r"[\u4e00-\u9fff]", text or ""))
+    words = set(re.findall(r"[A-Za-z0-9_+#.-]+", (text or "").lower()))
+    for size in (2, 3, 4):
+        words.update(compact[index:index + size] for index in range(max(0, len(compact) - size + 1)))
+    return words
+
+
+def _evidence_excerpt(message: str, evidence: Sequence[dict[str, Any]]) -> tuple[str, list[str]]:
+    query_terms = _query_terms(message)
+    action_query = bool(re.search(r"治理|措施|处理|清理|怎么做|如何|建议|流程", message))
+    action_terms = ("源头", "减量", "拦截", "清理", "回收", "复测", "监测", "记录", "评估", "管理")
+    candidates: list[tuple[int, int, str, str]] = []
+    for item_index, item in enumerate(evidence[:2]):
+        source = str(item.get("source") or (item.get("metadata") or {}).get("source") or "项目知识库")
+        content = str(item.get("content") or "")
+        parts = re.split(r"(?<=[。！？；])|\n+", content)
+        for part_index, part in enumerate(parts):
+            if part.lstrip().startswith(("#", ">")):
+                continue
+            sentence = re.sub(r"^#{1,6}\s*", "", part).strip(" -*\t")
+            sentence = re.sub(r"^\d+[.、)]\s*", "", sentence)
+            if len(sentence) < 18:
+                continue
+            if sentence.startswith(("以下内容介绍", "本文介绍")):
+                continue
+            overlap = len(query_terms & _query_terms(sentence))
+            source_bonus = max(0, 6 - item_index * 3)
+            action_bonus = sum(8 for term in action_terms if action_query and term in sentence)
+            candidates.append((overlap + source_bonus + action_bonus, -part_index, sentence, source))
+    candidates.sort(reverse=True)
+    selected: list[str] = []
+    sources: list[str] = []
+    total = 0
+    for _, _, sentence, source in candidates:
+        if sentence in selected or total + len(sentence) > 650:
+            continue
+        selected.append(sentence)
+        total += len(sentence)
+        if source not in sources:
+            sources.append(source)
+        if len(selected) >= 4:
+            break
+    return "\n".join(f"- {sentence}" for sentence in selected), sources
+
+
+def _knowledge_fallback(
+    message: str, evidence: Optional[Sequence[dict[str, Any]]] = None
+) -> Optional[str]:
     """模型不可用或被质量门禁拦截时，返回可追溯的知识库证据。"""
     if not is_domain_question(message):
         return None
-    try:
-        from src.LLM.rag.lexical_retriever import LocalKnowledgeRetriever
+    results: Sequence[dict[str, Any]] = evidence or []
+    if not results:
+        try:
+            from src.LLM.rag.lexical_retriever import LocalKnowledgeRetriever
 
-        results = LocalKnowledgeRetriever().search(message, 1)
-    except Exception:
-        return None
+            results = LocalKnowledgeRetriever().search(message, 3)
+        except Exception:
+            return None
     if not results:
         return None
-    result = results[0]
-    source = result["metadata"].get("source", "项目知识库")
-    evidence = re.sub(r"^#{1,6}\s*", "", result["content"], flags=re.M).strip()
-    if len(evidence) > 650:
-        evidence = evidence[:650].rsplit("。", 1)[0] + "。"
+    excerpt, sources = _evidence_excerpt(message, results)
+    if not excerpt:
+        return None
+
+    source_text = "、".join(sources[:3]) or "项目知识库"
     return (
-        f"根据项目知识库《{source}》的相关内容：\n{evidence}\n\n"
-        "如需给出现场处置优先级，请补充地点、垃圾类型、数量、潮汐或检测置信度。"
+        f"根据项目知识库中与这个问题最相关的资料，可以确认：\n\n{excerpt}\n\n"
+        f"资料来源：{source_text}。"
+        "如果你有具体的检测数据（比如地点、垃圾类型、数量、置信度），我可以给出更针对性的建议。"
     )
 
 
@@ -138,46 +290,88 @@ def direct_response(message: str) -> Optional[str]:
     """为身份、证据边界和高风险海洋题提供稳定的确定性答案。
 
     这不是替代 RAG，而是防止 1.5B 基座在项目事实、法规禁令和检测阈值上自由发挥。
-    未命中的垂直领域问题仍会进入“RAG → Ollama → 质量门禁”链路。
+    未命中的垂直领域问题仍会进入"RAG → Ollama → 质量门禁"链路。
     """
     q = (message or "").strip().lower()
     if not q:
-        return "请告诉我你想了解的海洋垃圾、污染治理或检测结果。"
+        return "你好呀，有什么想了解的海洋环保话题吗？比如检测报告、垃圾分类或者污染治理。"
 
     if re.search(r"爸爸|父亲|母亲|妈妈|父母|家人|家长|你爸|你爹|老爸|老妈|亲爹", q):
         return FAMILY_IDENTITY
     if re.search(r"谁开发|开发者|项目作者|作者|谁做的|谁创建|项目是谁|谁制作|谁写的|谁设计|制作者|创始人|开发这个项目|aquarise.*作者", q):
         return IDENTITY
     if re.search(r"^(你好|您好|嗨|hello|hi)[！!。．. ]*$", q):
-        return "你好，我是海瞳平台的海洋守护者。我可以结合项目知识库，帮你分析海洋垃圾、污染风险和检测结果。"
+        return "你好！我是海洋守护者，可以帮你分析检测结果、解答海洋环保问题。有什么想了解的吗？"
     if re.search(r"你是谁|你是什么|你是哪个平台|你是哪家|你属于|来自哪里|你叫什么|介绍一下你|你能做什么|有什么功能|海瞳", q):
         return PLATFORM_IDENTITY
     if re.search(r"天气|股票|写代码|编程|写程序|游戏|小说|笑话|算命|新闻|影视|作业", q):
         return SCOPE_RESPONSE
 
-    if re.search(r"(置信度|把握|可信度).{0,12}(低|不足|不高)|\b[0-5]?\d%|能否.{0,8}(统计|上报)|能直接.{0,8}(统计|确认)", q):
-        return "不能直接纳入正式统计或作为最终结论。低置信度识别只能作为待复核线索：应回看原始图像或视频、核对类别与目标框、结合采集位置和时间，并由人工复核或补采样确认；确认后再写入正式统计。"
-    if "幽灵渔网" in q or "渔网" in q or "渔具" in q:
-        return "幽灵渔网是遗失或被遗弃后仍在海中持续捕捞的废弃渔网，属于典型海洋垃圾。它会缠绕鱼类、海龟、海鸟和海洋哺乳动物，并可能损伤珊瑚礁。发现缠绕在珊瑚或生物附近的渔网时，应先记录位置和风险，由专业团队评估后分段解缠、打捞；不要直接拖拽，避免二次损伤。"
+    # 以下是核心专业知识，需要保持权威性但可以更亲和
+    if re.search(r"(置信度|把握|可信度).{0,12}(低|不足|不高)|(?:置信度|把握|可信度).{0,12}(?:\d{1,3}(?:\.\d+)?)%|能否.{0,8}(统计|上报)|能直接.{0,8}(统计|确认)", q):
+        return (
+            "低置信度的识别结果不能直接当成确定结论来统计。"
+            "建议先回看原始图像，核对类别和目标框是否合理，结合采集时间、地点判断，必要时人工复核或补拍确认后再录入正式记录。"
+        )
+    if "幽灵渔网" in q or ("渔网" in q and re.search(r"发现|看到|处理|怎么办|打捞", q)):
+        return (
+            "幽灵渔网是指遗失或废弃后仍在海里持续捕捞的渔网，会缠绕海洋生物、损伤珊瑚礁。"
+            "发现后先记录位置和周边情况，别直接拖拽——容易造成二次伤害。"
+            "正确做法是通知专业团队评估风险，再分段解缠、安全打捞。"
+        )
     if "塑料袋" in q and re.search(r"多久|几年|降解|消失", q):
-        return "塑料袋在海洋中没有一个可靠、统一的‘降解年限’。温度、光照、材质和受力差异很大；很多塑料首先是老化、碎裂成微塑料，并不等于真正消失。因此不建议把‘20年/1000年’当作精确答案，应把它视为长期持留污染物，重点是源头减量、回收和及时清理。"
+        return (
+            "塑料袋在海洋中的’降解时间’其实很难给出准确数字——受温度、光照、材质影响太大了。"
+            "而且很多塑料并不是真的消失，只是碎裂成微塑料继续存在。"
+            "所以比起纠结’多少年分解’，更重要的是源头减量、及时清理和回收利用。"
+        )
     if "微塑料" in q and re.search(r"危害|影响|人体|健康|是什么|定义|多大|疾病|5mm|5毫米", q):
-        return "微塑料通常指粒径或长度小于5毫米的塑料颗粒，可由塑料制品直接进入环境，也可由大块塑料磨损碎裂形成。它可能被海洋生物摄入并造成物理刺激，同时还可能携带或释放部分化学物质；对人体健康的具体风险仍在研究，不能因检出微塑料就认定其已经造成某种疾病。"
+        return (
+            "微塑料通常是指小于5毫米的塑料颗粒或碎片，可能来自塑料制品的磨损碎裂，也可能是直接进入环境的小颗粒。"
+            "它会被海洋生物误食，造成物理伤害，也可能携带一些化学物质。"
+            "对人体健康的具体影响还在研究中，目前不能说检出微塑料就一定会导致某种疾病，但长期累积的风险需要警惕。"
+        )
     if re.search(r"marpol|船舶.*垃圾|船.*塑料|附则\s*v|塑料垃圾.*(倒|排放).*(海|海里)", q):
-        return "MARPOL 是《国际防止船舶造成污染公约》。与船舶垃圾最直接相关的是附则V：塑料禁止从船舶排放入海，不能把塑料垃圾倒进海里；其他垃圾需按类别、区域和排放条件管理，并配合垃圾管理计划、记录簿和港口接收设施。具体履约还要结合船旗国、港口国和适用特殊区域的现行要求。"
+        return (
+            "MARPOL 是《国际防止船舶造成污染公约》，和船舶垃圾最相关的是附则V：\n"
+            "**塑料禁止从船上排放入海**——不能把塑料垃圾倒进海里。\n"
+            "其他垃圾要按类别、区域和条件分类管理，配合垃圾管理计划和记录簿。"
+            "具体履约还得看船旗国、港口国和适用区域的要求。"
+        )
     if re.search(r"海岸.*清理|海滩.*清理|海滩.*优先|清理.*方案|治理.*方案|垃圾.*(优先级|怎么处理)|怎么打捞|如何打捞", q):
-        return "建议按‘先评估、再分区、后清理、再复测’执行：1）记录坐标、潮汐、水深、垃圾类型和数量；2）优先处理幽灵渔网、大型缠绕物、尖锐金属和可能含油/化学品的垃圾；3）按风险选择人工、船舶或 ROV 打捞，渔网不要直接拖拽珊瑚礁；4）现场分拣、称重、拍照留档，疑似危险废物单独隔离；5）清理后按同一航线或样方复测，比较数量、密度和误检情况。若你提供检测报告，我可以进一步给出优先级。"
+        return (
+            "海岸清理建议按’评估-分区-清理-复测’的流程来：\n"
+            "1. 记录坐标、潮汐、水深、垃圾类型和数量\n"
+            "2. 优先处理幽灵渔网、大型缠绕物、尖锐金属和可能含油/化学品的垃圾\n"
+            "3. 根据风险选人工、船舶或ROV打捞，渔网别直接拖拽\n"
+            "4. 现场分拣、称重、拍照记录，疑似危险废物单独隔离\n"
+            "5. 清理后沿同一路线复测，对比数量和密度变化\n\n"
+            "如果你有具体的检测报告，我可以给出更有针对性的优先级建议。"
+        )
     if re.search(r"检测结果|识别结果|报告|污染等级|怎么处理", q):
-        return "请提供检测任务编号、识别出的垃圾类别、数量、置信度或报告摘要。我会按‘现象—风险—优先级—处置建议’给出分析；仅凭一张模糊图片不能把低置信度结果当成确定事实。"
+        # 导入报告到知识库后的咨询放行给RAG链路
+        if "报告" in q and (
+            re.search(r"导入|上传|知识库|刚才|这份|这个|那个", q)
+            or re.search(r"里|中|内|内容|多少|几张|等级|评分|目标|图片|摘要|什么|总结|数量", q)
+        ):
+            return None
+        return (
+            "要分析检测结果的话，建议提供这些信息：检测任务编号、识别出的垃圾类别、数量、置信度，或者直接给报告摘要。"
+            "我会按’现象-风险-优先级-处置建议’帮你分析。"
+            "不过要注意，一张模糊图片 + 低置信度结果不能直接当成确定事实哦。"
+        )
     if not is_domain_question(q):
         return SCOPE_RESPONSE
     return None
 
 
-def _fallback_response(message: str) -> str:
-    return direct_response(message) or _knowledge_fallback(message) or (
-        "现有知识库不足以确认这个问题。请补充对象、地点、时间或检测结果；"
-        "我会基于可检索到的证据再给出结论。"
+def _fallback_response(
+    message: str, evidence: Optional[Sequence[dict[str, Any]]] = None
+) -> str:
+    """兜底响应：确定性规则 → 知识库检索 → 友好的信息不足提示"""
+    return direct_response(message) or _knowledge_fallback(message, evidence) or (
+        "嗯，这个问题我暂时还没有足够的资料来确认。"
+        "如果能补充一些具体信息（比如对象、地点、时间、检测数据），我可以结合知识库再给你分析。"
     )
 
 

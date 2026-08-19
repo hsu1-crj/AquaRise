@@ -17,9 +17,9 @@ function pageNumbers(current: number, total: number): (number | '…')[] {
   return pages;
 }
 
-export function HistoryPage() {
+export function HistoryPage({ initialQuery = '' }: { initialQuery?: string }) {
   const [records, setRecords] = useState<DetectionRecord[]>([]);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [level, setLevel] = useState('全部等级');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -52,7 +52,12 @@ export function HistoryPage() {
       setLoading(false);
     }
   };
-  useEffect(() => { void load(1, { level: '全部等级', query: '' }); }, []);
+  // 挂载时按 initialQuery 过滤（全局搜索跳转带词进入）；无词时全量加载
+  useEffect(() => {
+    if (searchTimer.current) window.clearTimeout(searchTimer.current);
+    setQuery(initialQuery);
+    void load(1, { level: '全部等级', query: initialQuery });
+  }, [initialQuery]);
   // 卸载时清理搜索防抖定时器
   useEffect(() => () => { if (searchTimer.current) window.clearTimeout(searchTimer.current); }, []);
 
