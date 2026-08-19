@@ -865,12 +865,13 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
     async function boot() {
       try {
+        const publicConfig = await api.getDigitalHumanConfig().catch(() => null);
         setDhLoadingText('正在加载数字人引擎…');
-        await loadXmovSDK();
+        await loadXmovSDK(publicConfig?.sdk_url, publicConfig?.sdk_integrity ?? undefined);
         if (cancelled) return;
 
         setDhLoadingText('正在连接数字人服务…');
-        const appId = import.meta.env.VITE_DH_APP_ID || '';
+        const appId = import.meta.env.VITE_DH_APP_ID || publicConfig?.app_id || '';
         const appSecret = import.meta.env.VITE_DH_APP_SECRET || '';
         if (!appId || !appSecret) {
           console.warn('[数字人] 未配置 VITE_DH_APP_ID / VITE_DH_APP_SECRET，已开启全息拟态模式');
@@ -884,6 +885,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           appId,
           appSecret,
           containerId: container!.id || 'og-sdk-container',
+          gatewayServer: publicConfig?.gateway_server,
         });
 
         dh.on('progress', (value) => {
@@ -920,9 +922,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         });
 
         await dh.init();
-        if (!cancelled) {
-          dhRef.current = dh;
-        }
+        if (cancelled) dh.destroy();
+        else dhRef.current = dh;
       } catch {
         if (!cancelled) {
           setDhStatus('offline');
@@ -1209,7 +1210,11 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     setBusy(false);
     setDhSubtitle('');
     if (dhRef.current) {
+      dhRef.current.interactiveIdle();
       setDhStatus(dhReady ? 'idle' : 'offline');
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
     }
   };
 
@@ -1217,6 +1222,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     const next = !dhOn;
     setDhOn(next);
     if (!next) {
+      dhRef.current?.interactiveIdle();
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
       setDhStatus('offline');
       setDhSubtitle('');
     } else {

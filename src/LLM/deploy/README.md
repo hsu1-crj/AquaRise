@@ -1,6 +1,6 @@
 # Ollama 部署说明
 
-> **当前状态（2026-08-12）**：DeepSeek-R1-Distill-Qwen-1.5B 的海洋 LoRA v9 候选正在本机 RTX 4060 上训练（v9 数据：443 训练 / 44 评估，24 条固定生成合同）。训练、固定问题生成验收、合并与 Ollama 烟测全部通过前，生产配置必须继续使用 `deepseek-r1:1.5b`；旧的 `ocean-assistant` 不再是默认链路，也不能作为新训练结果的替代品。
+> **当前状态（2026-08-19）**：正式链路使用已有微调模型 `ds-ocean_mingzhe`。运行时通过确定性规则、RAG 证据引用、事实质量门禁和知识库兜底控制回答质量；`deepseek-r1:1.5b` 仅作为人工回滚基线。本次链路升级不重新训练、不替换现有模型权重。
 
 ## 生产链路
 
@@ -11,24 +11,26 @@
 
 服务层已经固定项目身份、范围边界、低置信度提示和知识库证据约束，因此即使模型短暂不可用也不会把旧模型或无依据回答直接暴露给用户。
 
-## 当前基线模型
+## 当前正式模型与回滚模型
 
 ```bash
-ollama pull deepseek-r1:1.5b
+ollama list
+# 正式：ds-ocean_mingzhe
+# 回滚：deepseek-r1:1.5b
 ```
 
-根目录 `.env` 在 v9 候选验收通过前保持：
+根目录 `.env` 保持：
 
 ```env
 OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=deepseek-r1:1.5b
+OLLAMA_MODEL=ds-ocean_mingzhe
 LLM_TEMPERATURE=0.2
 LLM_MAX_TOKENS=1024
 ```
 
-## v9 合格后的部署步骤
+## 历史候选模型部署步骤
 
-仅当 `models/llm/deepseek-r1-ocean-lora-v9/generation_eval.json` 的人工验收通过后执行（v9 为候选待验收状态）。重点检查开发者、父母、微塑料、MARPOL、低置信度和越界天气题，不得只看 loss 或 `passed` 数量。
+以下内容仅供未来明确批准训练新候选时参考。当前正式链路禁止据此覆盖 `ds-ocean_mingzhe`。候选模型必须先完成独立命名、固定问题验收和人工确认，才能考虑切换。
 
 ### 1. 合并 LoRA
 

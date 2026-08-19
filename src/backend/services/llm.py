@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, Sequence
 
 IDENTITY = (
     '我是海瞳平台的海洋守护者，这个项目是海瞳团队共同开发的成果。'
@@ -33,7 +34,12 @@ DOMAIN_TERMS = (
     "海洋", "海岸", "海滩", "海底", "海水", "海域", "海洋生物", "海洋环保",
     "垃圾", "废弃物", "污染", "塑料", "微塑料", "渔网", "渔具", "漂浮物", "漂浮垃圾",
     "珊瑚", "m arpol", "marpol", "船舶", "附则", "清理", "打捞", "回收", "分拣", "治理",
-    "检测", "识别", "置信度", "检测报告", "污染等级", "yolo", "环保",
+    "检测", "识别", "置信度", "检测报告", "污染等级", "yolo", "环保", "trashcan", "数据集",
+)
+
+_CITATION_RE = re.compile(r"\[S(\d+)\]", re.I)
+_UNSUPPORTED_ORG_RE = re.compile(
+    r"[\u4e00-\u9fffA-Za-z·]{2,24}(?:委员会|研究院|保护署|管理局|协会|组织|大学)"
 )
 
 
@@ -65,7 +71,69 @@ def _has_obvious_repetition(text: str) -> bool:
     return False
 
 
-def is_acceptable_model_answer(answer: str, question: str) -> bool:
+def _evidence_text(evidence: Sequence[dict[str, Any]]) -> str:
+    return "\n".join(str(item.get("content") or "") for item in evidence)
+
+
+def _numbers(text: str) -> set[str]:
+    cleaned = _CITATION_RE.sub("", text or "")
+    cleaned = re.sub(r"(?m)^\s*\d+[.、)]\s*", "", cleaned)
+    return set(re.findall(r"(?<![A-Za-z])\d+(?:\.\d+)?%?", cleaned))
+
+
+def _has_unsupported_facts(answer: str, question: str, evidence: Sequence[dict[str, Any]]) -> bool:
+    support = f"{question}\n{_evidence_text(evidence)}"
+    if _numbers(answer) - _numbers(support):
+        return True
+    support_compact = _compact(support).lower()
+    for match in _UNSUPPORTED_ORG_RE.finditer(answer):
+        if _compact(match.group(0)).lower() not in support_compact:
+            return True
+    return False
+
+
+def _claim_terms(text: str) -> set[str]:
+    chars = "".join(re.findall(r"[\u4e00-\u9fff]", text or ""))
+    stop = {"这个", "问题", "主要", "需要", "可以", "应该", "通过", "进行", "以及", "相关", "方面"}
+    return {
+        chars[index:index + 2]
+        for index in range(max(0, len(chars) - 1))
+        if chars[index:index + 2] not in stop
+    }
+
+
+def _claims_have_citations(answer: str, evidence: Sequence[dict[str, Any]]) -> bool:
+    """每个实质性段落/列表项都必须在同一行给出来源，避免用一个引用装饰整篇幻觉。"""
+    for raw_line in (answer or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        visible = re.sub(r"^[#>*\-+\d.、)\s]+", "", line)
+        visible = re.sub(r"[*_`~]", "", visible).strip()
+        if not visible or visible.endswith(("：", ":")) or len(_compact(visible)) < 6:
+            continue
+        citation_ids = [int(value) for value in _CITATION_RE.findall(line)]
+        if not citation_ids:
+            return False
+        claim_terms = _claim_terms(_CITATION_RE.sub("", visible))
+        cited_text = "\n".join(
+            str(evidence[index - 1].get("content") or "")
+            for index in citation_ids
+            if 1 <= index <= len(evidence)
+        )
+        if claim_terms:
+            support_ratio = len(claim_terms & _claim_terms(cited_text)) / len(claim_terms)
+            if support_ratio < 0.16:
+                return False
+    return True
+
+
+def is_acceptable_model_answer(
+    answer: str,
+    question: str,
+    evidence: Optional[Sequence[dict[str, Any]]] = None,
+    require_citations: Optional[bool] = None,
+) -> bool:
     """拦截 R1 1.5B 的复述、空答、推理泄漏和明显事实偏移。"""
     raw = answer or ""
     text = _compact(_strip_think(raw))
@@ -85,6 +153,26 @@ def is_acceptable_model_answer(answer: str, question: str) -> bool:
     if any(re.search(pattern, text) for pattern in critical_errors):
         return False
 
+    # RAG 回答必须能追溯到实际检索结果，来源编号必须存在。
+    if evidence is not None:
+        if not evidence:
+            return bool(re.search(r"资料不足|没有足够资料|暂时无法确认|未检索到", text))
+        require = (
+            os.getenv("LLM_REQUIRE_CITATIONS", "true").strip().lower() in {"1", "true", "yes", "on"}
+            if require_citations is None else require_citations
+        )
+        citations = [int(value) for value in _CITATION_RE.findall(raw)]
+        if require and not citations:
+            return False
+        if require and not _claims_have_citations(raw, evidence):
+            return False
+        if any(value < 1 or value > len(evidence) for value in citations):
+            return False
+        if len(text) > 800:
+            return False
+        if _has_unsupported_facts(raw, question, evidence):
+            return False
+
     # 只对高风险术语检查必需要素，避免拦截自然表达
     critical_terms = {
         "微塑料": ("5毫米", "毫米", "碎片", "颗粒", "小于"),  # 尺寸定义必需
@@ -102,35 +190,88 @@ def is_acceptable_model_answer(answer: str, question: str) -> bool:
     return True
 
 
-def finalize_model_answer(question: str, model_answer: str) -> str:
+def finalize_model_answer(
+    question: str,
+    model_answer: str,
+    evidence: Optional[Sequence[dict[str, Any]]] = None,
+) -> str:
     """统一模型后处理：净化后须通过质量门禁，否则返回可追溯兜底。"""
     cleaned = _strip_think(model_answer)
-    if is_acceptable_model_answer(cleaned, question):
+    if is_acceptable_model_answer(cleaned, question, evidence):
         return cleaned
-    return _fallback_response(question)
+    return _fallback_response(question, evidence)
 
 
-def _knowledge_fallback(message: str) -> Optional[str]:
+def _query_terms(text: str) -> set[str]:
+    compact = "".join(re.findall(r"[\u4e00-\u9fff]", text or ""))
+    words = set(re.findall(r"[A-Za-z0-9_+#.-]+", (text or "").lower()))
+    for size in (2, 3, 4):
+        words.update(compact[index:index + size] for index in range(max(0, len(compact) - size + 1)))
+    return words
+
+
+def _evidence_excerpt(message: str, evidence: Sequence[dict[str, Any]]) -> tuple[str, list[str]]:
+    query_terms = _query_terms(message)
+    action_query = bool(re.search(r"治理|措施|处理|清理|怎么做|如何|建议|流程", message))
+    action_terms = ("源头", "减量", "拦截", "清理", "回收", "复测", "监测", "记录", "评估", "管理")
+    candidates: list[tuple[int, int, str, str]] = []
+    for item_index, item in enumerate(evidence[:2]):
+        source = str(item.get("source") or (item.get("metadata") or {}).get("source") or "项目知识库")
+        content = str(item.get("content") or "")
+        parts = re.split(r"(?<=[。！？；])|\n+", content)
+        for part_index, part in enumerate(parts):
+            if part.lstrip().startswith(("#", ">")):
+                continue
+            sentence = re.sub(r"^#{1,6}\s*", "", part).strip(" -*\t")
+            sentence = re.sub(r"^\d+[.、)]\s*", "", sentence)
+            if len(sentence) < 18:
+                continue
+            if sentence.startswith(("以下内容介绍", "本文介绍")):
+                continue
+            overlap = len(query_terms & _query_terms(sentence))
+            source_bonus = max(0, 6 - item_index * 3)
+            action_bonus = sum(8 for term in action_terms if action_query and term in sentence)
+            candidates.append((overlap + source_bonus + action_bonus, -part_index, sentence, source))
+    candidates.sort(reverse=True)
+    selected: list[str] = []
+    sources: list[str] = []
+    total = 0
+    for _, _, sentence, source in candidates:
+        if sentence in selected or total + len(sentence) > 650:
+            continue
+        selected.append(sentence)
+        total += len(sentence)
+        if source not in sources:
+            sources.append(source)
+        if len(selected) >= 4:
+            break
+    return "\n".join(f"- {sentence}" for sentence in selected), sources
+
+
+def _knowledge_fallback(
+    message: str, evidence: Optional[Sequence[dict[str, Any]]] = None
+) -> Optional[str]:
     """模型不可用或被质量门禁拦截时，返回可追溯的知识库证据。"""
     if not is_domain_question(message):
         return None
-    try:
-        from src.LLM.rag.lexical_retriever import LocalKnowledgeRetriever
+    results: Sequence[dict[str, Any]] = evidence or []
+    if not results:
+        try:
+            from src.LLM.rag.lexical_retriever import LocalKnowledgeRetriever
 
-        results = LocalKnowledgeRetriever().search(message, 1)
-    except Exception:
-        return None
+            results = LocalKnowledgeRetriever().search(message, 3)
+        except Exception:
+            return None
     if not results:
         return None
-    result = results[0]
-    source = result["metadata"].get("source", "项目知识库")
-    evidence = re.sub(r"^#{1,6}\s*", "", result["content"], flags=re.M).strip()
-    if len(evidence) > 650:
-        evidence = evidence[:650].rsplit("。", 1)[0] + "。"
+    excerpt, sources = _evidence_excerpt(message, results)
+    if not excerpt:
+        return None
 
-    # 自然语言包装，不直接贴原文
+    source_text = "、".join(sources[:3]) or "项目知识库"
     return (
-        f"关于这个问题，项目知识库里有相关记录：\n\n{evidence}\n\n"
+        f"根据项目知识库中与这个问题最相关的资料，可以确认：\n\n{excerpt}\n\n"
+        f"资料来源：{source_text}。"
         "如果你有具体的检测数据（比如地点、垃圾类型、数量、置信度），我可以给出更针对性的建议。"
     )
 
@@ -167,7 +308,7 @@ def direct_response(message: str) -> Optional[str]:
         return SCOPE_RESPONSE
 
     # 以下是核心专业知识，需要保持权威性但可以更亲和
-    if re.search(r"(置信度|把握|可信度).{0,12}(低|不足|不高)|\b[0-5]?\d%|能否.{0,8}(统计|上报)|能直接.{0,8}(统计|确认)", q):
+    if re.search(r"(置信度|把握|可信度).{0,12}(低|不足|不高)|(?:置信度|把握|可信度).{0,12}(?:\d{1,3}(?:\.\d+)?)%|能否.{0,8}(统计|上报)|能直接.{0,8}(统计|确认)", q):
         return (
             "低置信度的识别结果不能直接当成确定结论来统计。"
             "建议先回看原始图像，核对类别和目标框是否合理，结合采集时间、地点判断，必要时人工复核或补拍确认后再录入正式记录。"
@@ -224,9 +365,11 @@ def direct_response(message: str) -> Optional[str]:
     return None
 
 
-def _fallback_response(message: str) -> str:
+def _fallback_response(
+    message: str, evidence: Optional[Sequence[dict[str, Any]]] = None
+) -> str:
     """兜底响应：确定性规则 → 知识库检索 → 友好的信息不足提示"""
-    return direct_response(message) or _knowledge_fallback(message) or (
+    return direct_response(message) or _knowledge_fallback(message, evidence) or (
         "嗯，这个问题我暂时还没有足够的资料来确认。"
         "如果能补充一些具体信息（比如对象、地点、时间、检测数据），我可以结合知识库再给你分析。"
     )

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Optional, AsyncGenerator, List, Dict, Any
 
 from pydantic import BaseModel, Field
@@ -205,17 +206,39 @@ class RAGService:
         except Exception as exc:
             logger.warning("词法知识库重载失败: %s", exc)
 
-    def retrieve_context(self, query: str, k: Optional[int] = None) -> str:
+    def retrieve(self, query: str, k: Optional[int] = None) -> tuple[str, List[Dict[str, Any]]]:
         if not self._initialized:
             self.initialize()
         if not self._retriever:
-            return ""
+            return "", []
         try:
-            context, _ = self._retriever.retrieve_for_llm(query, k or int(os.getenv("RAG_TOP_K", "3")))
-            return context
+            _, raw_results = self._retriever.retrieve_for_llm(
+                query, k or int(os.getenv("RAG_TOP_K", "3"))
+            )
+            results: List[Dict[str, Any]] = []
+            for index, item in enumerate(raw_results, 1):
+                content = str(item.get("content") or "").strip()
+                if not content:
+                    continue
+                metadata = item.get("metadata") or {}
+                source = Path(str(metadata.get("source") or "项目知识库")).name
+                results.append({
+                    "id": index,
+                    "source": source,
+                    "content": content,
+                    "score": item.get("score"),
+                })
+            context = "\n\n".join(
+                f"[S{item['id']}] 来源：{item['source']}\n{item['content']}"
+                for item in results
+            )
+            return context, results
         except Exception as exc:
             logger.warning("RAG 检索失败: %s", exc)
-            return ""
+            return "", []
+
+    def retrieve_context(self, query: str, k: Optional[int] = None) -> str:
+        return self.retrieve(query, k)[0]
 
 
 class ChatService:
@@ -239,7 +262,9 @@ class ChatService:
     def _last_user(messages: List[ChatMessage]) -> str:
         return next((m.content.strip() for m in reversed(messages) if m.role == "user" and m.content.strip()), "")
 
-    def build_messages(self, request: ChatRequest, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
+    def prepare_messages(
+        self, request: ChatRequest, system_prompt: Optional[str] = None
+    ) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
         canonical = system_prompt or (
             "你是’海洋守护者’，海瞳海洋垃圾识别与海洋环保平台的 AI 助手。"
             "你的专业领域是海洋垃圾分类、检测结果解读、海洋污染治理、微塑料问题、MARPOL 公约和环保知识。"
@@ -255,16 +280,28 @@ class ChatService:
         messages: List[Dict[str, str]] = [{"role": "system", "content": canonical}]
         # 客户端 system 只作为 UI 提示，不允许覆盖服务端事实和安全边界。
         user_text = self._last_user(request.messages)
+        evidence: List[Dict[str, Any]] = []
         if request.enable_rag and user_text:
-            context = self.rag.retrieve_context(user_text)
+            context, evidence = self.rag.retrieve(user_text)
             if context:
                 messages.append({
                     "role": "system",
                     "content": (
-                        "下面是从项目知识库检索出的参考资料。用自然语言结合这些证据回答，不要生硬贴原文；"
-                        "只引用与问题直接相关的部分，不要为了显得全面而堆砌无关内容。"
-                        "如果证据不足以完整回答问题，坦诚说明并询问能否补充信息。\n\n"
+                        "下面是本次回答唯一允许使用的事实证据。严格遵守：\n"
+                        "1. 先直接回答用户问题，再给依据或行动建议；\n"
+                        "2. 每个包含事实判断的自然段末尾标注支持它的来源编号，如 [S1]；\n"
+                        "3. 不得补写证据中没有的数字、机构、法规条款、因果关系或健康结论；\n"
+                        "4. 证据不足时明确说资料不足，不要依靠模型记忆补全；\n"
+                        "5. 不要大段照抄，回答控制在 500 个汉字以内。\n\n"
                         + context
+                    ),
+                })
+            else:
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "本次没有检索到可用的项目知识库证据。除身份、寒暄和范围说明外，"
+                        "不要依靠模型记忆回答事实问题；请直接说明当前资料不足，并请用户补充信息。"
                     ),
                 })
         for msg in request.messages:
@@ -272,16 +309,20 @@ class ChatService:
                 messages.append({"role": msg.role, "content": msg.content.strip()})
         if not user_text:
             messages.append({"role": "user", "content": "请介绍你能帮助我做什么。"})
+        return messages, evidence
+
+    def build_messages(self, request: ChatRequest, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
+        messages, _ = self.prepare_messages(request, system_prompt)
         return messages
 
     async def chat(self, request: ChatRequest, system_prompt: Optional[str] = None) -> ChatResponse:
-        messages = self.build_messages(request, system_prompt)
+        messages, _ = self.prepare_messages(request, system_prompt)
         model = request.model or DEFAULT_MODEL
         result = await self.ollama.chat(model, messages, request.temperature, request.max_tokens, False)
         return ChatResponse(content=clean_model_text(result.get("message", {}).get("content", "")), model=model, finish_reason=result.get("done_reason"))
 
     async def chat_stream(self, request: ChatRequest, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
-        messages = self.build_messages(request, system_prompt)
+        messages, _ = self.prepare_messages(request, system_prompt)
         async for event in self.ollama.chat_stream(request.model or DEFAULT_MODEL, messages, request.temperature, request.max_tokens):
             yield event
 

@@ -148,6 +148,20 @@ export interface KnowledgeDocInfo {
   created_at?: string | null;
 }
 
+export interface DigitalHumanPublicConfig {
+  enabled: boolean;
+  configured: boolean;
+  provider: string;
+  app_id?: string | null;
+  avatar_id: string;
+  voice_id: string;
+  sdk_mode: string;
+  gateway_server: string;
+  sdk_url: string;
+  sdk_integrity?: string | null;
+  message?: string | null;
+}
+
 export interface ApiErrorShape {
   detail?: string;
   message?: string;

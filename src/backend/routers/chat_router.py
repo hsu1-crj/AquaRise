@@ -86,10 +86,13 @@ async def chat(body: SpaChatRequest, current_user: User = Depends(get_current_us
                         messages=request_messages, model=config.OLLAMA_MODEL, temperature=config.LLM_TEMPERATURE,
                         max_tokens=config.LLM_MAX_TOKENS, stream=True, enable_rag=config.RAG_ENABLED,
                     )
+                    prepared_messages, evidence = svc.prepare_messages(req)
                     # 先缓冲、再通过质量门禁。DeepSeek R1 1.5B 偶尔会复述问题或输出无依据套话；
                     # 此处不能把未验证的半句直接送到 UI。通过后按短句重新流式输出，阅读节奏仍自然。
                     for_event_errors = False
-                    async for event in svc.chat_stream(req):
+                    async for event in svc.ollama.chat_stream(
+                        req.model, prepared_messages, req.temperature, req.max_tokens
+                    ):
                         for line in event.splitlines():
                             if not line.startswith("data:"):
                                 continue
@@ -106,7 +109,7 @@ async def chat(body: SpaChatRequest, current_user: User = Depends(get_current_us
                             part = data.get("content", "")
                             if part:
                                 full += part
-                    candidate = llm_stub.finalize_model_answer(message, full)
+                    candidate = llm_stub.finalize_model_answer(message, full, evidence)
                     if for_event_errors or candidate != llm_stub._strip_think(full):
                         # 质量门禁拒绝的内容不会先泄漏到 UI；统一改用确定性回答或知识库兜底。
                         if full:

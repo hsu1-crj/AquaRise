@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, KnowledgeDocInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, KnowledgeDocInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -107,6 +107,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async getDigitalHumanConfig(): Promise<DigitalHumanPublicConfig> {
+    if (isMockMode()) {
+      return {
+        enabled: false,
+        configured: false,
+        provider: 'xmov',
+        avatar_id: 'ocean_guardian_01',
+        voice_id: 'zh_female_ocean',
+        sdk_mode: 'realtime',
+        gateway_server: 'https://nebula-agent.xingyun3d.com/user/v1/ttsa/session',
+        sdk_url: 'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js',
+        sdk_integrity: 'sha384-x6JED2qbmbCu3552Jzvj9Egb2FvDrnE2hoPUxupzkFphjuoGadVjKQupOjL3sWtu',
+        message: '演示模式使用全息拟态。',
+      };
+    }
+    return request<DigitalHumanPublicConfig>('/api/v1/digital-human/config');
+  },
+
   async getSummary(): Promise<Summary> {
     if (isMockMode()) { await wait(); return mockSummary; }
     return request<Summary>('/api/v1/stats/summary');
