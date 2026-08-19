@@ -1905,3 +1905,10 @@
   box-shadow: 0 0 10px rgba(92, 242, 174, 0.4);
   letter-spacing: 0.5px;
 }
+
+/* ===== 指挥大屏：数据同步状态覆盖层（同伴合并） ===== */
+.screen-state-overlay{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;gap:10px;background:rgba(2,11,20,.6);backdrop-filter:blur(2px);color:#bfefff;font-size:12px;letter-spacing:1px}
+.screen-state-overlay.error{color:#ffd9de}
+.screen-state-overlay button{margin-left:6px;padding:5px 14px;border:1px solid rgba(75,220,255,.45);border-radius:8px;background:rgba(75,220,255,.14);color:#eaffff;cursor:pointer;font-size:11px}
+.screen-state-overlay button:hover{background:rgba(75,220,255,.28)}
+.screen-alerts .no-record{padding:26px 16px;color:rgba(207,232,244,.45);font-size:11px;text-align:center}
