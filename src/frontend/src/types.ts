@@ -7,6 +7,7 @@ export type PageKey =
   | 'screen'
   | 'reports'
   | 'assistant'
+  | 'knowledge'
   | 'atlas'
   | 'profile';
 

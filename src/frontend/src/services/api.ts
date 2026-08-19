@@ -210,6 +210,8 @@ export const api = {
   },
   async detectImage(file: File, width: number, height: number, siteId?: number): Promise<DetectionResult> {
     if (isMockMode()) { await wait(1300); return createMockDetection(width, height); }
+    const form = new FormData();
+    form.append('file', file);
     form.append('width', String(width));
     form.append('height', String(height));
     if (siteId) form.append('site_id', String(siteId));
