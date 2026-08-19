@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, Report, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -136,6 +136,35 @@ export const api = {
   async getSiteStats(): Promise<SiteStat[]> {
     if (isMockMode) { await wait(400); return []; }
     return request<SiteStat[]>('/api/v1/stats/sites');
+  },
+  /** 真实海况（Open-Meteo 抓取 + 后端缓存, 外网失败返回旧缓存 stale=true） */
+  async getMarine(): Promise<MarineInfo> {
+    if (isMockMode) {
+      await wait(350);
+      return {
+        fetchedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+        observedAt: new Date(Date.now() - 600000).toTimeString().slice(0, 5),
+        waveHeightM: 1.2, waveDirectionDeg: 135, wavePeriodS: 5.4,
+        seaTempC: 26.8, windSpeedMs: 5.6, windDirectionDeg: 128, stale: false,
+      };
+    }
+    const r = await request<{
+      fetched_at: string; observed_time: string | null;
+      wave_height: number | null; wave_direction: number | null;
+      wave_period: number | null; sea_surface_temperature: number | null;
+      wind_speed: number | null; wind_direction: number | null; stale: boolean;
+    }>('/api/v1/stats/marine');
+    return {
+      fetchedAt: r.fetched_at,
+      observedAt: r.observed_time,
+      waveHeightM: r.wave_height,
+      waveDirectionDeg: r.wave_direction,
+      wavePeriodS: r.wave_period,
+      seaTempC: r.sea_surface_temperature,
+      windSpeedMs: r.wind_speed,
+      windDirectionDeg: r.wind_direction,
+      stale: r.stale,
+    };
   },
 
   async getReports(): Promise<Report[]> {

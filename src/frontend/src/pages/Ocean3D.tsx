@@ -1,21 +1,30 @@
 /**
- * 海洋 3D 态势页（F2 MVP）—— 双模式:
- *  监测模式(科研/部门): 真实分站点数据柱 + 拉格朗日扩散推演(F3内核浏览器版)
- *  科普模式(志愿者/公众): 点击海面投放垃圾 → 漂移沉降 → 弹出具体危害链警示卡
+ * 海洋 3D 态势页 —— 双模式 + 开放视角:
+ *  监测模式: 真实站点数据 + 实时检测联动(上传影像→ROV巡检+标注帧上屏+目标标定)
+ *            + 真实海况(Open-Meteo, 实测风场一键填入推演) + 污染告警联动
+ *            + 扩散推演 + 检测证据联动(同步/大图/报告跳转)
+ *  科普模式: 点击海面投放垃圾 → 沉降海底 → 持久污染(浑浊带/死鱼/水质下降)
+ *            + 知识漂流瓶收集答题 + 数字人导游(LLM+RAG) + 语音播报 + 投放音效
+ *  视角: 自由飞行(WASD+QE) / 站点聚焦 / 水下ROV / 鲸鱼跟随
  */
 import { useEffect, useRef, useState } from 'react';
-import { Wind, Crosshair, Info, Pause, Play, Radar, Sprout, Trash2, Waves, X } from 'lucide-react';
-import type { OceanView } from '../three/oceanWorld';
+import type { ChangeEvent } from 'react';
+import { Wind, Crosshair, FileText, Info, Pause, Play, Radar, Radio, RefreshCw, Sprout, Trash2, UploadCloud, Volume2, VolumeX, Waves, X } from 'lucide-react';
 import { formatStoryYear } from '../three/story';
 import type { GarbageStoryState } from '../three/story';
-import { api } from '../services/api';
-import type { SiteStat, Summary } from '../types';
+import { api, isMockMode } from '../services/api';
+import type { MarineInfo, SiteStat, Summary } from '../types';
 import { OceanWorld } from '../three/oceanWorld';
 import type { SiteVisual } from '../three/oceanWorld';
 import { simulate } from '../three/diffusion';
 import type { DiffusionResult } from '../three/diffusion';
 import { GARBAGE_IMPACTS, impactByKey } from '../three/impactData';
 import type { GarbageImpact } from '../three/impactData';
+import { KNOWLEDGE_POIS, loadPoiProgress, savePoiProgress } from '../data/knowledgePois';
+import type { KnowledgePoi } from '../data/knowledgePois';
+import { speakText, stopSpeaking } from '../services/speech';
+import { playAlertSound, playChime, playSplashSound } from '../services/sfx';
+import { GuideDock } from '../components/GuideDock';
 
 type Mode = 'monitor' | 'volunteer';
 
@@ -24,14 +33,41 @@ const LEVEL_COLOR = (index: number | null): string =>
 const LEVEL_TEXT = (index: number | null): string =>
   index == null ? '暂无数据' : index >= 7 ? '严重' : index >= 5 ? '中等' : '良好';
 
+// 实时联动上传约束(与 Detection 页一致)
+const LIVE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const LIVE_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
+const LIVE_MAX_IMAGES = 10;
+const LIVE_MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const LIVE_MAX_VIDEO_SIZE = 500 * 1024 * 1024;
+
+const DIR_NAMES = ['北', '东北', '东', '东南', '南', '西南', '西', '西北'];
+const dirName = (deg: number | null): string =>
+  deg == null ? '—' : `${DIR_NAMES[Math.round(deg / 45) % 8]} ${Math.round(deg)}°`;
+
+/** 一次实时联动任务的状态(面板展示 + 驱动3D) */
+interface LiveState {
+  phase: 'uploading' | 'processing' | 'done' | 'error';
+  kind: 'image' | 'video' | 'mock';
+  siteId: number;
+  progress: number;
+  totalObjects: number;
+  summary?: string;
+  error?: string;
+}
+
+const LIVE_PHASE_TEXT: Record<LiveState['phase'], string> = {
+  uploading: '上传中…',
+  processing: '检测进行中，ROV 巡检作业',
+  done: '联动检测完成',
+  error: '任务失败',
+};
+
 export function Ocean3DPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<OceanWorld | null>(null);
   const modeRef = useRef<Mode>('monitor');
   const garbageKeyRef = useRef('bag');
   const playTimerRef = useRef<number | null>(null);
-  const [view, setView] = useState<OceanView>('surface');
-  useEffect(() => { worldRef.current?.setView(view); }, [view]);
   const [mode, setMode] = useState<Mode>('monitor');
   const [sites, setSites] = useState<SiteStat[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -40,6 +76,14 @@ export function Ocean3DPage() {
   const [dropCount, setDropCount] = useState(0);
   const [story, setStory] = useState<GarbageStoryState | null>(null);
   const [garbageKey, setGarbageKey] = useState('bag');
+  const [voiceOn, setVoiceOn] = useState(true);
+  const [waterQuality, setWaterQuality] = useState(100);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [reportBusy, setReportBusy] = useState<number | null>(null);
+  const [impacts, setImpacts] = useState<Array<{ info: GarbageImpact; id: number }>>([]);
+  const impactIdRef = useRef(0);
+  const voiceOnRef = useRef(true);
+  useEffect(() => { voiceOnRef.current = voiceOn; }, [voiceOn]);
 
   // 扩散推演参数与播放状态
   const [originId, setOriginId] = useState<number | null>(null);
@@ -51,6 +95,27 @@ export function Ocean3DPage() {
   const [tFrac, setTFrac] = useState(0);
   const simRef = useRef<DiffusionResult | null>(null);
 
+  // 实时检测联动
+  const [live, setLive] = useState<LiveState | null>(null);
+  const [liveSiteId, setLiveSiteId] = useState<number | null>(null);
+  const livePollRef = useRef<number | null>(null);
+  const liveUrlsRef = useRef<string[]>([]);
+
+  // 真实海况
+  const [marine, setMarine] = useState<MarineInfo | null>(null);
+  const [windApplied, setWindApplied] = useState(false);
+
+  // 科普知识收集 + 数字人导游
+  const [quiz, setQuiz] = useState<KnowledgePoi | null>(null);
+  const [quizWrong, setQuizWrong] = useState<number | null>(null);
+  const [collectedPois, setCollectedPois] = useState<string[]>(() => loadPoiProgress());
+  const [guideOpen, setGuideOpen] = useState(true);
+
+  // 告警联动(首次同步只布防不触发, 之后指数≥7告警, 站点级5分钟冷却)
+  const alertArmedRef = useRef(false);
+  const lastAlertRef = useRef<Record<number, number>>({});
+  const celebratedRef = useRef(false);
+
   // 世界初始化（一次）
   useEffect(() => {
     if (!containerRef.current) return;
@@ -61,20 +126,36 @@ export function Ocean3DPage() {
         const info = impactByKey(garbageKeyRef.current);
         world.dropGarbage(point, garbageKeyRef.current, info?.color ?? '#ff6f91');
         setDropCount((c) => c + 1);
+        if (voiceOnRef.current) playSplashSound();
+        if (info) {
+          if (voiceOnRef.current) {
+            speakText(`${info.name}已入海。${info.chain.slice(0, 2).join('，')}。完全降解约需${info.degradeYears}年。`, { force: true });
+          }
+          impactIdRef.current += 1;
+          setImpacts((list) => [...list.slice(-4), { info, id: impactIdRef.current }]);
+        }
       },
       onGarbageImpact: (key) => { setImpact(impactByKey(key) ?? null); },
+      onPoiClick: (poi) => { setQuiz(poi); setQuizWrong(null); },
     });
     worldRef.current = world;
     // 调试/测试暴露口（仅浏览器控制台使用，不参与业务逻辑）
     (window as unknown as Record<string, unknown>).__oceanWorld = world;
+    // 科普知识漂流瓶(按本地进度点亮已收集)
+    world.setKnowledgePOIs(KNOWLEDGE_POIS, loadPoiProgress());
     api.getSummary().then(setSummary).catch(() => { /* KPI条失败不阻塞场景 */ });
     api.getSiteStats().then((list) => {
       setSites(list);
       try { world.setSites(list); } catch (err) { (window as unknown as Record<string, unknown>).__ocean3dError = String(err); }
     })
       .catch(() => { /* 站点加载失败时场景仍可浏览（无数据柱） */ });
+    api.getMarine().then(setMarine).catch(() => setMarine(null));
     return () => {
       if (playTimerRef.current) window.clearInterval(playTimerRef.current);
+      if (livePollRef.current) { window.clearInterval(livePollRef.current); window.clearTimeout(livePollRef.current); }
+      for (const url of liveUrlsRef.current) URL.revokeObjectURL(url);
+      liveUrlsRef.current = [];
+      stopSpeaking();
       world.dispose();
       worldRef.current = null;
     };
@@ -86,15 +167,52 @@ export function Ocean3DPage() {
     worldRef.current?.setClickMode(mode === 'volunteer' ? 'water' : 'site');
     setImpact(null);
     setSiteDetail(null);
+    if (mode !== 'monitor') clearLive();
   }, [mode]);
   useEffect(() => { garbageKeyRef.current = garbageKey; }, [garbageKey]);
 
-  // 科普叙事HUD: 轮询时间加速状态(投放后激活)
+  // 科普叙事HUD: 轮询时间加速状态 + 水质(由活跃污染实时决定)
   useEffect(() => {
-    if (mode !== 'volunteer') { setStory(null); return; }
+    if (mode !== 'volunteer') { setStory(null); setWaterQuality(100); return; }
     const timer = window.setInterval(() => {
       setStory(worldRef.current?.getGarbageStoryState() ?? null);
+      const active = worldRef.current?.getActiveGarbage() ?? [];
+      setWaterQuality(Math.max(28, 100 - active.length * 9));
     }, 200);
+    return () => window.clearInterval(timer);
+  }, [mode]);
+
+  // 监测模式: 每45s自动同步站点数据(上传识别后 3D 自动跟进) + 手动同步共用
+  const syncSites = (manual = false) => {
+    const world = worldRef.current;
+    if (!world) return;
+    api.getSiteStats().then((list) => {
+      setSites(list);
+      try { world.setSites(list); } catch { /* 场景未就绪时忽略 */ }
+      if (manual) api.getSummary().then(setSummary).catch(() => undefined);
+      // 告警联动: 指数≥7 → 3D红环+光束+提示音+语音(站点级5分钟冷却, 首次同步仅布防)
+      if (!alertArmedRef.current) {
+        alertArmedRef.current = true;
+        const now = Date.now();
+        for (const s of list) lastAlertRef.current[s.id] = now;
+        return;
+      }
+      const now = Date.now();
+      for (const s of list) {
+        if (s.pollutionIndex != null && s.pollutionIndex >= 7 && now - (lastAlertRef.current[s.id] ?? 0) > 300000) {
+          lastAlertRef.current[s.id] = now;
+          world.triggerAlert(s.id);
+          playAlertSound();
+          if (voiceOnRef.current) {
+            speakText(`告警：${s.name}污染指数${s.pollutionIndex.toFixed(1)}，达到严重等级`, { force: true });
+          }
+        }
+      }
+    }).catch(() => undefined);
+  };
+  useEffect(() => {
+    if (mode !== 'monitor') return;
+    const timer = window.setInterval(() => syncSites(), 45000);
     return () => window.clearInterval(timer);
   }, [mode]);
 
@@ -136,11 +254,224 @@ export function Ocean3DPage() {
 
   useEffect(() => () => { if (playTimerRef.current) window.clearInterval(playTimerRef.current); }, []);
 
+  // ---------- 实时检测联动(上传影像 → 3D场景实时呈现) ----------
+
+  /** 清除联动: 停轮询/回收预览URL/移除3D叠加层 */
+  const clearLive = () => {
+    if (livePollRef.current) {
+      window.clearInterval(livePollRef.current);
+      window.clearTimeout(livePollRef.current);
+      livePollRef.current = null;
+    }
+    for (const url of liveUrlsRef.current) URL.revokeObjectURL(url);
+    liveUrlsRef.current = [];
+    worldRef.current?.clearLiveTask();
+    setLive(null);
+  };
+
+  /** Mock模式: 客户端模拟一次完整联动(无后端也能演示全流程) */
+  const runMockLive = (siteId: number, siteCode: string) => {
+    const world = worldRef.current;
+    if (!world) return;
+    world.startLiveTask(siteId, siteCode);
+    world.focusSite(siteId);
+    setLive({ phase: 'processing', kind: 'mock', siteId, progress: 0, totalObjects: 0 });
+    let progress = 0;
+    let objects = 0;
+    const timer = window.setInterval(() => {
+      progress = Math.min(100, progress + 4 + Math.random() * 7);
+      objects += Math.random() < 0.75 ? 1 + Math.floor(Math.random() * 2) : 0;
+      world.updateLiveTaskProgress({ progress, totalObjects: objects });
+      if (Math.random() < 0.6) {
+        const g = GARBAGE_IMPACTS[Math.floor(Math.random() * GARBAGE_IMPACTS.length)];
+        world.feedLiveTaskTargets([{ name: g.name, confidence: 0.55 + Math.random() * 0.4 }]);
+      }
+      setLive((l) => (l ? { ...l, progress, totalObjects: objects } : l));
+      if (progress >= 100) {
+        window.clearInterval(timer);
+        livePollRef.current = null;
+        const summaryText = `模拟检测完成 · 检出 ${objects} 件`;
+        world.finishLiveTask(summaryText);
+        setLive((l) => (l ? { ...l, phase: 'done', summary: summaryText } : l));
+        if (voiceOnRef.current) speakText(`${siteCode}站${summaryText}`, { force: true });
+      }
+    }, 650);
+    livePollRef.current = timer;
+  };
+
+  /** 视频联动: 异步任务轮询驱动(标注帧上屏 + 进度 + 完成后目标标定) */
+  const runLiveVideo = async (file: File, siteId: number, siteCode: string) => {
+    const world = worldRef.current;
+    if (!world) return;
+    setLive({ phase: 'uploading', kind: 'video', siteId, progress: 0, totalObjects: 0 });
+    try {
+      const { taskId } = await api.createVideoTask(file, siteId);
+      world.startLiveTask(siteId, siteCode);
+      world.focusSite(siteId);
+      setLive({ phase: 'processing', kind: 'video', siteId, progress: 0, totalObjects: 0 });
+      const poll = async (): Promise<void> => {
+        const st = await api.getVideoStatus(taskId);
+        world.updateLiveTaskProgress({
+          progress: st.progress,
+          totalObjects: st.totalObjects,
+          processedFrames: st.processedFrames ?? null,
+          totalFrames: st.totalFrames ?? null,
+        });
+        if (st.previewUrl) world.showLiveTaskFrame(st.previewUrl);
+        setLive((l) => (l ? { ...l, progress: st.progress, totalObjects: st.totalObjects } : l));
+        if (st.status === 'completed') {
+          let summaryText = `检测完成 · 检出 ${st.totalObjects} 件`;
+          try {
+            const res = await api.getVideoResult(taskId);
+            world.feedLiveTaskTargets(res.results.slice(0, 48).map((r) => ({ name: r.className, confidence: r.confidence })));
+          } catch { /* 目标列表失败不阻塞完成态 */ }
+          world.finishLiveTask(summaryText);
+          setLive({ phase: 'done', kind: 'video', siteId, progress: 100, totalObjects: st.totalObjects, summary: summaryText });
+          syncSites(true);
+          if (voiceOnRef.current) speakText(`${siteCode}站${summaryText}`, { force: true });
+          return;
+        }
+        if (st.status === 'failed') {
+          world.finishLiveTask('任务失败');
+          setLive((l) => (l ? { ...l, phase: 'error', error: '视频识别失败，请重试' } : l));
+          return;
+        }
+        livePollRef.current = window.setTimeout(poll, 1200);
+      };
+      await poll();
+    } catch (reason) {
+      world.finishLiveTask('任务失败');
+      setLive((l) => (l ? { ...l, phase: 'error', error: reason instanceof Error ? reason.message : '任务创建失败' } : l));
+    }
+  };
+
+  /** 图片联动: 批量识别, 本地预览图+检测框上屏, 汇总目标标定 */
+  const runLiveImages = async (files: File[], siteId: number, siteCode: string) => {
+    const world = worldRef.current;
+    if (!world) return;
+    const urls = files.map((f) => URL.createObjectURL(f));
+    liveUrlsRef.current = urls;
+    setLive({ phase: 'processing', kind: 'image', siteId, progress: 3, totalObjects: 0 });
+    world.startLiveTask(siteId, siteCode);
+    world.focusSite(siteId);
+    world.showLiveTaskFrame(urls[0]);
+    try {
+      const res = await api.detectImages(files, (current, total) => {
+        const progress = Math.min(95, Math.round((current / total) * 92) + 3);
+        world.updateLiveTaskProgress({ progress, totalObjects: 0, processedFrames: current, totalFrames: total });
+        const url = urls[current - 1];
+        if (url) world.showLiveTaskFrame(url);
+        setLive((l) => (l ? { ...l, progress } : l));
+      }, siteId);
+      const okItems = res.items.filter((i) => i.success && i.result);
+      const targets = okItems
+        .flatMap((i) => (i.result?.objects ?? []).map((o) => ({ name: o.labelZh || o.label, confidence: o.confidence })))
+        .slice(0, 48);
+      world.feedLiveTaskTargets(targets);
+      // 最优结果(检出最多的一张)画框上屏
+      const best = okItems.slice().sort((a, b) => (b.result?.objects.length ?? 0) - (a.result?.objects.length ?? 0))[0];
+      if (best?.result) {
+        const r = best.result;
+        const idx = okItems.indexOf(best);
+        world.showLiveTaskFrame(urls[idx], r.objects.map((o) => ({
+          x: o.bbox[0] / r.sourceWidth, y: o.bbox[1] / r.sourceHeight,
+          w: o.bbox[2] / r.sourceWidth, h: o.bbox[3] / r.sourceHeight,
+        })));
+      }
+      const totalObjects = okItems.reduce((s, i) => s + (i.result?.objects.length ?? 0), 0);
+      const summaryText = `${res.successCount} 张图片 · 检出 ${totalObjects} 件`;
+      world.updateLiveTaskProgress({ progress: 100, totalObjects, processedFrames: res.successCount, totalFrames: res.total });
+      world.finishLiveTask(summaryText);
+      setLive({ phase: 'done', kind: 'image', siteId, progress: 100, totalObjects, summary: summaryText });
+      syncSites(true);
+      if (voiceOnRef.current) speakText(`${siteCode}站联动检测完成，${summaryText}`, { force: true });
+    } catch (reason) {
+      world.finishLiveTask('任务失败');
+      setLive((l) => (l ? { ...l, phase: 'error', error: reason instanceof Error ? reason.message : '识别任务失败，请重试' } : l));
+    }
+  };
+
+  const onLiveFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (files.length === 0 || !worldRef.current) return;
+    const siteId = liveSiteId ?? sites[0]?.id ?? 1;
+    const siteCode = sites.find((s) => s.id === siteId)?.code ?? `站点${siteId}`;
+    if (isMockMode) { runMockLive(siteId, siteCode); return; }
+    const file = files[0];
+    if (file.type.startsWith('video/')) {
+      if (!LIVE_VIDEO_TYPES.includes(file.type)) {
+        setLive({ phase: 'error', kind: 'video', siteId, progress: 0, totalObjects: 0, error: `不支持的视频格式（${file.type || '未知'}），请使用 MP4/WebM` });
+        return;
+      }
+      if (file.size > LIVE_MAX_VIDEO_SIZE) {
+        setLive({ phase: 'error', kind: 'video', siteId, progress: 0, totalObjects: 0, error: '视频超过 500MB 上限' });
+        return;
+      }
+      void runLiveVideo(file, siteId, siteCode);
+    } else {
+      const images = files.slice(0, LIVE_MAX_IMAGES);
+      for (const f of images) {
+        if (!LIVE_IMAGE_TYPES.includes(f.type)) {
+          setLive({ phase: 'error', kind: 'image', siteId, progress: 0, totalObjects: 0, error: `不支持的图片格式（${f.type || '未知'}），请使用 JPG/PNG/WebP` });
+          return;
+        }
+        if (f.size > LIVE_MAX_IMAGE_SIZE) {
+          setLive({ phase: 'error', kind: 'image', siteId, progress: 0, totalObjects: 0, error: '单张图片超过 10MB 上限' });
+          return;
+        }
+      }
+      void runLiveImages(images, siteId, siteCode);
+    }
+  };
+
+  // ---------- 真实海况: 实测风场一键填入推演 ----------
+
+  const applyMarineWind = () => {
+    if (!marine || marine.windSpeedMs == null || marine.windDirectionDeg == null) return;
+    // 推演用"风作用去向", 气象风向是"来向", 差180°
+    const to = (marine.windDirectionDeg + 180) % 360;
+    setWindDeg(Math.round(to / 10) * 10 % 360);
+    setWindSpeed(Math.min(15, Math.max(0, Math.round(marine.windSpeedMs * 2) / 2)));
+    setWindApplied(true);
+  };
+
+  // ---------- 科普知识收集 ----------
+
+  const answerQuiz = (index: number) => {
+    if (!quiz || collectedPois.includes(quiz.id)) return;
+    if (index === quiz.answer) {
+      playChime();
+      worldRef.current?.markPoiCollected(quiz.id);
+      setCollectedPois((prev) => {
+        if (prev.includes(quiz.id)) return prev;
+        const next = [...prev, quiz.id];
+        savePoiProgress(next);
+        return next;
+      });
+      setQuizWrong(null);
+      if (voiceOnRef.current) speakText(`${quiz.title}，答对了！${quiz.explain}`, { force: true });
+    } else {
+      setQuizWrong(index);
+    }
+  };
+
+  // 集齐全部知识瓶 → 一次性庆祝播报
+  useEffect(() => {
+    if (mode === 'volunteer' && !celebratedRef.current && collectedPois.length >= KNOWLEDGE_POIS.length) {
+      celebratedRef.current = true;
+      if (voiceOnRef.current) speakText('恭喜你集齐了全部海洋知识徽章，你就是这片海域的守护者！', { force: true });
+    }
+  }, [collectedPois, mode]);
+
   const sim = simRef.current;
   const curStep = sim ? Math.floor(tFrac * sim.steps) : 0;
   const curRadiusKm = sim ? (sim.radius95[curStep] / 1000).toFixed(1) : '—';
 
   const firstSiteId = sites[0]?.id;
+  const liveSiteValue = liveSiteId ?? firstSiteId ?? 1;
+  const liveBusy = live?.phase === 'uploading' || live?.phase === 'processing';
+  const quizSolved = quiz != null && collectedPois.includes(quiz.id);
 
   return (
     <div className="ocean3d-page">
@@ -161,16 +492,15 @@ export function Ocean3DPage() {
               <Sprout size={15} />科普模式
             </button>
           </div>
-          <div className="ocean3d-mode" role="tablist" aria-label="观察视角">
-            <button className={view === 'surface' ? 'active' : ''} onClick={() => setView('surface')} role="tab" aria-selected={view === 'surface'}>
-              <Waves size={15} />水面视角
-            </button>
-            <button className={view === 'underwater' ? 'active' : ''} onClick={() => setView('underwater')} role="tab" aria-selected={view === 'underwater'}>
-              <Waves size={15} />水下视角
-            </button>
-          </div>
         </div>
       </header>
+
+      {/* 多污染警示卡(右侧堆叠, 每张可拖动; 不遮挡投放点) */}
+      {mode === 'volunteer' && impacts.map((item, i) => (
+        <ImpactCard key={item.id} info={item.info} index={i}
+          onClear={() => { worldRef.current?.removeStoryByKey(item.info.key); setImpacts((l) => l.filter((x) => x.id !== item.id)); }}
+          onClose={() => setImpacts((l) => l.filter((x) => x.id !== item.id))} />
+      ))}
 
       {/* 全局KPI实数条（系统真实统计, 3D场景与项目业务接轨的门面） */}
       {summary && (
@@ -182,12 +512,16 @@ export function Ocean3DPage() {
         </div>
       )}
 
-      {/* 监测模式: 站点面板 + 扩散推演控制 */}
+      {/* 监测模式: 站点面板 + 实时联动 + 海况 + 扩散推演控制 */}
       {mode === 'monitor' && (
         <aside className="ocean3d-panel glass">
-          <h2><Waves size={15} />监测站点 · 实时数据</h2>
+          <h2><Waves size={15} />监测站点 · 实时数据
+            <button className="ocean3d-sync" title="同步最新检测数据(上传识别后点击或等待45s自动同步)" onClick={() => syncSites(true)}>
+              <RefreshCw size={13} />同步检测
+            </button>
+          </h2>
           <ul className="ocean3d-sites">
-            {sites.length === 0 && <li className="ocean3d-empty">站点数据加载中或暂无站点…</li>}
+            {sites.length === 0 && <li className="ocean3d-empty">{isMockMode ? 'Mock 模式：站点数据不加载' : '站点数据加载中或暂无站点…'}</li>}
             {sites.map((s) => (
               <li key={s.id}>
                 <button onClick={() => { worldRef.current?.focusSite(s.id); setSiteDetail(s); }}>
@@ -203,14 +537,68 @@ export function Ocean3DPage() {
             ))}
           </ul>
 
+          <h2 className="ocean3d-section"><Radio size={15} />实时检测联动</h2>
+          <p className="ocean3d-hint">上传水下影像，任务<b>实时驱动本场景</b>：任务ROV出发巡检、标注帧同步上屏、检出目标逐个标定，完成后站点指数自动刷新{isMockMode ? '（Mock 模式将模拟全流程）' : ''}</p>
+          <div className="ocean3d-live">
+            <label className="ocean3d-live-site">联动站点
+              <select value={liveSiteValue} disabled={liveBusy}
+                onChange={(e) => { setLiveSiteId(Number(e.target.value)); setWindApplied(false); }}>
+                {sites.length === 0 && <option value={1}>演示站点（模拟）</option>}
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>{s.code} · {s.name.replace('监测点', '')}</option>
+                ))}
+              </select>
+            </label>
+            <label className={`ocean3d-live-upload${liveBusy ? ' busy' : ''}${live?.phase === 'done' ? ' done' : ''}`}>
+              <input type="file" multiple accept={LIVE_IMAGE_TYPES.concat(LIVE_VIDEO_TYPES).join(',')}
+                onChange={onLiveFile} disabled={liveBusy} aria-label="上传影像开始实时联动" />
+              <UploadCloud size={14} />{liveBusy ? '检测进行中…' : live?.phase === 'done' ? '再传一次' : '上传影像 · 开始联动'}
+            </label>
+            {live && (
+              <div className={`ocean3d-live-status phase-${live.phase}`}>
+                <div className="ocean3d-live-bar"><i style={{ width: `${live.progress}%` }} /></div>
+                <div className="ocean3d-live-meta">
+                  <span>{LIVE_PHASE_TEXT[live.phase]}{live.kind === 'mock' ? '（模拟）' : ''}</span>
+                  <span>检出 <b>{live.totalObjects}</b> 件</span>
+                  {(live.phase === 'done' || live.phase === 'error') && (
+                    <button onClick={clearLive}>{live.phase === 'done' ? '清除联动' : '关闭'}</button>
+                  )}
+                </div>
+                {live.phase === 'done' && live.summary && <p className="ok">{live.summary} · 已同步站点数据</p>}
+                {live.phase === 'error' && <p className="err">{live.error ?? '未知错误'}</p>}
+              </div>
+            )}
+          </div>
+
+          <h2 className="ocean3d-section"><Wind size={15} />真实海况 · 舟山海域</h2>
+          {marine ? (
+            <div className="ocean3d-marine">
+              <div><span>有效波高</span><b>{marine.waveHeightM ?? '—'} m</b></div>
+              <div><span>浪向(来向)</span><b>{dirName(marine.waveDirectionDeg)}</b></div>
+              <div><span>海表温度</span><b>{marine.seaTempC ?? '—'} ℃</b></div>
+              <div><span>风速</span><b>{marine.windSpeedMs ?? '—'} m/s</b></div>
+              <div><span>风向(来向)</span><b>{dirName(marine.windDirectionDeg)}</b></div>
+              <div><span>观测时间</span><b>{(() => { const t = marine.observedAt ?? marine.fetchedAt; return t.length > 5 ? t.slice(5, 16) : t; })()}</b></div>
+              <button className="ocean3d-marine-apply" onClick={applyMarineWind}
+                disabled={marine.windSpeedMs == null || marine.windDirectionDeg == null}>
+                <Wind size={12} />{windApplied ? '已填入 ✓ 实测风场' : '用实测风场填入推演'}
+              </button>
+              <p className="ocean3d-hint">
+                {marine.stale ? '当前为离线缓存数据（外网不可达）· ' : ''}数据源 Open-Meteo 海洋 API，后端每 30 分钟更新
+              </p>
+            </div>
+          ) : (
+            <p className="ocean3d-hint">海况数据加载中或暂不可用（后端离线且无缓存时隐藏）…</p>
+          )}
+
           <h2 className="ocean3d-section"><Wind size={15} />垃圾漂移扩散推演</h2>
           <p className="ocean3d-hint">从站点释放虚拟粒子群，模拟垃圾随风与洋流的漂移扩散（简化拉格朗日模型）</p>
           <div className="ocean3d-sliders">
-            <label>风向 <output>{windDeg}°</output>
-              <input type="range" min={0} max={350} step={10} value={windDeg} onChange={(e) => setWindDeg(Number(e.target.value))} />
+            <label>风向 <output>{windDeg}°{windApplied && <i className="live-flag" title="已填入实测风场" />}</output>
+              <input type="range" min={0} max={350} step={10} value={windDeg} onChange={(e) => { setWindDeg(Number(e.target.value)); setWindApplied(false); }} />
             </label>
             <label>风速 <output>{windSpeed} m/s</output>
-              <input type="range" min={0} max={15} step={0.5} value={windSpeed} onChange={(e) => setWindSpeed(Number(e.target.value))} />
+              <input type="range" min={0} max={15} step={0.5} value={windSpeed} onChange={(e) => { setWindSpeed(Number(e.target.value)); setWindApplied(false); }} />
             </label>
             <label>扩散系数 <output>{diffK} m²/s</output>
               <input type="range" min={10} max={500} step={10} value={diffK} onChange={(e) => setDiffK(Number(e.target.value))} />
@@ -241,7 +629,7 @@ export function Ocean3DPage() {
         </aside>
       )}
 
-      {/* 科普模式: 垃圾选择 + 投放引导 */}
+      {/* 科普模式: 垃圾选择 + 知识收集 + 投放引导 */}
       {mode === 'volunteer' && (
         <aside className="ocean3d-panel glass ocean3d-panel-left">
           <h2><Trash2 size={15} />投放垃圾 · 看看会发生什么</h2>
@@ -256,13 +644,40 @@ export function Ocean3DPage() {
           </div>
           <div className="ocean3d-siminfo">
             <span>已投放 <b>{dropCount}</b> 件</span>
-            <span><Wind size={12} />拖拽旋转视角 · 滚轮缩放</span>
+            <span><Wind size={12} />拖拽转视角 · WASD 移动 · Q 下潜\/E 上浮 · 穿越水面自动切换场景</span>
+          </div>
+          {/* 水质实时反馈(活跃污染越多越差) */}
+          <div className="ocean3d-quality">
+            <span>海域水质</span>
+            <div className="ocean3d-quality-bar">
+              <i style={{ width: `${waterQuality}%`, background: waterQuality > 70 ? '#54f1a9' : waterQuality > 45 ? '#ffbd66' : '#ff5f6e' }} />
+            </div>
+            <b style={{ color: waterQuality > 70 ? '#54f1a9' : waterQuality > 45 ? '#ffbd66' : '#ff5f6e' }}>{waterQuality}</b>
+          </div>
+
+          <h2 className="ocean3d-section">🧴 知识漂流瓶 · 边探索边收集</h2>
+          <p className="ocean3d-hint">海面、水层与海底漂着 <b>{KNOWLEDGE_POIS.length}</b> 只知识瓶，靠近<b>点击</b>回答问题，答对点亮收集（进度自动保存）</p>
+          <div className="ocean3d-quality">
+            <span>收集进度</span>
+            <div className="ocean3d-quality-bar">
+              <i style={{ width: `${(collectedPois.length / KNOWLEDGE_POIS.length) * 100}%`, background: '#ffd76a' }} />
+            </div>
+            <b style={{ color: '#ffd76a' }}>{collectedPois.length}/{KNOWLEDGE_POIS.length}</b>
+          </div>
+          {collectedPois.length >= KNOWLEDGE_POIS.length && (
+            <p className="ocean3d-poi-done">🎉 已集齐全部海洋知识徽章，你就是这片海域的守护者！</p>
+          )}
+
+          <div className="ocean3d-siminfo">
+            <button className="ocean3d-sync" onClick={() => setVoiceOn((v) => !v)} title="语音播报与音效开关">
+              {voiceOn ? <Volume2 size={13} /> : <VolumeX size={13} />}{voiceOn ? '语音播报：开' : '语音播报：关'}
+            </button>
           </div>
           <p className="ocean3d-disclaimer"><Info size={12} />危害链与数据来自项目海洋知识库；降解年限为量级估计</p>
         </aside>
       )}
 
-      {/* 站点详情卡（点击数据柱） */}
+      {/* 站点详情卡（点击浮标） */}
       {siteDetail && (
         <div className="ocean3d-card glass">
           <button className="ocean3d-close" aria-label="关闭" onClick={() => setSiteDetail(null)}><X size={15} /></button>
@@ -275,38 +690,80 @@ export function Ocean3DPage() {
           </div>
           {(siteDetail as SiteStat).evidence && (siteDetail as SiteStat).evidence!.length > 0 && (
             <div className="ocean3d-evidence">
-              <span>本站检测证据（真实标注结果）</span>
+              <span>本站检测证据（点击图片查看大图）</span>
               <div>
                 {(siteDetail as SiteStat).evidence!.slice(0, 3).map((e) => (
                   <figure key={e.taskId}>
-                    {e.mediaUrl ? <img src={e.mediaUrl} alt={`任务${e.taskId}标注图`} loading="lazy" /> : <i className="noimg">无图</i>}
-                    <figcaption>#{e.taskId} · {e.className ?? '—'} ×{e.objectCount} · {e.level ?? '—'}<br />{e.at ?? ''}</figcaption>
+                    {e.mediaUrl
+                      ? <img src={e.mediaUrl} alt={`任务${e.taskId}标注图`} loading="lazy" onClick={() => setLightbox(e.mediaUrl)} style={{ cursor: 'zoom-in' }} />
+                      : <i className="noimg">无图</i>}
+                    <figcaption>
+                      #{e.taskId} · {e.className ?? '—'} ×{e.objectCount} · {e.level ?? '—'}<br />{e.at ?? ''}
+                      {e.taskId > 0 && (
+                        <button className="ocean3d-report-link" disabled={reportBusy === e.taskId}
+                          onClick={() => {
+                            setReportBusy(e.taskId);
+                            api.createReport(String(e.taskId))
+                              .then(() => { window.location.hash = 'reports'; })
+                              .catch(() => undefined)
+                              .finally(() => setReportBusy(null));
+                          }}>
+                          <FileText size={11} />{reportBusy === e.taskId ? '生成中…' : '生成报告'}
+                        </button>
+                      )}
+                    </figcaption>
                   </figure>
                 ))}
               </div>
             </div>
           )}
           {mode === 'monitor' && (
-            <button className="primary-button" onClick={() => runSim(siteDetail.id)}><Crosshair size={13} />从此站点扩散推演</button>
+            <div className="ocean3d-actions">
+              <button className="primary-button" onClick={() => runSim(siteDetail.id)}><Crosshair size={13} />从此站点扩散推演</button>
+              <button className="secondary-button" onClick={() => { window.location.hash = 'history'; }}>
+                <FileText size={13} />检测历史
+              </button>
+            </div>
           )}
         </div>
       )}
 
-      {/* 危害链警示卡（科普模式） */}
-      {impact && (
-        <div className="ocean3d-card glass ocean3d-impact">
-          <button className="ocean3d-close" aria-label="关闭" onClick={() => setImpact(null)}><X size={15} /></button>
-          <h3 style={{ color: impact.color }}>{impact.name} 入海之后…</h3>
-          <ol className="ocean3d-chain">
-            {impact.chain.map((step, i) => <li key={i} style={{ animationDelay: `${i * 0.35}s` }}>{step}</li>)}
-          </ol>
-          <div className="ocean3d-degrade">
-            <span>完全降解需要约</span>
-            <b>{impact.degradeYears} 年</b>
-            <small>{impact.degradeText}</small>
+      {/* 大图查看器 */}
+      {lightbox && (
+        <div className="ocean3d-lightbox" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="检测标注大图" />
+          <button className="ocean3d-close" aria-label="关闭"><X size={16} /></button>
+        </div>
+      )}
+
+      {/* 知识漂流瓶问答弹窗 */}
+      {quiz && (
+        <div className="ocean3d-quiz" role="dialog" aria-modal="true" aria-label={`知识问答 ${quiz.title}`}>
+          <div className="ocean3d-quiz-card glass">
+            <button className="ocean3d-close" aria-label="关闭" onClick={() => { setQuiz(null); setQuizWrong(null); }}><X size={15} /></button>
+            <header className="ocean3d-quiz-head"><span className="poi-dot" />知识漂流瓶 · {quiz.zone}</header>
+            <h3>{quiz.title}</h3>
+            <p className="ocean3d-quiz-q">{quiz.question}</p>
+            <div className="ocean3d-quiz-options">
+              {quiz.options.map((opt, i) => (
+                <button key={i}
+                  className={quizWrong === i ? 'wrong' : quizSolved && i === quiz.answer ? 'right' : ''}
+                  disabled={quizSolved && i !== quiz.answer}
+                  onClick={() => answerQuiz(i)}>
+                  {opt}
+                </button>
+              ))}
+            </div>
+            {quizWrong != null && !quizSolved && <p className="quiz-hint">不对哦，再想想～</p>}
+            {quizSolved && (
+              <p className="quiz-explain">✅ {quiz.explain}<small>来源：项目知识库《{quiz.source}》</small></p>
+            )}
+            <div className="ocean3d-actions">
+              {quizSolved
+                ? <button className="primary-button" onClick={() => { setQuiz(null); setQuizWrong(null); }}>知道了</button>
+                : <button className="secondary-button" onClick={() => { setQuiz(null); setQuizWrong(null); }}>先不答</button>}
+            </div>
           </div>
-          <p className="ocean3d-stat">{impact.stat}</p>
-          <p className="ocean3d-disclaimer"><Info size={12} />来源：项目海洋知识库（data/knowledge）</p>
         </div>
       )}
 
@@ -328,13 +785,71 @@ export function Ocean3DPage() {
         </div>
       )}
 
+      {/* 数字人导游(科普模式, 未配置数字人时降级语音模式) */}
+      {mode === 'volunteer' && (guideOpen
+        ? <GuideDock voiceOn={voiceOn} onClose={() => setGuideOpen(false)} />
+        : (
+          <button className="ocean3d-guide-reopen glass" onClick={() => setGuideOpen(true)}>
+            <Volume2 size={13} />数字人导游
+          </button>
+        ))}
+
       {/* 图例 */}
       <footer className="ocean3d-legend glass">
         <span><i style={{ background: '#27dafa' }} />污染良好</span>
         <span><i style={{ background: '#ffbd66' }} />污染中等</span>
         <span><i style={{ background: '#ff5f6e' }} />污染严重</span>
         <span><i style={{ background: '#54f1a9' }} />扩散粒子</span>
+        {mode === 'volunteer' && <span><i style={{ background: '#ffd76a' }} />知识漂流瓶</span>}
       </footer>
+    </div>
+  );
+}
+
+/** 可拖动污染警示卡: 默认停靠右侧(避开中心投放区), 按住标题栏拖动, 每张独立 */
+function ImpactCard({ info, index, onClear, onClose }: {
+  info: GarbageImpact;
+  index: number;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const onPointerDown = (e: React.PointerEvent) => {
+    dragRef.current = { dx: e.clientX - (pos?.x ?? 0), dy: e.clientY - (pos?.y ?? 0) };
+    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* 无效指针(合成事件)时仍可拖动 */ }
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    setPos({
+      x: Math.max(8, Math.min(window.innerWidth - 340, e.clientX - dragRef.current.dx)),
+      y: Math.max(8, Math.min(window.innerHeight - 120, e.clientY - dragRef.current.dy)),
+    });
+  };
+  const onPointerUp = () => { dragRef.current = null; };
+  const style: React.CSSProperties = pos
+    ? { right: 'auto', left: pos.x, top: pos.y }
+    : { right: 20, top: 96 + index * 26 };
+  return (
+    <div className="ocean3d-card glass ocean3d-impact ocean3d-draggable" style={style}>
+      <div className="ocean3d-drag-handle" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+        <span className="drag-grip">⠿</span>
+        <h3 style={{ color: info.color }}>{info.name} 入海之后…</h3>
+        <button className="ocean3d-close" aria-label="关闭" onClick={onClose}><X size={15} /></button>
+      </div>
+      <ol className="ocean3d-chain">
+        {info.chain.map((step, i) => <li key={i} style={{ animationDelay: `${i * 0.35}s` }}>{step}</li>)}
+      </ol>
+      <div className="ocean3d-degrade">
+        <span>完全降解需要约</span>
+        <b>{info.degradeYears} 年</b>
+        <small>{info.degradeText}</small>
+      </div>
+      <p className="ocean3d-stat">{info.stat}</p>
+      <div className="ocean3d-actions">
+        <button className="secondary-button" onClick={onClear}><Trash2 size={12} />清除该污染</button>
+      </div>
+      <p className="ocean3d-disclaimer"><Info size={12} />来源：项目海洋知识库 · 拖动标题栏移动</p>
     </div>
   );
 }

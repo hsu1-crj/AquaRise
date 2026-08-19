@@ -69,6 +69,19 @@ export interface StatsAnalysis {
   classRanking: ClassRankItem[]; // 高频类别 TOP N
 }
 
+/** 真实海况快照（GET /api/v1/stats/marine; Open-Meteo + 后端缓存降级） */
+export interface MarineInfo {
+  fetchedAt: string;
+  observedAt?: string | null; // 数据源观测时间(Open-Meteo本地时间, 展示用)
+  waveHeightM: number | null;
+  waveDirectionDeg: number | null; // 浪向来向方位角°
+  wavePeriodS: number | null;
+  seaTempC: number | null;
+  windSpeedMs: number | null;
+  windDirectionDeg: number | null; // 风向来向方位角°
+  stale: boolean; // true=外网失败返回的旧缓存
+}
+
 export interface DetectionBox {
   id: string;
   label: string;

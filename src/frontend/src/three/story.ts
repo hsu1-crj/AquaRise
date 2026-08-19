@@ -62,28 +62,32 @@ export class GarbageStory {
   private microDir: Float32Array;
   private age = 0;
   private center: THREE.Vector3;
+  private floorY: number;
   private degradationYears: number;
+  /** 污染扩散进度 0..1(到1后持续存在, 不再消失) */
+  private spreadK = 0;
 
-  constructor(scene: THREE.Scene, center: THREE.Vector3, key: string) {
+  constructor(scene: THREE.Scene, center: THREE.Vector3, key: string, floorY: number) {
     this.center = center.clone();
+    this.floorY = floorY;
     this.degradationYears = impactByKey(key)?.degradeYears ?? 100;
     scene.add(this.group);
 
-    // 碎片(碎裂后的塑料残块)
+    // 海底碎片(碎裂后的塑料残块, 静态散布在海底)
     const fragGeo = new THREE.TetrahedronGeometry(0.32);
     const fragMat = new THREE.MeshStandardMaterial({ color: 0xd8e6ee, roughness: 0.5, transparent: true, opacity: 0 });
     this.fragments = new THREE.InstancedMesh(fragGeo, fragMat, 26);
     this.fragments.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.group.add(this.fragments);
 
-    // 微塑料云
+    // 微塑料云(从海底持续缓漫扩散)
     const N = 240;
     this.microPos = new Float32Array(N * 3);
     this.microDir = new Float32Array(N * 3);
     const geo = new THREE.BufferGeometry();
     for (let i = 0; i < N; i++) {
       this.microPos[i * 3] = center.x + (Math.random() - 0.5) * 2;
-      this.microPos[i * 3 + 1] = -0.6 - Math.random() * 2.2;
+      this.microPos[i * 3 + 1] = floorY + 0.3 + Math.random() * 2.2;
       this.microPos[i * 3 + 2] = center.z + (Math.random() - 0.5) * 2;
       const a = Math.random() * Math.PI * 2;
       this.microDir[i * 3] = Math.cos(a) * (0.3 + Math.random() * 0.5);
@@ -97,7 +101,7 @@ export class GarbageStory {
     }));
     this.group.add(this.micro);
 
-    // 水面污染扩散盘 + 水下浑浊带
+    // 水面油污盘(初期短暂出现后消退) + 海底浑浊带(持续存在)
     const discGeo = new THREE.CircleGeometry(1, 40);
     discGeo.rotateX(-Math.PI / 2);
     this.disc = new THREE.Mesh(discGeo, new THREE.MeshBasicMaterial({
@@ -110,21 +114,42 @@ export class GarbageStory {
       new THREE.SphereGeometry(1, 20, 14),
       new THREE.MeshBasicMaterial({ color: 0x465c2c, transparent: true, opacity: 0, depthWrite: false }),
     );
-    this.murky.position.set(center.x, -1.4, center.z);
+    this.murky.position.set(center.x, floorY + 1.4, center.z);
     this.group.add(this.murky);
 
-    // 受害鱼(翻肚上浮)
+    // 受害鱼(周期性翻肚上浮, 持续提示污染致死效应)
     this.deadFish = new THREE.Group();
-    const fishGeo = new THREE.ConeGeometry(0.3, 1.3, 6);
-    const fishMat = new THREE.MeshStandardMaterial({ color: 0xd9e2e8, roughness: 0.6 });
+    const fishGeo = new THREE.ConeGeometry(0.28, 1.2, 6);
+    const fishMat = new THREE.MeshStandardMaterial({ color: 0xd9e2e8, roughness: 0.6, transparent: true });
     for (let i = 0; i < 3; i++) {
-      const f = new THREE.Mesh(fishGeo, fishMat);
+      const f = new THREE.Mesh(fishGeo, fishMat.clone());
       f.rotation.z = Math.PI; // 翻肚
-      f.position.set(center.x + (i - 1) * 2.4, -2.4 - i * 0.5, center.z + (i % 2) * 2 - 1);
+      const a = (i / 3) * Math.PI * 2;
+      f.position.set(center.x + Math.cos(a) * 3, floorY + 0.4, center.z + Math.sin(a) * 3);
       f.visible = false;
+      f.userData.cycleOffset = i * 2.5;
+      f.userData.rising = 0;
       this.deadFish.add(f);
     }
     this.group.add(this.deadFish);
+  }
+
+  /** 碎片静态落点(碎裂后撒在海底) */
+  private layoutFragments(): void {
+    for (let i = 0; i < 26; i++) {
+      const a = (i / 26) * Math.PI * 2;
+      const r = 1.2 + (i % 5) * 0.7;
+      this.dummy.position.set(
+        this.center.x + Math.cos(a) * r,
+        this.floorY + 0.12 + (i % 4) * 0.12,
+        this.center.z + Math.sin(a) * r,
+      );
+      this.dummy.rotation.set(i * 1.7, i * 1.3, i * 0.9);
+      this.dummy.scale.setScalar(0.75 + (i % 3) * 0.15);
+      this.dummy.updateMatrix();
+      this.fragments.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.fragments.instanceMatrix.needsUpdate = true;
   }
 
   update(dt: number): void {
@@ -134,39 +159,55 @@ export class GarbageStory {
     const microMat = this.micro.material as THREE.PointsMaterial;
     const discMat = this.disc.material as THREE.MeshBasicMaterial;
     const murkyMat = this.murky.material as THREE.MeshBasicMaterial;
+    this.spreadK = Math.min(1, Math.max(this.age - 5, 0) / 9);
 
     if (stage >= 1) {
-      // 碎片出现并散落
+      // 碎片散落海底并停留
       const k = Math.min(1, (this.age - 2.5) / 2);
       fragMat.opacity = 0.95 * k;
-      for (let i = 0; i < 26; i++) {
-        const a = (i / 26) * Math.PI * 2 + this.age * 0.4;
-        const r = 1 + k * (2 + (i % 5) * 0.6) + (this.age - 2.5) * 0.12;
-        this.dummy.position.set(this.center.x + Math.cos(a) * r, -0.4 - (i % 4) * 0.3, this.center.z + Math.sin(a) * r);
-        this.dummy.rotation.set(this.age + i, i * 1.3, 0);
-        this.dummy.scale.setScalar(1 - k * 0.25);
-        this.dummy.updateMatrix();
-        this.fragments.setMatrixAt(i, this.dummy.matrix);
+      if (!this.fragments.userData.laid) {
+        this.layoutFragments();
+        this.fragments.userData.laid = true;
       }
-      this.fragments.instanceMatrix.needsUpdate = true;
     }
     if (stage >= 2) {
-      // 微塑料云扩散 + 污染盘/浑浊带生长 + 死鱼上浮
-      const k = Math.min(1, (this.age - 5) / 4);
-      microMat.opacity = 0.85 * Math.min(1, k * 1.6);
+      // 微塑料缓漫扩散(到上限后停留) + 浑浊带持续脉动
+      microMat.opacity = 0.8;
+      const move = this.spreadK < 1 ? dt * (0.5 + this.spreadK) : dt * 0.05;
       for (let i = 0; i < this.microPos.length / 3; i++) {
-        this.microPos[i * 3] += this.microDir[i * 3] * dt * (0.6 + k);
-        this.microPos[i * 3 + 1] += this.microDir[i * 3 + 1] * dt;
-        this.microPos[i * 3 + 2] += this.microDir[i * 3 + 2] * dt * (0.6 + k);
+        this.microPos[i * 3] += this.microDir[i * 3] * move;
+        this.microPos[i * 3 + 1] += this.microDir[i * 3 + 1] * move;
+        this.microPos[i * 3 + 2] += this.microDir[i * 3 + 2] * move;
       }
       (this.micro.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-      discMat.opacity = 0.4 * k;
-      this.disc.scale.setScalar(1 + k * 15 + (this.age - 5) * 0.15);
-      murkyMat.opacity = 0.22 * k;
-      this.murky.scale.setScalar(1 + k * 9);
+      // 油污盘: 阶段2出现, 8s后消退(漂浮期污染痕迹)
+      discMat.opacity = this.age < 8 ? Math.min(0.35, (this.age - 5) * 0.3) : Math.max(0, 0.35 - (this.age - 8) * 0.2);
+      this.disc.scale.setScalar(1 + this.spreadK * 10);
+      // 浑浊带: 生长到上限后持续存在并轻微脉动
+      const pulse = 1 + Math.sin(this.age * 0.8) * 0.06;
+      murkyMat.opacity = Math.min(0.24, 0.08 + this.spreadK * 0.2);
+      this.murky.scale.setScalar((1 + this.spreadK * 8) * pulse);
+      // 死鱼: 每 ~8s 一轮, 从污染云翻肚浮起再沉底消失
       for (const f of this.deadFish.children) {
-        f.visible = k > 0.25;
-        if (f.visible && f.position.y < -0.4) f.position.y += dt * 0.55;
+        const m = f as THREE.Mesh;
+        const mat = m.material as THREE.MeshStandardMaterial;
+        m.userData.cycleOffset += dt;
+        if (!m.userData.rising && m.userData.cycleOffset > 8) {
+          m.userData.cycleOffset = 0;
+          m.userData.rising = 1;
+          const a = Math.random() * Math.PI * 2;
+          m.position.set(this.center.x + Math.cos(a) * 3, this.floorY + 0.4, this.center.z + Math.sin(a) * 3);
+          m.visible = true;
+          mat.opacity = 0.95;
+        }
+        if (m.userData.rising) {
+          m.position.y += dt * 0.5;
+          m.rotation.y += dt * 0.3;
+          if (m.position.y > -1.2) {
+            mat.opacity -= dt * 0.5;
+            if (mat.opacity <= 0) { m.visible = false; m.userData.rising = 0; }
+          }
+        }
       }
     }
   }
@@ -192,16 +233,19 @@ export class GarbageStory {
       active: true,
       year: this.yearNow(),
       stage,
-      stageLabel: STAGE_LABELS[stage],
+      stageLabel: stage >= 3 ? STAGE_LABELS[3] : STAGE_LABELS[stage],
       degradationYears: this.degradationYears,
     };
   }
 
-  /** 鱼群规避的污染区（阶段≥2起效） */
+  get key(): string {
+    return this.center.x.toFixed(2) + '/' + this.center.z.toFixed(2);
+  }
+
+  /** 鱼群规避的污染区（阶段≥2起效, 持续存在） */
   getPollution(): { center: THREE.Vector3; radius: number } | null {
     if (this.stage() < 2) return null;
-    const k = Math.min(1, (this.age - 5) / 4);
-    return { center: this.center, radius: 4 + k * 12 };
+    return { center: this.center, radius: 4 + this.spreadK * 12 };
   }
 
   dispose(): void {
@@ -244,6 +288,13 @@ export class RovUnit {
     this.glow = new THREE.PointLight(0x9fdcff, 6, 26);
     this.glow.position.set(0, 0, 2.2);
     this.group.add(this.glow);
+    // 前照探照灯: 水下浑浊环境中照亮前方海底(数字孪生作业感)
+    this.headlight = new THREE.SpotLight(0xcfeaff, 260, 70, 0.62, 0.45, 1.1);
+    this.headlight.position.set(0, -0.2, 1.8);
+    this.headlightTarget = new THREE.Object3D();
+    this.headlightTarget.position.set(0, -1.6, 14);
+    this.group.add(this.headlight, this.headlightTarget);
+    this.headlight.target = this.headlightTarget;
 
     // 监视屏: 播放本系统真实标注检测视频
     this.video = document.createElement('video');
@@ -270,7 +321,6 @@ export class RovUnit {
     scene.add(this.group);
 
     // 真实ROV模型热插拔: models/rov.glb 存在时替换程序化本体(保留监视屏/探照灯)
-    this.proceduralParts = [body, frame, dome];
     new GLTFLoader().load('models/rov.glb', (gltf) => {
       const real = normalizeModelSize(gltf.scene, 4.6);
       for (const part of this.proceduralParts) part.visible = false;
@@ -278,10 +328,17 @@ export class RovUnit {
     }, undefined, () => undefined);
   }
   private proceduralParts: THREE.Object3D[] = [];
+  private headlight!: THREE.SpotLight;
+  private headlightTarget!: THREE.Object3D;
 
   setVisible(v: boolean): void {
     this.group.visible = v;
     if (v && this.video.paused) void this.video.play().catch(() => undefined);
+  }
+
+  /** ROV 当前世界坐标(供尾流气泡发射源取位) */
+  getWorldPosition(target: THREE.Vector3): THREE.Vector3 {
+    return this.group.getWorldPosition(target);
   }
 
   update(dt: number, t: number): void {
@@ -316,7 +373,7 @@ function lngLatToScene(lng: number, lat: number): [number, number] {
   return [((lng - LNG_MIN) / LNG_SPAN) * GEO_HALF * 2 - GEO_HALF, ((lat - LAT_MIN) / LAT_SPAN) * GEO_HALF * 2 - GEO_HALF];
 }
 
-export async function loadCoastline(scene: THREE.Scene, url: string): Promise<void> {
+export async function loadCoastline(scene: THREE.Scene, url: string): Promise<THREE.Group | null> {
   try {
     const res = await fetch(url);
     const json = await res.json();
@@ -340,7 +397,9 @@ export async function loadCoastline(scene: THREE.Scene, url: string): Promise<vo
       }
     }
     scene.add(group);
+    return group;
   } catch {
     // 岸线加载失败不影响主场景
+    return null;
   }
 }

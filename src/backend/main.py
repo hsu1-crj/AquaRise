@@ -40,6 +40,7 @@ from routers import (  # noqa: E402
     detect_router,
     digital_human_router,
     knowledge_router,
+    marine_router,
     reports_router,
     stats_router,
 )
@@ -176,6 +177,7 @@ app.include_router(auth_router.router)           # /login /register /logout /cap
 app.include_router(detect_router.router)         # /api/v1/detect/* + /api/v1/detections
 app.include_router(chat_router.router)           # /api/v1/chat (SSE) /api/v1/chat/history
 app.include_router(stats_router.router)          # /api/v1/stats/*
+app.include_router(marine_router.router)         # /api/v1/stats/marine (真实海况, 缓存+降级)
 app.include_router(reports_router.router)        # /api/v1/reports/*
 app.include_router(knowledge_router.router)      # /api/v1/knowledge/*
 app.include_router(digital_human_router.router)  # /api/v1/digital-human/*
