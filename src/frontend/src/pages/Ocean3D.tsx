@@ -9,7 +9,7 @@ import type { OceanView } from '../three/oceanWorld';
 import { formatStoryYear } from '../three/story';
 import type { GarbageStoryState } from '../three/story';
 import { api } from '../services/api';
-import type { SiteStat } from '../types';
+import type { SiteStat, Summary } from '../types';
 import { OceanWorld } from '../three/oceanWorld';
 import type { SiteVisual } from '../three/oceanWorld';
 import { simulate } from '../three/diffusion';
@@ -34,6 +34,7 @@ export function Ocean3DPage() {
   useEffect(() => { worldRef.current?.setView(view); }, [view]);
   const [mode, setMode] = useState<Mode>('monitor');
   const [sites, setSites] = useState<SiteStat[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [siteDetail, setSiteDetail] = useState<SiteVisual | null>(null);
   const [impact, setImpact] = useState<GarbageImpact | null>(null);
   const [dropCount, setDropCount] = useState(0);
@@ -66,6 +67,7 @@ export function Ocean3DPage() {
     worldRef.current = world;
     // 调试/测试暴露口（仅浏览器控制台使用，不参与业务逻辑）
     (window as unknown as Record<string, unknown>).__oceanWorld = world;
+    api.getSummary().then(setSummary).catch(() => { /* KPI条失败不阻塞场景 */ });
     api.getSiteStats().then((list) => {
       setSites(list);
       try { world.setSites(list); } catch (err) { (window as unknown as Record<string, unknown>).__ocean3dError = String(err); }
@@ -170,6 +172,16 @@ export function Ocean3DPage() {
         </div>
       </header>
 
+      {/* 全局KPI实数条（系统真实统计, 3D场景与项目业务接轨的门面） */}
+      {summary && (
+        <div className="ocean3d-kpis">
+          <div className="glass"><b>{summary.totalTasks}</b><span>累计任务</span></div>
+          <div className="glass"><b>{summary.totalObjects}</b><span>检出目标</span></div>
+          <div className="glass"><b>{summary.seaAreas}</b><span>监测海域</span></div>
+          <div className="glass"><b>{summary.activeAlerts}</b><span>污染告警</span></div>
+        </div>
+      )}
+
       {/* 监测模式: 站点面板 + 扩散推演控制 */}
       {mode === 'monitor' && (
         <aside className="ocean3d-panel glass">
@@ -261,6 +273,19 @@ export function Ocean3DPage() {
             <span>累计检出</span><b>{siteDetail.totalObjects} 件垃圾</b>
             <span>最近任务</span><b>{(siteDetail as SiteStat).lastTaskAt ?? '—'}</b>
           </div>
+          {(siteDetail as SiteStat).evidence && (siteDetail as SiteStat).evidence!.length > 0 && (
+            <div className="ocean3d-evidence">
+              <span>本站检测证据（真实标注结果）</span>
+              <div>
+                {(siteDetail as SiteStat).evidence!.slice(0, 3).map((e) => (
+                  <figure key={e.taskId}>
+                    {e.mediaUrl ? <img src={e.mediaUrl} alt={`任务${e.taskId}标注图`} loading="lazy" /> : <i className="noimg">无图</i>}
+                    <figcaption>#{e.taskId} · {e.className ?? '—'} ×{e.objectCount} · {e.level ?? '—'}<br />{e.at ?? ''}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            </div>
+          )}
           {mode === 'monitor' && (
             <button className="primary-button" onClick={() => runSim(siteDetail.id)}><Crosshair size={13} />从此站点扩散推演</button>
           )}

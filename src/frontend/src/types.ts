@@ -2,6 +2,7 @@ export type PageKey =
   | 'dashboard'
   | 'detection'
   | 'history'
+  | 'ocean3d'
   | 'analysis'
   | 'screen'
   | 'reports'
@@ -43,6 +44,17 @@ export interface SiteStat {
   totalObjects: number;
   pollutionIndex: number | null;
   lastTaskAt: string | null;
+  evidence?: SiteEvidence[];
+}
+
+/** 站点检测证据（标注图/预览帧, 3D场景浮窗用） */
+export interface SiteEvidence {
+  taskId: number;
+  mediaUrl: string | null;
+  className: string | null;
+  objectCount: number;
+  level: string | null;
+  at: string | null;
 }
 /** 分析页聚合数据（后端 /stats/analysis；近 30 天 vs 前 30 天环比） */
 export interface StatsAnalysis {

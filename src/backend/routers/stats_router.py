@@ -14,7 +14,9 @@ from sqlalchemy.orm import Session
 from auth import get_current_user
 from database import get_db
 from models import DetectionResult, DetectionTask, MonitoringSite, PollutionLevel, TaskStatus, User
-from schemas import ClassRankItem, FrontendSummary, FrontendTrendPoint, SiteStatItem, StatsAnalysis
+from schemas import (ClassRankItem, FrontendSummary, FrontendTrendPoint, SiteEvidence,
+                    SiteStatItem, StatsAnalysis)
+from services import detector as detector_svc
 
 router = APIRouter(prefix="/api/v1/stats", tags=["stats"])
 
@@ -248,6 +250,51 @@ async def stats_sites(
             + _LEVEL_WEIGHT.get(str(level), 3) * int(cnt)
         )
 
+    # 每站点最近3个已完成任务 → 标注图URL+摘要(3D场景浮窗"检测证据")
+    from schemas import pollution_level_zh
+    recent = (
+        db.query(DetectionTask)
+        .filter(
+            DetectionTask.status == TaskStatus.completed,
+            DetectionTask.sea_area_id.isnot(None),
+            DetectionTask.created_at >= since,
+        )
+        .order_by(DetectionTask.id.desc())
+        .limit(60)
+        .all()
+    )
+    evidence_by_site: dict[int, list[SiteEvidence]] = {}
+    for t in reversed(recent):  # 旧→新, 后者覆盖保持最新在前
+        if t.sea_area_id is None:
+            continue
+        rows = (
+            db.query(DetectionResult)
+            .filter(DetectionResult.task_id == t.id)
+            .order_by(DetectionResult.confidence.desc())
+            .all()
+        )
+        media = None
+        if t.task_type.value == "image":
+            media = detector_svc._annotated_image_url(t.id, t.file_path, rows)
+        else:
+            import os as _os
+            pv_dir = _os.path.join("uploads", "video_preview", str(t.id))
+            if _os.path.isdir(pv_dir):
+                frames = sorted(f for f in _os.listdir(pv_dir) if f.endswith(".jpg"))
+                if frames:
+                    media = f"/uploads/video_preview/{t.id}/{frames[-1]}"
+        ev = SiteEvidence(
+            taskId=t.id,
+            mediaUrl=media,
+            className=rows[0].class_name if rows else None,
+            objectCount=t.total_objects or 0,
+            level=pollution_level_zh(t.pollution_level),
+            at=f"{t.completed_at:%m-%d %H:%M}" if t.completed_at else None,
+        )
+        lst = evidence_by_site.setdefault(int(t.sea_area_id), [])
+        lst.insert(0, ev)
+        evidence_by_site[int(t.sea_area_id)] = lst[:3]
+
     items: list[SiteStatItem] = []
     for site in db.query(MonitoringSite).order_by(MonitoringSite.code).all():
         r = by_site.get(site.id)
@@ -259,6 +306,7 @@ async def stats_sites(
                 taskCount=task_count, totalObjects=int(r[2]),
                 pollutionIndex=index,
                 lastTaskAt=f"{r[3]:%Y-%m-%d %H:%M}" if r[3] else None,
+                evidence=evidence_by_site.get(site.id, []),
             ))
         else:
             items.append(SiteStatItem(

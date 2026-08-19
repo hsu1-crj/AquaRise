@@ -304,6 +304,16 @@ class SiteItem(BaseModel):
     note: str | None = None
 
 
+class SiteEvidence(BaseModel):
+    """单条检测证据(3D场景浮窗用)"""
+    taskId: int
+    mediaUrl: str | None = None    # 标注图(/uploads/image_detail/..)或标注视频
+    className: str | None = None   # 主要垃圾类别
+    objectCount: int = 0
+    level: str | None = None       # 优/良/中/差/严重
+    at: str | None = None
+
+
 class SiteStatItem(BaseModel):
     """单站点聚合（GET /api/v1/stats/sites，近 30 天已完成任务）"""
     id: int
@@ -315,6 +325,7 @@ class SiteStatItem(BaseModel):
     totalObjects: int = 0
     pollutionIndex: float | None = None  # 无任务时为 null（前端显示空态）
     lastTaskAt: str | None = None
+    evidence: list[SiteEvidence] = []  # 站点最近检测证据(标注图URL+摘要), 3D场景展示
 
 
 class FrontendDetectionBox(BaseModel):

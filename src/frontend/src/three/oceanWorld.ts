@@ -29,6 +29,7 @@ export interface SiteVisual {
   pollutionIndex: number | null;
   taskCount: number;
   totalObjects: number;
+  evidence?: Array<{ taskId: number; mediaUrl: string | null; className: string | null; objectCount: number; level: string | null; at: string | null }>;
 }
 
 export interface OceanHandlers {
@@ -152,6 +153,35 @@ function makeGarbageModel(key: string): THREE.Group {
   return g;
 }
 
+/** 证据浮牌: 真实标注图贴到发光板面 */
+function makeEvidenceBoard(url: string, code: string): Promise<THREE.Group> {
+  const group = new THREE.Group();
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(5.6, 4.2, 0.18),
+    new THREE.MeshBasicMaterial({ color: 0x0a3550 }),
+  );
+  group.add(frame);
+  const glowGeo = new THREE.PlaneGeometry(5.2, 3.8);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x123c58, toneMapped: false });
+  const photo = new THREE.Mesh(glowGeo, mat);
+  photo.position.z = 0.12;
+  group.add(photo);
+  const texLoader = new THREE.TextureLoader();
+  texLoader.setCrossOrigin('anonymous');
+  texLoader.load(
+    url,
+    (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      mat.map = tex;
+      mat.color.set(0xffffff);
+      mat.needsUpdate = true;
+    },
+    undefined,
+    () => undefined,
+  );
+  return Promise.resolve(group);
+}
+
 interface GarbageItem {
   model: THREE.Group;
   bornAt: number;
@@ -207,7 +237,7 @@ export class OceanWorld {
   private garbage: GarbageItem[] = [];
   private garbageGroup = new THREE.Group();
   private gulls: Gull[] = [];
-  private story?: GarbageStory;
+  private stories: Array<{ story: GarbageStory; born: number }> = [];
   private rov?: RovUnit;
 
   private raycaster = new THREE.Raycaster();
@@ -606,6 +636,16 @@ export class OceanWorld {
       label.position.y = h + 4.6;
       group.add(label);
 
+      // 检测证据浮牌: 该站最近一次检测的真实标注图, 立在站点旁(与项目检测业务接轨)
+      const ev = site.evidence?.find((e) => e.mediaUrl);
+      if (ev?.mediaUrl) {
+        void makeEvidenceBoard(ev.mediaUrl, site.code).then((board) => {
+          board.position.set(4.6, h + 1.2, 0);
+          board.rotation.y = -0.5;
+          group.add(board);
+        });
+      }
+
       this.siteGroup.add(group);
     }
   }
@@ -682,9 +722,16 @@ export class OceanWorld {
   private garbageKey = 'bag';
 
   dropGarbage(point: THREE.Vector3, key: string, _color: string): void {
-    this.story?.dispose();
-    this.story = new GarbageStory(this.scene, point, key);
-    const model = this.garbageModelCache[key] ?? makeGarbageModel(key);
+    // 多垃圾共存: 每次投放独立叙事, 16s后视觉元素自然收尾并回收
+    this.stories.push({ story: new GarbageStory(this.scene, point, key), born: this.clock.getElapsedTime() });
+    if (this.garbage.length >= 8) {
+      // 场面整洁上限: 最多8件同时漂浮
+      const oldest = this.garbage.shift();
+      if (oldest) this.garbageGroup.remove(oldest.model);
+    }
+    // 外部GLB缓存必须clone——同一Object3D不能同时挂在两处(修复"再投一个上一个消失"bug)
+    const cached = this.garbageModelCache[key];
+    const model = cached ? cached.clone(true) : makeGarbageModel(key);
     model.position.set(point.x, 0.3, point.z);
     this.garbageGroup.add(model);
     this.garbage.push({
@@ -725,7 +772,11 @@ export class OceanWorld {
     const t = this.clock.getElapsedTime();
     const underwater = this.view === 'underwater';
 
-    this.story?.update(dt);
+    for (let i = this.stories.length - 1; i >= 0; i--) {
+      const st = this.stories[i];
+      st.story.update(dt);
+      if (t - st.born > 16) { st.story.dispose(); this.stories.splice(i, 1); }
+    }
     if (underwater) this.rov?.update(dt, t);
     // 声呐扫描环周期扩散
     if (this.scanRing) {
@@ -753,7 +804,7 @@ export class OceanWorld {
         }
         pos.needsUpdate = true;
       }
-      this.updateFish(dt, t, this.story?.getPollution() ?? null);
+      this.updateFish(dt, t, this.stories.length ? this.stories[this.stories.length - 1].story.getPollution() : null);
     } else {
       this.updateGulls(t);
     }
@@ -772,7 +823,7 @@ export class OceanWorld {
         g.impactFired = true;
         this.handlers.onGarbageImpact?.(g.key);
       }
-      if (age > 12) {
+      if (age > 45) {
         this.garbageGroup.remove(g.model);
         g.model.traverse((o) => {
           const m = o as THREE.Mesh;
@@ -794,12 +845,15 @@ export class OceanWorld {
 
   /** 科普时间加速叙事状态(页面HUD轮询) */
   getGarbageStoryState(): GarbageStoryState {
-    return this.story?.getState() ?? { active: false, year: 0, stage: -1, stageLabel: '', degradationYears: 0 };
+    const latest = this.stories[this.stories.length - 1];
+    if (latest && this.clock.getElapsedTime() - latest.born < 15.5) return latest.story.getState();
+    return { active: false, year: 0, stage: -1, stageLabel: '', degradationYears: 0 };
   }
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
-    this.story?.dispose();
+    this.stories.forEach((st) => st.story.dispose());
+    this.stories = [];
     this.rov?.dispose();
     this.resizeOb.disconnect();
     this.controls.dispose();
