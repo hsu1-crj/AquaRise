@@ -44,7 +44,7 @@ npm run dev        # http://localhost:5173，/api 代理到 127.0.0.1:8000
 - `GET /api/v1/stats/summary | /trend` — 仪表盘统计
 - `POST /api/v1/chat`（`{messages, stream:true}`）— SSE 流式对话
 - `GET/POST /api/v1/reports` — 报告列表 / 生成（JSON `{task_id, format}`）
-- `GET /api/v1/knowledge` · `/api/v1/digital-human` — 知识库 / 数字人配置
+- `GET /api/v1/knowledge` · `/api/v1/digital-human/config` — 知识库 / 数字人公开运行配置
 
 ## 前端数据模式
 

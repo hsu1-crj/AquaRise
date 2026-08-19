@@ -55,14 +55,26 @@ export interface DigitalHumanConfig {
   gatewayServer?: string;
 }
 
+export const DEFAULT_XMOV_SDK_URL =
+  'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js';
+export const DEFAULT_XMOV_SDK_INTEGRITY =
+  'sha384-x6JED2qbmbCu3552Jzvj9Egb2FvDrnE2hoPUxupzkFphjuoGadVjKQupOjL3sWtu';
+
 /** 动态加载魔珐星云 SDK 脚本 */
-export function loadXmovSDK(): Promise<void> {
+export function loadXmovSDK(
+  sdkUrl = DEFAULT_XMOV_SDK_URL,
+  integrity = DEFAULT_XMOV_SDK_INTEGRITY,
+): Promise<void> {
   if (typeof window === 'undefined') return Promise.reject(new Error('仅浏览器环境可用'));
   if (window.XmovAvatar) return Promise.resolve();
 
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = 'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js';
+    script.src = sdkUrl;
+    if (integrity) {
+      script.integrity = integrity;
+      script.crossOrigin = 'anonymous';
+    }
     script.async = true;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('魔珐星云SDK加载失败'));
