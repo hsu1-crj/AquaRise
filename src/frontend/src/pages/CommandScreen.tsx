@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { OceanChart, RankingChart, TrendChart } from '../components/Charts';
 import { mockRecords, mockTrend } from '../data/mock';
+import { HaitongLogo } from '../components/HaitongLogo';
 
 export function CommandScreen({ onExit }: { onExit: () => void }) {
   const [time, setTime] = useState(new Date());
@@ -97,10 +98,7 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
         {/* 中间：旗舰海瞳指挥中心品牌标语 */}
         <div className="command-header-center">
           <div className="command-brand-emblem">
-            <div className="emblem-core">
-              <Waves size={20} />
-            </div>
-            <div className="emblem-pulse" />
+            <HaitongLogo size={24} />
           </div>
           <div className="command-title-group">
             <div className="command-title-row">

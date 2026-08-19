@@ -1,0 +1,254 @@
+{
+    "format": "mp3",
+    "generatedAt": "2026-08-19",
+    "engine": "Edge-TTS (Microsoft Neural Voices with SSML pitch/rate fine-tuning)",
+    "timbreMode": "22 Unique Child Voice Profiles (童声音色个性化矩阵)",
+    "voices": [
+        "species/vaquita-voice.mp3",
+        "species/north-atlantic-right-whale-voice.mp3",
+        "species/hawksbill-voice.mp3",
+        "species/kemps-ridley-voice.mp3",
+        "species/great-hammerhead-voice.mp3",
+        "species/scalloped-hammerhead-voice.mp3",
+        "species/oceanic-whitetip-voice.mp3",
+        "species/smalltooth-sawfish-voice.mp3",
+        "species/coelacanth-voice.mp3",
+        "species/blue-whale-voice.mp3",
+        "species/hawaiian-monk-seal-voice.mp3",
+        "species/green-turtle-voice.mp3",
+        "species/whale-shark-voice.mp3",
+        "species/giant-manta-voice.mp3",
+        "species/dugong-voice.mp3",
+        "species/leatherback-voice.mp3",
+        "species/great-white-shark-voice.mp3",
+        "species/chambered-nautilus-voice.mp3",
+        "species/stellers-sea-cow-voice.mp3",
+        "species/caribbean-monk-seal-voice.mp3",
+        "species/japanese-sea-lion-voice.mp3",
+        "species/great-auk-voice.mp3"
+    ],
+    "speciesProfiles": [
+        {
+            "cn": "小头鼠海豚",
+            "la": "Phocoena sinus",
+            "slug": "vaquita",
+            "voice": "zh-CN-XiaoyiNeural",
+            "pitch": "+92Hz",
+            "rate": "+6%",
+            "character": "5岁怯生生、惹人怜爱的软萌幼童",
+            "file": "species/vaquita-voice.mp3"
+        },
+        {
+            "cn": "北大西洋露脊鲸",
+            "la": "Eubalaena glacialis",
+            "slug": "north-atlantic-right-whale",
+            "voice": "zh-CN-YunjianNeural",
+            "pitch": "+58Hz",
+            "rate": "-4%",
+            "character": "6岁憨厚温暖、慢吞吞的小巨兽",
+            "file": "species/north-atlantic-right-whale-voice.mp3"
+        },
+        {
+            "cn": "玳瑁",
+            "la": "Eretmochelys imbricata",
+            "slug": "hawksbill",
+            "voice": "zh-CN-XiaoxiaoNeural",
+            "pitch": "+78Hz",
+            "rate": "+10%",
+            "character": "7岁活泼俏皮、爱美的小海龟女孩",
+            "file": "species/hawksbill-voice.mp3"
+        },
+        {
+            "cn": "肯氏龟",
+            "la": "Lepidochelys kempii",
+            "slug": "kemps-ridley",
+            "voice": "zh-CN-shaanxi-XiaoniNeural",
+            "pitch": "+82Hz",
+            "rate": "+8%",
+            "character": "6岁机灵软萌、喜欢和小伙伴成群结队的小龟",
+            "file": "species/kemps-ridley-voice.mp3"
+        },
+        {
+            "cn": "无沟双髻鲨",
+            "la": "Sphyrna mokarran",
+            "slug": "great-hammerhead",
+            "voice": "zh-CN-YunyangNeural",
+            "pitch": "+68Hz",
+            "rate": "+12%",
+            "character": "8岁机警果敢、视野开阔的探险小巡警",
+            "file": "species/great-hammerhead-voice.mp3"
+        },
+        {
+            "cn": "路氏双髻鲨",
+            "la": "Sphyrna lewini",
+            "slug": "scalloped-hammerhead",
+            "voice": "zh-CN-YunxiNeural",
+            "pitch": "+72Hz",
+            "rate": "+9%",
+            "character": "7岁热爱群居、天真热情的小鲨鱼少年",
+            "file": "species/scalloped-hammerhead-voice.mp3"
+        },
+        {
+            "cn": "远洋白鳍鲨",
+            "la": "Carcharhinus longimanus",
+            "slug": "oceanic-whitetip",
+            "voice": "zh-CN-liaoning-XiaobeiNeural",
+            "pitch": "+70Hz",
+            "rate": "+10%",
+            "character": "8岁元气满满、大洋流浪小剑客",
+            "file": "species/oceanic-whitetip-voice.mp3"
+        },
+        {
+            "cn": "小齿锯鳐",
+            "la": "Pristis pectinata",
+            "slug": "smalltooth-sawfish",
+            "voice": "zh-CN-YunjianNeural",
+            "pitch": "+66Hz",
+            "rate": "+5%",
+            "character": "7岁好奇心强、带着特殊小锯子的小工匠",
+            "file": "species/smalltooth-sawfish-voice.mp3"
+        },
+        {
+            "cn": "西印度洋矛尾鱼",
+            "la": "Latimeria chalumnae",
+            "slug": "coelacanth",
+            "voice": "zh-CN-YunxiaNeural",
+            "pitch": "+62Hz",
+            "rate": "-6%",
+            "character": "7岁梦呓般神秘、守望远古时空的星尘小仙童",
+            "file": "species/coelacanth-voice.mp3"
+        },
+        {
+            "cn": "蓝鲸",
+            "la": "Balaenoptera musculus",
+            "slug": "blue-whale",
+            "voice": "zh-CN-YunxiNeural",
+            "pitch": "+52Hz",
+            "rate": "-3%",
+            "character": "8岁清澈深邃、心怀宇宙的空灵少年音",
+            "file": "species/blue-whale-voice.mp3"
+        },
+        {
+            "cn": "夏威夷僧海豹",
+            "la": "Neomonachus schauinslandi",
+            "slug": "hawaiian-monk-seal",
+            "voice": "zh-CN-XiaoyiNeural",
+            "pitch": "+85Hz",
+            "rate": "+6%",
+            "character": "5岁阳光灿烂、带着热带海岛风情的小海豹幼崽",
+            "file": "species/hawaiian-monk-seal-voice.mp3"
+        },
+        {
+            "cn": "绿海龟",
+            "la": "Chelonia mydas",
+            "slug": "green-turtle",
+            "voice": "zh-CN-XiaoxiaoNeural",
+            "pitch": "+76Hz",
+            "rate": "+9%",
+            "character": "7岁温文尔雅、热爱海草田的旅行家小姑娘",
+            "file": "species/green-turtle-voice.mp3"
+        },
+        {
+            "cn": "鲸鲨",
+            "la": "Rhincodon typus",
+            "slug": "whale-shark",
+            "voice": "zh-CN-YunxiNeural",
+            "pitch": "+50Hz",
+            "rate": "-5%",
+            "character": "7岁温和呆萌、慢条斯理的深海大胃王",
+            "file": "species/whale-shark-voice.mp3"
+        },
+        {
+            "cn": "巨型蝠鲼",
+            "la": "Mobula birostris",
+            "slug": "giant-manta",
+            "voice": "zh-TW-HsiaoChenNeural",
+            "pitch": "+72Hz",
+            "rate": "+6%",
+            "character": "8岁优雅灵动、在水下飞翔的梦幻飞鱼",
+            "file": "species/giant-manta-voice.mp3"
+        },
+        {
+            "cn": "儒艮",
+            "la": "Dugong dugon",
+            "slug": "dugong",
+            "voice": "zh-CN-shaanxi-XiaoniNeural",
+            "pitch": "+88Hz",
+            "rate": "+4%",
+            "character": "5岁软糯娇憨、热爱海草的“美人鱼宝宝”",
+            "file": "species/dugong-voice.mp3"
+        },
+        {
+            "cn": "棱皮龟",
+            "la": "Dermochelys coriacea",
+            "slug": "leatherback",
+            "voice": "zh-CN-YunjianNeural",
+            "pitch": "+56Hz",
+            "rate": "-4%",
+            "character": "8岁深沉沉着、能深潜千米的勇敢小骑士",
+            "file": "species/leatherback-voice.mp3"
+        },
+        {
+            "cn": "大白鲨",
+            "la": "Carcharodon carcharias",
+            "slug": "great-white-shark",
+            "voice": "zh-CN-YunyangNeural",
+            "pitch": "+64Hz",
+            "rate": "+11%",
+            "character": "8岁傲娇自信、背负误解但守护正义的卫士小少年",
+            "file": "species/great-white-shark-voice.mp3"
+        },
+        {
+            "cn": "鹦鹉螺",
+            "la": "Nautilus pompilius",
+            "slug": "chambered-nautilus",
+            "voice": "zh-TW-HsiaoYuNeural",
+            "pitch": "+74Hz",
+            "rate": "-3%",
+            "character": "6岁精致奇巧、带着黄金螺旋气室的数学小天才",
+            "file": "species/chambered-nautilus-voice.mp3"
+        },
+        {
+            "cn": "斯特拉海牛",
+            "la": "Hydrodamalis gigas",
+            "slug": "stellers-sea-cow",
+            "voice": "zh-CN-YunxiNeural",
+            "pitch": "+46Hz",
+            "rate": "-10%",
+            "character": "7岁纯真无邪、带着沉痛叹息的消逝之音",
+            "file": "species/stellers-sea-cow-voice.mp3"
+        },
+        {
+            "cn": "加勒比僧海豹",
+            "la": "Neomonachus tropicalis",
+            "slug": "caribbean-monk-seal",
+            "voice": "zh-CN-XiaoyiNeural",
+            "pitch": "+82Hz",
+            "rate": "-6%",
+            "character": "6岁微带叹息、如水清澈的已灭绝小海豹",
+            "file": "species/caribbean-monk-seal-voice.mp3"
+        },
+        {
+            "cn": "日本海狮",
+            "la": "Zalophus japonicus",
+            "slug": "japanese-sea-lion",
+            "voice": "zh-CN-XiaoxiaoNeural",
+            "pitch": "+82Hz",
+            "rate": "+8%",
+            "character": "7岁曾经欢快无虑、但已被时光尘封的小海狮",
+            "file": "species/japanese-sea-lion-voice.mp3"
+        },
+        {
+            "cn": "大海雀",
+            "la": "Pinguinus impennis",
+            "slug": "great-auk",
+            "voice": "zh-HK-HiuGaaiNeural",
+            "pitch": "+52Hz",
+            "rate": "-8%",
+            "character": "6岁空灵哀婉、极地挽歌中的小海雀",
+            "file": "species/great-auk-voice.mp3"
+        }
+    ],
+    "ambience": "ambience/deep-sea.wav",
+    "note": "22 unique child voice narration profiles generated via Edge-TTS SSML fine-tuning. Pure offline static assets."
+}
