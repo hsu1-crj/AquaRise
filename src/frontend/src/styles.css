@@ -1577,6 +1577,37 @@
   text-overflow: ellipsis;
 }
 
+/* ==== 环境系统(昼夜/天气) / 污染聚合面板 / 播报字幕条 / 同步反馈 ==== */
+.ocean3d-env{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.env-group{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:rgba(5,32,48,.6)}
+.env-group button{padding:5px 10px;border:0;background:transparent;color:var(--muted);font-size:10px;cursor:pointer;transition:all .2s}
+.env-group button + button{border-left:1px solid var(--line)}
+.env-group button:hover{color:#dff6fa}
+.env-group button.active{background:linear-gradient(140deg,#5cf2ae,#2bdcff);color:#03212f;font-weight:700}
+.env-phase{font-size:9px;color:#ffd76a;border:1px dashed rgba(255,215,106,.5);border-radius:10px;padding:2px 8px;font-style:normal}
+.spin{animation:ocean3dSpin .9s linear infinite}
+@keyframes ocean3dSpin{to{transform:rotate(360deg)}}
+
+.ocean3d-pollution{position:absolute;top:86px;right:14px;z-index:6;width:238px;max-height:calc(100% - 190px);overflow:auto;padding:12px;border-radius:12px}
+.ocean3d-pollution h2{display:flex;align-items:center;gap:7px;font-size:12px;color:#ffb3bd;margin:0 0 8px}
+.ocean3d-pollution ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.pollution-row{width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:rgba(5,32,48,.55);color:#dff6fa;font-size:11px;cursor:pointer;text-align:left}
+.pollution-row:hover{border-color:rgba(255,111,145,.5)}
+.pollution-row .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.pollution-row .name{flex:1}
+.pollution-row .name b{color:#ffd76a;font-weight:700}
+.pollution-row .years{font-size:9px;color:var(--muted)}
+.pollution-detail{margin:6px 0 2px;padding:8px 10px;border-radius:9px;background:rgba(255,111,145,.06);border:1px solid rgba(255,111,145,.16)}
+.pollution-detail ol{margin:0 0 6px;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+.pollution-detail ol li{position:relative;padding:4px 8px 4px 24px;border-radius:6px;background:rgba(255,111,145,.08);font-size:10px;color:#ffe3ea;opacity:0;transform:translateY(4px);animation:ocean3dStep .4s forwards}
+.pollution-detail ol li::before{content:'⚠';position:absolute;left:7px;font-size:9px}
+.pollution-detail .secondary-button{display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:5px 10px}
+
+.ocean3d-guide-stage{display:flex;align-items:center;justify-content:center}
+.ocean3d-guide-stage canvas{max-width:100%;max-height:100%;margin:0 auto;display:block}
+.ocean3d-guide-fallback-tag{font-size:10px;color:#9fd0e8}
+.ocean3d-guide-caption{margin:0;padding:8px 10px;border-radius:9px;background:rgba(42,214,255,.1);border:1px solid rgba(42,214,255,.22);color:#eaffff;font-size:10.5px;line-height:1.65;max-height:88px;overflow:auto}
+
 .og-report-meta small {
   display: block;
   margin-top: 3px;

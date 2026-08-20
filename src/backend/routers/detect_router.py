@@ -157,7 +157,8 @@ def _process_single_image(file: UploadFile, current_user: User, db: Session,
         objects=objects,
         pollutionLevel=pollution_level_zh(level),
         density=round(len(objects) / 10.0, 1),
-        qualityScore=POLLUTION_SCORE.get(str(level), 68),
+        # 等级基线 + 数量连续修正: 同等级内检出越多分越低(最多扣9分不越级), 避免"恒定68分"
+        qualityScore=round(POLLUTION_SCORE.get(str(level), 68) - min(9, len(objects) * 0.6)),
         processedAt=f"{datetime.now():%Y-%m-%d %H:%M}",
     )
 

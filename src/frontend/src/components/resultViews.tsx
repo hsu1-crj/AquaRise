@@ -17,6 +17,11 @@ export const QUALITY_SCORE: Record<string, number> = {
   excellent: 92, good: 82, moderate: 68, poor: 48, severe: 28,
 };
 
+/** 连续化分数: 等级基线 − 数量修正(每件−0.6, 最多−9不越级), 与后端图片检测同口径 */
+export function qualityScoreOf(level: string, objectCount: number): number {
+  return Math.round((QUALITY_SCORE[level] ?? 68) - Math.min(9, objectCount * 0.6));
+}
+
 /** 视频预览帧画廊：大图 + 缩略图条；后端每检测到"新画面"即追加一张 */
 export function PreviewGallery({ urls }: { urls: string[] }) {
   const [active, setActive] = useState(0);
@@ -52,7 +57,7 @@ export function VideoResultCard({ fileName, status, result }: { fileName: string
   const objects = result?.results ?? [];
   const count = result?.totalObjects ?? status?.totalObjects ?? 0;
   const seconds = result?.processingTime ?? status?.processingTime;
-  const score = QUALITY_SCORE[level] ?? 68;
+  const score = qualityScoreOf(level, count);
   const previews = status?.previewUrls?.length
     ? status.previewUrls
     : status?.previewUrl

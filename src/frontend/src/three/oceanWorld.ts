@@ -26,6 +26,8 @@ import { LiveTaskOverlay } from './liveTask';
 import type { LiveFrameBox, LiveProgress, LiveTargetItem } from './liveTask';
 import type { KnowledgePoi } from '../data/knowledgePois';
 import type { GarbageStoryState } from './story';
+import { EnvironmentController } from './weather';
+import type { TimeMode, WeatherMode } from './weather';
 
 export interface SiteVisual {
   id: number;
@@ -389,6 +391,13 @@ export class OceanWorld {
   private poiHits: THREE.Mesh[] = [];
   private alertFx: AlertFx[] = [];
 
+
+  // 环境系统(昼夜/天气) + 水下状态 + 双击疾跑
+  private env?: EnvironmentController;
+  private underwaterState = false;
+  private sprintKeys = new Set<string>();
+  private lastTapAt: Record<string, number> = {};
+
   constructor(private container: HTMLElement, private handlers: OceanHandlers) {
     // 30 FPS + 1.25 DPR: 保持海底细节的同时避免显卡持续满载/风扇高转
     this.renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
@@ -482,7 +491,17 @@ export class OceanWorld {
     this.underwater = new UnderwaterWorld(this.scene, SUN_DIR, () => this.repositionSites());
     // 初始视觉(水面模式): 雾+曝光由 applyDepthVisuals 按深度自动切换
     this.scene.fog = new THREE.FogExp2(0xd7e9f0, 0.00045);
-    this.hemi.intensity = 0.55;
+
+    // ---------- 环境系统(昼夜/天气, 接管光照/天空/水色/雾/荧光) ----------
+    const sunLightRef = this.scene.children.find(
+      (c): c is THREE.DirectionalLight => (c as THREE.DirectionalLight).isDirectionalLight,
+    ) as THREE.DirectionalLight | undefined;
+    if (sunLightRef && this.sky && this.water) {
+      this.env = new EnvironmentController(
+        this.scene, sunLightRef, this.hemi, this.sky, this.water, this.renderer,
+        (k) => this.underwater.setPlanktonGlow(k),
+      );
+    }
     if (!this.rov) this.rov = new RovUnit(this.scene, this.camera);
 
     this.underwater.addEmitter(() => {
@@ -533,11 +552,19 @@ export class OceanWorld {
     this.animate();
   }
   // ---------- 视角切换 ----------
-  /** 统一海洋: 视觉效果由相机Y坐标实时决定, 无需手动切换 */
+  /**
+   * 水面/水下视觉切换: 滞后带避免贴水面来回跳变——
+   * 下潜越过 -1.8 才入水, 上浮越过 -0.7 才出水, 中间为缓冲带。
+   */
   private applyDepthVisuals(): void {
-    const underwater = this.camera.position.y < -0.15;
-    if (underwater === this.wasUnderwater) return; // 未跨界不重设
-    this.wasUnderwater = underwater;
+    const y = this.camera.position.y;
+    if (this.wasUnderwater) {
+      if (y > -0.7) this.wasUnderwater = false;
+    } else if (y < -1.8) {
+      this.wasUnderwater = true;
+    }
+    this.underwaterState = this.wasUnderwater;
+    const underwater = this.wasUnderwater;
     if (this.water) this.water.visible = !underwater;
     if (this.sky) this.sky.visible = !underwater;
     if (this.coastline) this.coastline.visible = !underwater;
@@ -546,22 +573,24 @@ export class OceanWorld {
     for (const g of this.gulls) g.group.visible = !underwater;
     this.rov?.setVisible(underwater);
     if (this.fxPass) this.fxPass.uniforms.uOn.value = underwater ? 1 : 0;
+    const envFog = this.env?.surfaceFog;
     if (underwater) {
-      this.scene.fog = new THREE.FogExp2(0x0a3548, 0.0035);
-      this.scene.background = new THREE.Color(0x062838);
-      this.hemi.intensity = 0.35;
-      this.renderer.toneMappingExposure = 0.6;
+      // 夜晚水下更暗更深; 曝光/hemi由环境控制器按水下状态接管
+      const night = this.env?.isNight ?? false;
+      this.scene.fog = new THREE.FogExp2(night ? 0x041523 : 0x0a3548, 0.0035);
+      this.scene.background = new THREE.Color(night ? 0x020c14 : 0x062838);
+    } else if (envFog) {
+      this.scene.fog = new THREE.FogExp2(envFog.color, envFog.density);
+      this.scene.background = null;
     } else {
       this.scene.fog = new THREE.FogExp2(0xd7e9f0, 0.00045);
       this.scene.background = null;
-      this.hemi.intensity = 0.55;
-      this.renderer.toneMappingExposure = 0.56;
     }
   }
 
-  /** 科普投放: 只在水面之上有效(点击水面) */
+  /** 当前是否处于水下视觉态(投放拾取等逻辑用) */
   get isUnderwater(): boolean {
-    return this.camera.position.y < -0.15;
+    return this.underwaterState;
   }
 
   // ---------- 外部真实模型热插拔 ----------
@@ -677,13 +706,21 @@ export class OceanWorld {
 
   focusSite(siteId: number): void {
     const [x, z] = SITE_LAYOUT[siteId] ?? [0, 0];
-    // 平滑飞到站点附近并朝向它
-    const pos = new THREE.Vector3(x, -2.6, z + 20);
-    const dir = new THREE.Vector3(x, -4.5, z).sub(pos);
+    // 平滑飞到站点上空海面视角(不再一头扎进水下): 俯角看向浮标
+    const pos = new THREE.Vector3(x, 9.5, z + 26);
+    const dir = new THREE.Vector3(x, 1.2, z).sub(pos);
     const yaw = Math.atan2(-dir.x, -dir.z);
     const pitch = Math.atan2(dir.y, Math.hypot(dir.x, dir.z));
     this.camGoal = { pos, yaw, pitch };
   }
+
+  // ---------- 环境系统(昼夜/天气) ----------
+  setEnvTime(mode: TimeMode): void { this.env?.setTime(mode); }
+
+  setEnvWeather(mode: WeatherMode): void { this.env?.setWeather(mode); }
+
+  /** auto 模式当前时段标签(页面HUD轮询) */
+  get envPhaseLabel(): string { return this.env?.autoPhaseLabel ?? ''; }
 
   // ---------- 扩散推演 ----------
   setDiffusion(result: DiffusionResult, originSiteId: number): void {
@@ -955,7 +992,7 @@ export class OceanWorld {
 
   setClickMode(mode: 'site' | 'water'): void {
     this.clickMode = mode;
-    this.pickPlane.visible = !this.isUnderwater && mode === 'water';
+    this.pickPlane.visible = !this.underwaterState && mode === 'water';
   }
 
   // ---------- 拾取 ----------
@@ -1058,15 +1095,20 @@ export class OceanWorld {
     }
   }
 
+
   private animate(): void {
     this.raf = requestAnimationFrame(this.animate);
+    // 30fps 帧率限幅: 避免显卡持续满载
     const now = performance.now();
     if (now - this.lastRenderMs < this.targetFrameMs) return;
     this.lastRenderMs = now;
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.getElapsedTime();
-    const underwater = this.camera.position.y < -0.15;
     this.applyDepthVisuals();
+    const underwater = this.underwaterState;
+    // 环境系统(昼夜/天气)每帧过渡 + 夜晚元素可见性
+    this.env?.update(dt, t, this.camera, underwater);
+    this.env?.applyVisibility(t, underwater);
 
     for (const st of this.stories) st.story.update(dt);
 
@@ -1134,8 +1176,8 @@ export class OceanWorld {
         g.model.rotation.z += g.spin.z * dt;
         g.model.position.y += Math.sin(t * 1.6 + g.bornAt) * 0.12 * dt;
       } else if (!settled) {
-        // 下沉期: 缓慢摇摆下沉
-        g.model.position.y -= dt * 1.1;
+        // 下沉期: 摇摆下沉, 速度随时间加快(深海底也能在合理时间落底)
+        g.model.position.y -= dt * Math.min(6, 1.1 + age * 0.18);
         g.model.rotation.z += g.spin.z * 0.6 * dt;
         g.model.rotation.x += g.spin.x * 0.4 * dt;
       } else if (!g.landed) {
@@ -1192,9 +1234,23 @@ export class OceanWorld {
   };
   private onFpUp = (): void => { this.fpDragging = false; };
   private onFpKeyDown = (e: KeyboardEvent): void => {
-    if (!e.repeat && !e.code.startsWith('F')) this.fpKeys.add(e.code);
+    if (e.repeat || e.code.startsWith('F')) return;
+    this.fpKeys.add(e.code);
+    // 双击移动键(320ms内) → 疾跑, 按住期间生效
+    const MOVE_CODES: Record<string, true> = {
+      KeyW: true, KeyA: true, KeyS: true, KeyD: true,
+      ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true,
+    };
+    if (MOVE_CODES[e.code]) {
+      const now = performance.now();
+      if (now - (this.lastTapAt[e.code] ?? -1e9) < 320) this.sprintKeys.add(e.code);
+      this.lastTapAt[e.code] = now;
+    }
   };
-  private onFpKeyUp = (e: KeyboardEvent): void => { this.fpKeys.delete(e.code); };
+  private onFpKeyUp = (e: KeyboardEvent): void => {
+    this.fpKeys.delete(e.code);
+    this.sprintKeys.delete(e.code);
+  };
   private onFpWheel = (e: WheelEvent): void => {
     if (e.target !== this.renderer.domElement) return;
     e.preventDefault();
@@ -1211,7 +1267,9 @@ export class OceanWorld {
       this.fpPitch += (this.camGoal.pitch - this.fpPitch) * Math.min(1, 2.6 * dt);
       if (this.camera.position.distanceTo(this.camGoal.pos) < 0.5) this.camGoal = null;
     }
-    const boost = this.fpKeys.has('ShiftLeft') || this.fpKeys.has('ShiftRight') ? 3.2 : 1;
+    const shiftBoost = this.fpKeys.has('ShiftLeft') || this.fpKeys.has('ShiftRight');
+    const sprintBoost = this.sprintKeys.size > 0; // 双击移动键触发的疾跑
+    const boost = shiftBoost ? 3.2 : sprintBoost ? 2.4 : 1;
     const speed = 10 * boost;
     const fwd = this.fpKeys.has('KeyW') || this.fpKeys.has('ArrowUp') ? 1 : this.fpKeys.has('KeyS') || this.fpKeys.has('ArrowDown') ? -1 : 0;
     const side = this.fpKeys.has('KeyD') || this.fpKeys.has('ArrowRight') ? 1 : this.fpKeys.has('KeyA') || this.fpKeys.has('ArrowLeft') ? -1 : 0;
@@ -1233,8 +1291,10 @@ export class OceanWorld {
     this.camera.quaternion.setFromEuler(new THREE.Euler(this.fpPitch, this.fpYaw, 0, 'YXZ'));
   }
 
+
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    this.env?.dispose();
     this.clearLiveTask();
     this.clearKnowledgePOIs();
     for (const fx of this.alertFx) {

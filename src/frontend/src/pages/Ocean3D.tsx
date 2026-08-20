@@ -4,8 +4,10 @@
  *            + 真实海况(Open-Meteo, 实测风场一键填入推演) + 污染告警联动
  *            + 扩散推演 + 检测证据联动(同步/大图/报告跳转)
  *  科普模式: 点击海面投放垃圾 → 沉降海底 → 持久污染(浑浊带/死鱼/水质下降)
- *            + 知识漂流瓶收集答题 + 数字人导游(LLM+RAG) + 语音播报 + 投放音效
- *  视角: 自由飞行(WASD+QE) / 站点聚焦 / 水下ROV / 鲸鱼跟随
+ *            + 知识漂流瓶收集答题 + 数字人导游播报(投放汇总合并/队列不截断)
+ *            + 右侧污染聚合面板(不再弹叠加卡片)
+ *  环境: 昼夜(白天/黄昏/夜晚/自动循环) × 天气(晴/云/雨), 夜晚星空+月光+水下荧光
+ *  视角: 自由飞行(WASD+QE, 双击方向键疾跑) / 站点聚焦(海面视角) / 水下ROV
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
@@ -22,9 +24,11 @@ import { GARBAGE_IMPACTS, impactByKey } from '../three/impactData';
 import type { GarbageImpact } from '../three/impactData';
 import { KNOWLEDGE_POIS, loadPoiProgress, savePoiProgress } from '../data/knowledgePois';
 import type { KnowledgePoi } from '../data/knowledgePois';
-import { speakText, stopSpeaking } from '../services/speech';
+import { speakText, speakQueued, stopSpeaking } from '../services/speech';
+import { flushDropsNow, hasGuideListener, onBroadcast, reportGarbageDrop } from '../services/broadcast';
 import { playAlertSound, playChime, playSplashSound } from '../services/sfx';
 import { GuideDock } from '../components/GuideDock';
+import type { TimeMode, WeatherMode } from '../three/weather';
 
 type Mode = 'monitor' | 'volunteer';
 
@@ -80,10 +84,20 @@ export function Ocean3DPage() {
   const [waterQuality, setWaterQuality] = useState(100);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [reportBusy, setReportBusy] = useState<number | null>(null);
-  const [impacts, setImpacts] = useState<Array<{ info: GarbageImpact; id: number }>>([]);
-  const impactIdRef = useRef(0);
   const voiceOnRef = useRef(true);
   useEffect(() => { voiceOnRef.current = voiceOn; }, [voiceOn]);
+
+  // 污染聚合面板数据(由活跃垃圾轮询聚合, 替代旧的多张拖拽警示卡)
+  const [pollutions, setPollutions] = useState<Array<{ info: GarbageImpact; count: number }>>([]);
+
+  // 环境系统(昼夜/天气)
+  const [envTime, setEnvTime] = useState<TimeMode>('day');
+  const [envWeather, setEnvWeather] = useState<WeatherMode>('clear');
+  const [envPhase, setEnvPhase] = useState('');
+
+  // 同步检测按钮反馈
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncAt, setSyncAt] = useState<string | null>(null);
 
   // 扩散推演参数与播放状态
   const [originId, setOriginId] = useState<number | null>(null);
@@ -127,13 +141,8 @@ export function Ocean3DPage() {
         world.dropGarbage(point, garbageKeyRef.current, info?.color ?? '#ff6f91');
         setDropCount((c) => c + 1);
         if (voiceOnRef.current) playSplashSound();
-        if (info) {
-          if (voiceOnRef.current) {
-            speakText(`${info.name}已入海。${info.chain.slice(0, 2).join('，')}。完全降解约需${info.degradeYears}年。`, { force: true });
-          }
-          impactIdRef.current += 1;
-          setImpacts((list) => [...list.slice(-4), { info, id: impactIdRef.current }]);
-        }
+        // 播报走总线: 同类型1.6s内合并计数, 由数字人导游(或语音队列)排队念出, 不截断上一条
+        if (info) reportGarbageDrop(info.name, info.chain.slice(0, 2).join('，'));
       },
       onGarbageImpact: (key) => { setImpact(impactByKey(key) ?? null); },
       onPoiClick: (poi) => { setQuiz(poi); setQuizWrong(null); },
@@ -156,6 +165,7 @@ export function Ocean3DPage() {
       for (const url of liveUrlsRef.current) URL.revokeObjectURL(url);
       liveUrlsRef.current = [];
       stopSpeaking();
+      flushDropsNow();
       world.dispose();
       worldRef.current = null;
     };
@@ -168,28 +178,54 @@ export function Ocean3DPage() {
     setImpact(null);
     setSiteDetail(null);
     if (mode !== 'monitor') clearLive();
+    flushDropsNow();
+    if (mode !== 'volunteer') setPollutions([]);
   }, [mode]);
   useEffect(() => { garbageKeyRef.current = garbageKey; }, [garbageKey]);
 
-  // 科普叙事HUD: 轮询时间加速状态 + 水质(由活跃污染实时决定)
+  // 广播兜底: 数字人导游坞不在线时, 投放汇总改走语音队列(导游在线时由它念, 不双声道)
+  useEffect(() => onBroadcast((msg) => {
+    if (hasGuideListener()) return;
+    if (voiceOnRef.current) speakQueued(msg.text);
+  }), []);
+
+  // 科普叙事HUD: 轮询时间加速状态 + 水质 + 污染聚合面板数据(活跃垃圾按类型计数)
   useEffect(() => {
     if (mode !== 'volunteer') { setStory(null); setWaterQuality(100); return; }
     const timer = window.setInterval(() => {
       setStory(worldRef.current?.getGarbageStoryState() ?? null);
       const active = worldRef.current?.getActiveGarbage() ?? [];
       setWaterQuality(Math.max(28, 100 - active.length * 9));
+      const byKey = new Map<string, number>();
+      for (const item of active) byKey.set(item.key, (byKey.get(item.key) ?? 0) + 1);
+      setPollutions(
+        Array.from(byKey.entries())
+          .map(([key, count]) => ({ info: impactByKey(key), count }))
+          .filter((p): p is { info: GarbageImpact; count: number } => p.info != null),
+      );
     }, 200);
     return () => window.clearInterval(timer);
   }, [mode]);
+
+  // auto 昼夜循环的时段标签轮询
+  useEffect(() => {
+    if (envTime !== 'auto') { setEnvPhase(''); return; }
+    const timer = window.setInterval(() => setEnvPhase(worldRef.current?.envPhaseLabel ?? ''), 1000);
+    return () => window.clearInterval(timer);
+  }, [envTime]);
 
   // 监测模式: 每45s自动同步站点数据(上传识别后 3D 自动跟进) + 手动同步共用
   const syncSites = (manual = false) => {
     const world = worldRef.current;
     if (!world) return;
+    if (manual) setSyncBusy(true);
     api.getSiteStats().then((list) => {
       setSites(list);
       try { world.setSites(list); } catch { /* 场景未就绪时忽略 */ }
-      if (manual) api.getSummary().then(setSummary).catch(() => undefined);
+      if (manual) {
+        setSyncAt(new Date().toTimeString().slice(0, 5));
+        api.getSummary().then(setSummary).catch(() => undefined);
+      }
       // 告警联动: 指数≥7 → 3D红环+光束+提示音+语音(站点级5分钟冷却, 首次同步仅布防)
       if (!alertArmedRef.current) {
         alertArmedRef.current = true;
@@ -208,7 +244,8 @@ export function Ocean3DPage() {
           }
         }
       }
-    }).catch(() => undefined);
+    }).catch(() => undefined)
+      .finally(() => setSyncBusy(false));
   };
   useEffect(() => {
     if (mode !== 'monitor') return;
@@ -484,6 +521,26 @@ export function Ocean3DPage() {
           <h1>海洋 3D 态势</h1>
         </div>
         <div className="ocean3d-topbar-actions">
+          {/* 环境系统: 昼夜 × 天气 */}
+          <div className="ocean3d-env" aria-label="环境模式">
+            <div className="env-group" role="group" aria-label="时间模式">
+              {([['day', '白昼'], ['sunset', '黄昏'], ['night', '夜晚'], ['auto', '自动']] as Array<[TimeMode, string]>).map(([value, label]) => (
+                <button key={value} className={envTime === value ? 'active' : ''} title={value === 'auto' ? '昼夜自动循环(约3.5分钟一天)' : `切换到${label}`}
+                  onClick={() => { setEnvTime(value); worldRef.current?.setEnvTime(value); }}>
+                  {label}
+                </button>
+              ))}
+              {envTime === 'auto' && envPhase && <em className="env-phase">{envPhase}</em>}
+            </div>
+            <div className="env-group" role="group" aria-label="天气模式">
+              {([['clear', '晴'], ['cloudy', '多云'], ['rain', '雨']] as Array<[WeatherMode, string]>).map(([value, label]) => (
+                <button key={value} className={envWeather === value ? 'active' : ''} title={`切换到${label}天`}
+                  onClick={() => { setEnvWeather(value); worldRef.current?.setEnvWeather(value); }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="ocean3d-mode" role="tablist" aria-label="场景模式">
             <button className={mode === 'monitor' ? 'active' : ''} onClick={() => setMode('monitor')} role="tab" aria-selected={mode === 'monitor'}>
               <Radar size={15} />监测模式
@@ -495,12 +552,11 @@ export function Ocean3DPage() {
         </div>
       </header>
 
-      {/* 多污染警示卡(右侧堆叠, 每张可拖动; 不遮挡投放点) */}
-      {mode === 'volunteer' && impacts.map((item, i) => (
-        <ImpactCard key={item.id} info={item.info} index={i}
-          onClear={() => { worldRef.current?.removeStoryByKey(item.info.key); setImpacts((l) => l.filter((x) => x.id !== item.id)); }}
-          onClose={() => setImpacts((l) => l.filter((x) => x.id !== item.id))} />
-      ))}
+      {/* 污染聚合面板(右侧, 替代旧的浮动叠加卡: 按类型聚合计数, 点击展开危害链) */}
+      {mode === 'volunteer' && (
+        <PollutionPanel items={pollutions}
+          onClearOne={(key) => { worldRef.current?.removeStoryByKey(key); }} />
+      )}
 
       {/* 全局KPI实数条（系统真实统计, 3D场景与项目业务接轨的门面） */}
       {summary && (
@@ -516,8 +572,8 @@ export function Ocean3DPage() {
       {mode === 'monitor' && (
         <aside className="ocean3d-panel glass">
           <h2><Waves size={15} />监测站点 · 实时数据
-            <button className="ocean3d-sync" title="同步最新检测数据(上传识别后点击或等待45s自动同步)" onClick={() => syncSites(true)}>
-              <RefreshCw size={13} />同步检测
+            <button className="ocean3d-sync" disabled={syncBusy} title="同步最新检测数据(上传识别后点击或等待45s自动同步)" onClick={() => syncSites(true)}>
+              <RefreshCw size={13} className={syncBusy ? 'spin' : undefined} />{syncBusy ? '同步中…' : syncAt ? `同步 ${syncAt}` : '同步检测'}
             </button>
           </h2>
           <ul className="ocean3d-sites">
@@ -806,50 +862,44 @@ export function Ocean3DPage() {
   );
 }
 
-/** 可拖动污染警示卡: 默认停靠右侧(避开中心投放区), 按住标题栏拖动, 每张独立 */
-function ImpactCard({ info, index, onClear, onClose }: {
-  info: GarbageImpact;
-  index: number;
-  onClear: () => void;
-  onClose: () => void;
+/** 污染聚合面板: 右侧固定面板按类型汇总活跃污染(替代会互相重叠的浮动卡),
+ *  点击类型行展开该类危害链与清除操作 */
+function PollutionPanel({ items, onClearOne }: {
+  items: Array<{ info: GarbageImpact; count: number }>;
+  onClearOne: (key: string) => void;
 }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-  const onPointerDown = (e: React.PointerEvent) => {
-    dragRef.current = { dx: e.clientX - (pos?.x ?? 0), dy: e.clientY - (pos?.y ?? 0) };
-    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* 无效指针(合成事件)时仍可拖动 */ }
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    setPos({
-      x: Math.max(8, Math.min(window.innerWidth - 340, e.clientX - dragRef.current.dx)),
-      y: Math.max(8, Math.min(window.innerHeight - 120, e.clientY - dragRef.current.dy)),
-    });
-  };
-  const onPointerUp = () => { dragRef.current = null; };
-  const style: React.CSSProperties = pos
-    ? { right: 'auto', left: pos.x, top: pos.y }
-    : { right: 20, top: 96 + index * 26 };
+  const [expanded, setExpanded] = useState<string | null>(null);
+  if (items.length === 0) return null;
+  const total = items.reduce((sum, item) => sum + item.count, 0);
   return (
-    <div className="ocean3d-card glass ocean3d-impact ocean3d-draggable" style={style}>
-      <div className="ocean3d-drag-handle" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
-        <span className="drag-grip">⠿</span>
-        <h3 style={{ color: info.color }}>{info.name} 入海之后…</h3>
-        <button className="ocean3d-close" aria-label="关闭" onClick={onClose}><X size={15} /></button>
-      </div>
-      <ol className="ocean3d-chain">
-        {info.chain.map((step, i) => <li key={i} style={{ animationDelay: `${i * 0.35}s` }}>{step}</li>)}
-      </ol>
-      <div className="ocean3d-degrade">
-        <span>完全降解需要约</span>
-        <b>{info.degradeYears} 年</b>
-        <small>{info.degradeText}</small>
-      </div>
-      <p className="ocean3d-stat">{info.stat}</p>
-      <div className="ocean3d-actions">
-        <button className="secondary-button" onClick={onClear}><Trash2 size={12} />清除该污染</button>
-      </div>
-      <p className="ocean3d-disclaimer"><Info size={12} />来源：项目海洋知识库 · 拖动标题栏移动</p>
-    </div>
+    <aside className="ocean3d-pollution glass" aria-label="污染警示">
+      <h2><Trash2 size={14} />污染警示 · {total} 处</h2>
+      <ul>
+        {items.map(({ info, count }) => (
+          <li key={info.key}>
+            <button
+              className="pollution-row"
+              aria-expanded={expanded === info.key}
+              onClick={() => setExpanded(expanded === info.key ? null : info.key)}>
+              <span className="dot" style={{ background: info.color }} />
+              <span className="name">{info.name}{count > 1 && <b> ×{count}</b>}</span>
+              <span className="years" title="量级估计降解年限">{info.degradeYears}年</span>
+            </button>
+            {expanded === info.key && (
+              <div className="pollution-detail">
+                <ol className="ocean3d-chain">
+                  {info.chain.map((step, i) => <li key={i} style={{ animationDelay: `${i * 0.2}s` }}>{step}</li>)}
+                </ol>
+                <p className="ocean3d-stat">{info.stat}</p>
+                <button className="secondary-button" onClick={() => onClearOne(info.key)}>
+                  <Trash2 size={12} />清除一处
+                </button>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="ocean3d-disclaimer"><Info size={12} />点击类型展开危害链 · 数据来自项目海洋知识库</p>
+    </aside>
   );
 }

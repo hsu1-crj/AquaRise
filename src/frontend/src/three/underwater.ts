@@ -19,6 +19,10 @@ import { normalizeModelSize } from './story';
 /** 地形网格覆盖的场景范围(±), 与 OceanWorld 站点布局一致 */
 export const TERRAIN_HALF = 120;
 
+/** 垂直纵深: 真实测深米→场景Y倍率。4.2倍让 30m 水深→约-11、外海更深, 形成真实纵深 */
+const DEPTH_SCALE = 4.2;
+/** 保底水深(场景单位): 浅于10的近岸点抬到10, 深处保留真实值(不压平板) */
+const MIN_DEPTH = -10;
 export type HeightAtFn = (x: number, z: number) => number | null;
 
 // ---------- 噪声(地形细节/散布抖动) ----------
@@ -250,15 +254,15 @@ export class UnderwaterWorld {
       // 供鱼群/生态使用的最终高度: 测深基底 + 沙丘 + 脊状礁岩(rid ridged噪声造起伏)
       this.heightAt = (x, z) => {
         if (Math.abs(x) > TERRAIN_HALF || Math.abs(z) > TERRAIN_HALF) return null;
-        const base = bathyAt(x, z) * 0.09;
-        if (base > 0.5) return base; // 岛屿不叠加
-        const dunes = fbm(x * 0.16, z * 0.16, 4) * 1.1 + fbm(x * 0.55, z * 0.55, 3) * 0.35;
-        // 脊状礁岩: 1-|噪声| 产生尖锐山脊; 深水区全幅, 浅水区(基底>-4)渐弱避免大面积填平水体
+        const base = bathyAt(x, z) * 0.09 * DEPTH_SCALE;
+        if (base > 1.6) return base; // 岛屿不叠加(阈值随纵深同步放大)
+        const dunes = (fbm(x * 0.16, z * 0.16, 4) * 1.1 + fbm(x * 0.55, z * 0.55, 3) * 0.35) * DEPTH_SCALE;
+        // 脊状礁岩: 1-|噪声| 产生尖锐山脊; 深水区全幅, 浅水区渐弱避免大面积填平水体
         const ridgeA = Math.pow(1 - Math.abs(fbm(x * 0.045 + 7.3, z * 0.045 - 2.1, 3)), 2.2);
         const ridgeB = Math.pow(1 - Math.abs(fbm(x * 0.11 - 4.7, z * 0.11 + 9.4, 3)), 2.6);
-        const depthK = Math.max(0, Math.min(1, -base / 4.5)); // base=-4.5时全幅, >0时无礁脊
-        const crag = (ridgeA * 3.1 + ridgeB * 1.15) * depthK;
-        return Math.min(-5.5, base + dunes + crag); // 强制最小水深3.0, 保证相机有导航空间
+        const depthK = Math.max(0, Math.min(1, -base / 14.5));
+        const crag = (ridgeA * 3.1 + ridgeB * 1.15) * depthK * DEPTH_SCALE;
+        return Math.min(MIN_DEPTH, base + dunes + crag);
       };
 
       const VX = 200;
@@ -278,9 +282,9 @@ export class UnderwaterWorld {
           const h = this.heightAt(x, z) ?? -8;
           positions.push(x, h, z);
           uvs.push(ix / (VX - 1), iz / (VX - 1));
-          if (h > 0.5) tmp.copy(cShallow).offsetHSL(0, 0, fbm(x * 0.3, z * 0.3, 2) * 0.04);
-          else if (h > -2.2) tmp.lerpColors(cMid, cShallow, (h + 2.2) / 2.7);
-          else if (h > -5) tmp.lerpColors(cDeep, cMid, (h + 5) / 2.8);
+          if (h > 1.6) tmp.copy(cShallow).offsetHSL(0, 0, fbm(x * 0.3, z * 0.3, 2) * 0.04);
+          else if (h > -7) tmp.lerpColors(cMid, cShallow, (h + 7) / 8.6);
+          else if (h > -16) tmp.lerpColors(cDeep, cMid, (h + 16) / 9);
           else tmp.lerpColors(cDeep, cAlgae, Math.max(0, fbm(x * 0.12, z * 0.12, 3)) * 0.4);
           colors.push(tmp.r, tmp.g, tmp.b);
         }
@@ -1087,6 +1091,79 @@ export class UnderwaterWorld {
     this.updateJellies(dt, t);
     this.updateFish(dt, t, pollution);
     this.updateTrail(dt);
+    this.updatePlankton(dt, t);
+  }
+
+  // ---------- 夜晚彩蛋: 生物荧光浮游(发光浮游生物随泳者缓慢聚拢, 蓝绿辉光) ----------
+  private plankton?: THREE.Points;
+  private planktonBase?: Float32Array;
+  private planktonGlow = 0; // 0=白天关闭, 1=夜晚全亮(渐变)
+
+  /** 夜晚荧光强度(0..1), 由环境控制器随昼夜渐变驱动 */
+  setPlanktonGlow(k: number): void {
+    this.planktonGlow = THREE.MathUtils.clamp(k, 0, 1);
+    if (!this.plankton && this.planktonGlow > 0.01) this.buildPlankton();
+    if (this.plankton) this.plankton.visible = this.planktonGlow > 0.01;
+  }
+
+  private buildPlankton(): void {
+    const N = 420;
+    const pos = new Float32Array(N * 3);
+    const seeds = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * 46;
+      pos[i * 3 + 1] = -3 - Math.random() * 26;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 46;
+      seeds[i * 3] = Math.random() * Math.PI * 2;
+      seeds[i * 3 + 1] = 0.4 + Math.random() * 0.9;
+      seeds[i * 3 + 2] = 0.5 + Math.random() * 1.4;
+    }
+    this.planktonBase = pos.slice();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    // 每点辉光尺寸写入attribute, 顶点着色器风格用PointsMaterial+尺寸差近似: 直接两种尺寸层
+    const mat = new THREE.PointsMaterial({
+      color: 0x53f2d3, size: 0.85, map: this.makeGlowDotTexture(), transparent: true,
+      opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+    });
+    this.plankton = new THREE.Points(geo, mat);
+    this.plankton.visible = false;
+    this.root.add(this.plankton);
+    this.plankton.userData.seeds = seeds;
+  }
+
+  private makeGlowDotTexture(): THREE.Texture {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+      grad.addColorStop(0, 'rgba(180,255,240,1)');
+      grad.addColorStop(0.35, 'rgba(83,242,211,.55)');
+      grad.addColorStop(1, 'rgba(83,242,211,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private updatePlankton(dt: number, t: number): void {
+    if (!this.plankton || this.planktonGlow <= 0.01) return;
+    const mat = this.plankton.material as THREE.PointsMaterial;
+    mat.opacity = this.planktonGlow * (0.55 + Math.sin(t * 1.7) * 0.18); // 整体呼吸
+    const attr = this.plankton.geometry.attributes.position as THREE.BufferAttribute;
+    const arr = attr.array as Float32Array;
+    const base = this.planktonBase as Float32Array;
+    const seeds = this.plankton.userData.seeds as Float32Array;
+    for (let i = 0; i < arr.length / 3; i++) {
+      const s = i * 3;
+      arr[s] = base[s] + Math.sin(t * seeds[s + 1] + seeds[s]) * seeds[s + 2] * 2.2;
+      arr[s + 1] = base[s + 1] + Math.cos(t * seeds[s + 1] * 0.7 + seeds[s] * 2) * 1.1;
+      arr[s + 2] = base[s + 2] + Math.sin(t * 0.6 * seeds[s + 1] + seeds[s] * 3) * seeds[s + 2] * 2.2;
+    }
+    attr.needsUpdate = true;
   }
 
   /** 由 OceanWorld 每帧调用: 光束绕Y朝向相机 */

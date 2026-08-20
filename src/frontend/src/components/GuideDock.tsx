@@ -2,8 +2,11 @@
  * 科普模式数字人导游坞 —— 复用魔珐数字人(OceanDigitalHuman)。
  *
  * - 配置了 VITE_DH_APP_ID / VITE_DH_APP_SECRET 且初始化成功 → 数字人开口播报;
- * - 未配置/失败 → 降级为拟态光核 + 浏览器语音合成(speech.ts), 不阻塞体验;
- * - 问答走现有 /api/v1/chat(Ollama+RAG 海洋知识库), 回答文本与播报共用一份。
+ * - 未配置/失败 → 降级为拟态光核 + 浏览器语音队列(speech.ts), 不阻塞体验;
+ * - 订阅场景播报总线(broadcast.ts): 垃圾投放等提示由数字人念出并显示字幕条,
+ *   取代会互相遮挡的浮动卡片; 数字人播报自带队列, 不会截断上一条;
+ * - SDK 原生字幕一律隐藏(MutationObserver), 字幕统一走本坞字幕条;
+ * - 问答走现有 /api/v1/chat(Ollama+RAG)。
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -11,7 +14,8 @@ import { Send, X } from 'lucide-react';
 import { loadXmovSDK, OceanDigitalHuman } from '../services/digitalHuman';
 import { streamChat } from '../services/api';
 import type { ChatMessagePayload } from '../services/api';
-import { speakText } from '../services/speech';
+import { speakQueued } from '../services/speech';
+import { onBroadcast, type BroadcastMessage } from '../services/broadcast';
 
 interface GuideMessage {
   role: 'user' | 'guide';
@@ -30,6 +34,25 @@ function cleanMarkdown(text: string): string {
   return text.replace(/[*#`_~[\]()]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+/** 隐藏 SDK 注入的原生字幕元素(它默认吸在容器底部, 与本坞字幕条重复) */
+function hideSdkSubtitles(container: HTMLElement): void {
+  const allDivs = container.querySelectorAll('div');
+  allDivs.forEach((div) => {
+    const el = div as HTMLElement;
+    const className = el.className?.toString() ?? '';
+    const style = getComputedStyle(el);
+    if (
+      el.tagName !== 'CANVAS'
+      && (className.includes('subtitle')
+        || className.includes('caption')
+        || (style.position === 'absolute' && parseFloat(style.bottom) < 80)
+        || (el.textContent && el.textContent.length > 5 && el.offsetHeight < 80 && el.offsetHeight > 10))
+    ) {
+      el.style.setProperty('display', 'none', 'important');
+    }
+  });
+}
+
 export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () => void }) {
   const containerIdRef = useRef(`ocean3d-guide-${Math.random().toString(36).slice(2, 8)}`);
   const dhRef = useRef<OceanDigitalHuman | null>(null);
@@ -37,6 +60,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
   const voiceRef = useRef(voiceOn);
   const [dhMode, setDhMode] = useState<'boot' | 'ready' | 'offline'>('boot');
   const [speaking, setSpeaking] = useState(false);
+  const [caption, setCaption] = useState('');
   const [messages, setMessages] = useState<GuideMessage[]>([
     { role: 'guide', text: '你好，我是数字人导游海瞳🌊 想了解这片海域的海洋知识，随时问我！' },
   ]);
@@ -79,18 +103,49 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     };
   }, []);
 
-  const speak = (text: string) => {
+  // 隐藏SDK原生字幕(初始化后DOM是异步注入的, 用观察器持续压住)
+  useEffect(() => {
+    const container = document.getElementById(containerIdRef.current);
+    if (!container) return;
+    const observer = new MutationObserver(() => hideSdkSubtitles(container));
+    observer.observe(container, { childList: true, subtree: true, attributes: true });
+    const timer = window.setInterval(() => hideSdkSubtitles(container), 600);
+    hideSdkSubtitles(container);
+    return () => {
+      window.clearInterval(timer);
+      observer.disconnect();
+    };
+  }, [dhMode]);
+
+  /** 数字人/降级语音双通道播报: 带字幕条; 数字人与降级语音均走队列, 不截断上一条 */
+  const announce = (text: string) => {
+    setCaption(text);
     if (!voiceRef.current) return;
     const clean = cleanMarkdown(text);
     if (!clean) return;
     if (dhMode === 'ready' && dhRef.current) {
       dhRef.current.speak(clean.slice(0, 300), { isStart: true, isEnd: true });
+      setSpeaking(true);
     } else {
-      speakText(clean, { force: true });
+      speakQueued(clean);
       setSpeaking(true);
       window.setTimeout(() => setSpeaking(false), Math.min(12000, clean.length * 230));
     }
   };
+
+  // 订阅场景播报(垃圾投放汇总等): 字幕条显示+播报, 8秒后淡出字幕
+  useEffect(() => {
+    let captionTimer = 0;
+    const off = onBroadcast((message: BroadcastMessage) => {
+      announce(message.text);
+      window.clearTimeout(captionTimer);
+      captionTimer = window.setTimeout(() => setCaption(''), 8000);
+    }, 'guide');
+    return () => {
+      off();
+      window.clearTimeout(captionTimer);
+    };
+  }, [dhMode, voiceOn]);
 
   const ask = async (question: string) => {
     const q = question.trim();
@@ -116,7 +171,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
         },
         controller.signal,
       );
-      if (answer) speak(answer);
+      if (answer) announce(answer);
     } catch (reason) {
       if ((reason as DOMException)?.name !== 'AbortError') {
         setMessages((list) => {
@@ -141,8 +196,13 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
         <button className="ocean3d-close" aria-label="关闭导游" onClick={onClose}><X size={15} /></button>
       </header>
 
-      {/* 数字人视频容器(降级时隐藏, 由拟态光核代替) */}
-      <div className={`ocean3d-guide-stage ${dhMode === 'ready' ? '' : 'fallback'}`} id={containerIdRef.current} />
+      {/* 数字人舞台: 居中呈现; 降级时显示拟态光核提示 */}
+      <div className={`ocean3d-guide-stage ${dhMode === 'ready' ? '' : 'fallback'}`} id={containerIdRef.current}>
+        {dhMode !== 'ready' && <span className="ocean3d-guide-fallback-tag">🎤 语音导游模式</span>}
+      </div>
+
+      {/* 播报字幕条(投放提示/回答摘要都在这里, 不再弹浮动卡) */}
+      {caption && <p className="ocean3d-guide-caption">{caption}</p>}
 
       <div className="ocean3d-guide-log">
         {messages.map((m, i) => (

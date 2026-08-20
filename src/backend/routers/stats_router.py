@@ -24,6 +24,12 @@ router = APIRouter(prefix="/api/v1/stats", tags=["stats"])
 _LEVEL_WEIGHT = {"excellent": 1, "good": 2, "moderate": 3, "poor": 4, "severe": 5}
 
 
+def _level_weight(level) -> int:
+    """等级 → 权重。DB 枚举列返回 (str, Enum) 成员, str() 会带类名前缀
+    ('PollutionLevel.moderate') 导致查表恒落默认值——必须取 .value。"""
+    return _LEVEL_WEIGHT.get(getattr(level, "value", str(level)), 3)
+
+
 def _material_bucket(material: str | None) -> str:
     """材质字符串 → 饼图大类桶（未知/空归入"其他/未知"）"""
     if not material:
@@ -40,7 +46,12 @@ def _material_bucket(material: str | None) -> str:
 
 
 def _pollution_index(db: Session, since, until=None) -> float:
-    """某时间窗口内已完成任务的综合污染指数（平均严重度权重 × 2，0-10）"""
+    """某时间窗口的综合污染指数（0-10）。
+
+    连续化公式: 等级权重均值×2（基底, 对齐等级语义） + 数量密度项
+    （窗口内平均每任务检出数/12, 封顶+2.0）——修复"单任务站点恒为 4/6/8/10"
+    的量化跳变, 同等级下垃圾越多指数越高。
+    """
     q = (
         db.query(DetectionTask.pollution_level, func.count())
         .filter(DetectionTask.status == TaskStatus.completed, DetectionTask.created_at >= since)
@@ -52,10 +63,16 @@ def _pollution_index(db: Session, since, until=None) -> float:
     if not total:
         return 0.0
     avg = (
-        sum(_LEVEL_WEIGHT.get(getattr(level, "value", str(level)), 3) * c for level, c in rows)
+        sum(_level_weight(level) * c for level, c in rows)
         / total
     )
-    return round(avg * 2, 2)
+    obj_q = db.query(func.coalesce(func.sum(DetectionTask.total_objects), 0)).filter(
+        DetectionTask.status == TaskStatus.completed, DetectionTask.created_at >= since
+    )
+    if until:
+        obj_q = obj_q.filter(DetectionTask.created_at < until)
+    objects_per_task = (obj_q.scalar() or 0) / total
+    return round(min(10.0, avg * 2 + min(2.0, objects_per_task / 12.0)), 1)
 
 
 def _plastic_percent(db: Session, since, until=None) -> float:
@@ -247,7 +264,7 @@ async def stats_sites(
     for site_id, level, cnt in level_rows:
         weight_sum[int(site_id)] = (
             weight_sum.get(int(site_id), 0.0)
-            + _LEVEL_WEIGHT.get(str(level), 3) * int(cnt)
+            + _level_weight(level) * int(cnt)
         )
 
     # 每站点最近3个已完成任务 → 标注图URL+摘要(3D场景浮窗"检测证据")
@@ -300,7 +317,9 @@ async def stats_sites(
         r = by_site.get(site.id)
         if r:
             task_count = int(r[1])
-            index = round(weight_sum.get(site.id, 0.0) / task_count * 2, 2) if task_count else None
+            # 与 _pollution_index 同口径: 等级基底 + 平均每任务检出数量密度项(封顶+2.0)
+            avg_objects = int(r[2]) / task_count
+            index = round(min(10.0, weight_sum.get(site.id, 0.0) / task_count * 2 + min(2.0, avg_objects / 12.0)), 1) if task_count else None
             items.append(SiteStatItem(
                 id=site.id, code=site.code, name=site.name, lat=site.lat, lng=site.lng,
                 taskCount=task_count, totalObjects=int(r[2]),
