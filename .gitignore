@@ -132,3 +132,5 @@ AQUARISE Ocean Conservation Super-App (Community)/
 # ==============================
 # Local CA + server certs generated for LAN camera (getUserMedia); never commit.
 .certs/
+*.jpg
+*.mp4
