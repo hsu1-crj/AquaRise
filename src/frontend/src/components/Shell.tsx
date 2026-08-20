@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useSeaArea } from '../context/SeaAreaContext';
 import {
   Activity,
   AreaChart,
   Bell,
   Bot,
+  Check,
   ChevronDown,
   Clock3,
   Compass,
@@ -85,13 +87,19 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
+  // 侧边栏全局海域下拉
+  const { seaAreaId, seaAreaName, seaAreas, setSeaAreaId } = useSeaArea();
+  const [pillOpen, setPillOpen] = useState(false);
+  const pillRef = useRef<HTMLDivElement | null>(null);
+
   // 点击搜索框外或按 Esc 关闭下拉；按 ⌘/Ctrl+K 聚焦搜索框
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
       if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) setDropOpen(false);
+      if (pillRef.current && !pillRef.current.contains(event.target as Node)) setPillOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setDropOpen(false); return; }
+      if (event.key === 'Escape') { setDropOpen(false); setPillOpen(false); return; }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         searchInputRef.current?.focus();
@@ -156,7 +164,33 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
           </div>
           <label htmlFor="nav-toggle" className="nav-close" aria-label="关闭导航"><X size={16} /></label>
         </div>
-        <div className="project-pill"><span className="live-dot" />渤海近岸监测项目<ChevronDown size={14} /></div>
+        <div className="project-pill-wrap" ref={pillRef}>
+          <div
+            className="project-pill"
+            role="button"
+            tabIndex={0}
+            aria-haspopup="listbox"
+            aria-expanded={pillOpen}
+            onClick={() => setPillOpen((open) => !open)}
+            onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPillOpen((open) => !open); } }}
+          >
+            <span className="live-dot" />
+            <span className="pill-label">{seaAreaName}</span>
+            <ChevronDown size={14} className={pillOpen ? 'rotated' : ''} />
+          </div>
+          {pillOpen && (
+            <div className="sea-area-menu" role="listbox">
+              <button className={seaAreaId === '' ? 'active' : ''} role="option" aria-selected={seaAreaId === ''} onClick={() => { setSeaAreaId(''); setPillOpen(false); }}>
+                <span>全部海域</span>{seaAreaId === '' && <Check size={13} />}
+              </button>
+              {seaAreas.map((area) => (
+                <button key={area.id} className={seaAreaId === area.id ? 'active' : ''} role="option" aria-selected={seaAreaId === area.id} onClick={() => { setSeaAreaId(area.id); setPillOpen(false); }}>
+                  <span>{area.name}</span>{seaAreaId === area.id && <Check size={13} />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <nav aria-label="主导航">
           {navGroups.map((group) => (
             <div className="nav-group" key={group.title}>

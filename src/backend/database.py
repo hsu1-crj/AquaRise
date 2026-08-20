@@ -34,7 +34,7 @@ def ensure_database_exists():
         with server_engine.connect() as conn:
             conn.execute(
                 text(
-                    f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` "
+                    "CREATE DATABASE IF NOT EXISTS `{DB_NAME}` "
                     "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
                 )
             )
@@ -80,3 +80,29 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def ensure_monitoring_sites_sea_area_column() -> None:
+    """
+    幂等迁移：为 monitoring_sites 增加 sea_area_id 列（挂靠到 sea_areas 的软外键）。
+    create_all 只建新表、不会 ALTER 旧表，因此启动时手动补列（MySQL 专用写法，
+    information_schema.COLUMNS 查询；本项目仅用 MySQL，可接受）。
+    缺省 NULL：随后由 main.py 的播种回填按站点名前缀绑定海域。
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = :db AND TABLE_NAME = 'monitoring_sites' "
+                "AND COLUMN_NAME = 'sea_area_id'"
+            ),
+            {"db": DB_NAME},
+        ).scalar()
+        if not exists:
+            conn.execute(
+                text(
+                    "ALTER TABLE monitoring_sites "
+                    "ADD COLUMN sea_area_id INT NULL"
+                )
+            )
+            conn.commit()

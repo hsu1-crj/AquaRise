@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { ArrowRight, CheckCircle2, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, Waves } from 'lucide-react';
 import { Shell } from './components/Shell';
+import { SeaAreaProvider } from './context/SeaAreaContext';
 import { HaitongLogo } from './components/HaitongLogo';
 import { api, clearStoredAuth, enterDemoMode, getStoredToken, storeToken } from './services/api';
 import type { PageKey, UserInfo } from './types';
@@ -75,7 +76,7 @@ export default function App() {
   if (page === 'screen') return <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入指挥大屏…</div>}><CommandScreen onExit={() => navigate('dashboard')} /></Suspense>;
   if (page === 'atlas') return <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入生命图谱…</div>}><MarineAtlasPage onExit={() => navigate('dashboard')} /></Suspense>;
 
-  return <Shell page={page} onNavigate={navigate} onSearchJump={searchJump} onLogout={logout} user={user}>
+  return <SeaAreaProvider><Shell page={page} onNavigate={navigate} onSearchJump={searchJump} onLogout={logout} user={user}>
     <Suspense fallback={<div className="page-state glass"><i className="loader-orbit" /><p>正在载入海洋工作台…</p></div>}>
       {page === 'dashboard' && <Dashboard onNavigate={navigate} />}
       {page === 'ocean3d' && <Ocean3DPage />}
@@ -86,7 +87,7 @@ export default function App() {
       {page === 'assistant' && <AssistantPage user={user} />}
       {page === 'profile' && <ProfilePage user={user} onUserUpdated={setUser} />}
     </Suspense>
-  </Shell>;
+  </Shell></SeaAreaProvider>;
 }
 
 function LoginScreen({ onLogin }: { onLogin: (demo?: boolean) => void }) {

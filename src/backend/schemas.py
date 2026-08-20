@@ -326,11 +326,19 @@ class SiteStatItem(BaseModel):
     name: str
     lat: float
     lng: float
+    seaAreaId: int | None = None  # 所属海域 id（前端据此按海域过滤站点）
     taskCount: int = 0
     totalObjects: int = 0
     pollutionIndex: float | None = None  # 无任务时为 null（前端显示空态）
     lastTaskAt: str | None = None
     evidence: list[SiteEvidence] = []  # 站点最近检测证据(标注图URL+摘要), 3D场景展示
+
+
+class SeaAreaItem(BaseModel):
+    """海域（GET /api/v1/stats/sea-areas）"""
+    id: int
+    name: str
+    code: str | None = None
 
 
 class FrontendDetectionBox(BaseModel):

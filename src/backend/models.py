@@ -141,7 +141,7 @@ class DetectionTask(Base):
     file_name = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     status = Column(SAEnum(TaskStatus), default=TaskStatus.pending, nullable=False)
-    sea_area_id = Column(Integer, nullable=True)  # 海域编号（本期留空）
+    sea_area_id = Column(Integer, nullable=True)  # 软外键 → sea_areas.id（海域归属，检测时按所选海域写入）
     total_objects = Column(Integer, default=0, nullable=False)  # 检出垃圾总数
     pollution_level = Column(SAEnum(PollutionLevel), nullable=True)
     processing_time = Column(Float, nullable=True)  # 处理耗时（秒）
@@ -182,24 +182,42 @@ class DetectionResult(Base):
         return f"<DetectionResult id={self.id} class={self.class_name} conf={self.confidence}>"
 
 
-# ============ 3b. 监测站点表（F0） ============
+# ============ 3b. 海域表 + 监测站点表（F0） ============
+class SeaArea(Base):
+    """海域（北戴河 / 秦皇岛 / 渤海湾）：全局海域维度的主数据。
+
+    检测任务的软外键归属（detection_tasks.sea_area_id 指向本表 id）；
+    监测站点（monitoring_sites.sea_area_id）挂靠到海域之下，用于按海域过滤站点。"""
+
+    __tablename__ = "sea_areas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(32), unique=True, nullable=False)     # 北戴河 / 秦皇岛 / 渤海湾
+    code = Column(String(16), unique=True, nullable=False)     # 如 "BDH" / "QHD" / "BHB"
+    note = Column(String(255), nullable=True)
+
+    def __repr__(self):
+        return f"<SeaArea id={self.id} name={self.name!r}>"
+
+
 class MonitoringSite(Base):
-    """监测站点：检测任务的软外键归属（detection_tasks.sea_area_id 指向本表 id）。
+    """监测站点：挂靠到海域（monitoring_sites.sea_area_id 软外键 → sea_areas.id）。
 
     设计说明（契约 v1.1 §1）：故意不在 detection_tasks 上建物理外键——
     该表已存在且 create_all 不会 ALTER 旧表，物理 FK 需手工 ALTER 现网表（风险最高的一步），
-    而应用行为只依赖 API 层校验 site_id 合法性（detect_router._validate_site）。
+    而应用行为只依赖 API 层校验 sea_area_id 合法性（detect_router._validate_sea_area）。
     """
 
     __tablename__ = "monitoring_sites"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     code = Column(String(16), unique=True, nullable=False)   # 如 "A-01"
-    name = Column(String(64), nullable=False)                # 如 "舟山-朱家尖近岸监测点"
+    name = Column(String(64), nullable=False)                # 如 "北戴河·滨海近岸监测点"
     lat = Column(Float, nullable=False)                      # WGS84 纬度
     lng = Column(Float, nullable=False)                      # WGS84 经度
     depth_m = Column(Float, nullable=True)                   # 平均水深（米）
     note = Column(String(255), nullable=True)
+    sea_area_id = Column(Integer, nullable=True)             # 软外键 → sea_areas.id
 
     def __repr__(self):
         return f"<MonitoringSite id={self.id} code={self.code!r} name={self.name!r}>"

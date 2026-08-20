@@ -1,11 +1,11 @@
 {
-  "fetched_at": "2026-08-19T13:40:59+00:00",
-  "observed_time": "2026-08-19T21:30",
-  "wave_height": 0.66,
-  "wave_direction": 94.0,
-  "wave_period": 4.3,
-  "sea_surface_temperature": 29.7,
-  "wind_speed": 5.1,
-  "wind_direction": 92.0,
+  "fetched_at": "2026-08-20T02:49:50+00:00",
+  "observed_time": "2026-08-20T10:45",
+  "wave_height": 0.74,
+  "wave_direction": 99.0,
+  "wave_period": 4.85,
+  "sea_surface_temperature": 29.6,
+  "wind_speed": 6.49,
+  "wind_direction": 99.0,
   "stale": false
 }

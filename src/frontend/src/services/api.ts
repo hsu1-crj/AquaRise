@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -167,6 +167,15 @@ export const api = {
     if (filters?.level && filters.level !== '全部等级') params.set('level', filters.level);
     if (filters?.query?.trim()) params.set('query', filters.query.trim());
     return request<{ items: DetectionRecord[]; total: number }>(`/api/v1/detections?${params.toString()}`);
+  },
+  /** 海域列表（北戴河/秦皇岛/渤海湾）：侧边栏全局海域下拉的数据源 */
+  async getSeaAreas(): Promise<SeaArea[]> {
+    if (isMockMode()) { await wait(300); return [
+      { id: 1, name: '北戴河', code: 'BDH' },
+      { id: 2, name: '秦皇岛', code: 'QHD' },
+      { id: 3, name: '渤海湾', code: 'BHB' },
+    ]; }
+    return request<SeaArea[]>('/api/v1/stats/sea-areas');
   },
   /** 监测站点列表（含近30天聚合；上传下拉与海域对比图共用同一端点） */
   async getSiteStats(): Promise<SiteStat[]> {
