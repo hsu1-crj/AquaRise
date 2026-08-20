@@ -33,6 +33,13 @@ export interface ClassRankItem {
 }
 
 
+/** 海域（北戴河 / 秦皇岛 / 渤海湾），侧边栏全局海域下拉的数据源 */
+export interface SeaArea {
+  id: number;
+  name: string;
+  code?: string | null;
+}
+
 /** 监测站点分维度统计（后端 /stats/sites；无任务的站点 taskCount=0、pollutionIndex=null） */
 export interface SiteStat {
   id: number;
@@ -40,6 +47,7 @@ export interface SiteStat {
   name: string;
   lat: number;
   lng: number;
+  seaAreaId?: number | null;
   taskCount: number;
   totalObjects: number;
   pollutionIndex: number | null;
@@ -213,4 +221,15 @@ export interface UserInfo {
   phone_num?: string | null;
   role: 'admin' | 'user';
   created_at?: string;
+}
+
+export interface FaceInfo {
+  id: number;
+  name: string;
+  created_at?: string;
+}
+
+export interface FaceLoginResult {
+  access_token: string;
+  username: string;
 }
