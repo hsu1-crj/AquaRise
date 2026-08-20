@@ -397,7 +397,7 @@ export function Ocean3DPage() {
     if (files.length === 0 || !worldRef.current) return;
     const siteId = liveSiteId ?? sites[0]?.id ?? 1;
     const siteCode = sites.find((s) => s.id === siteId)?.code ?? `站点${siteId}`;
-    if (isMockMode) { runMockLive(siteId, siteCode); return; }
+    if (isMockMode()) { runMockLive(siteId, siteCode); return; }
     const file = files[0];
     if (file.type.startsWith('video/')) {
       if (!LIVE_VIDEO_TYPES.includes(file.type)) {
@@ -521,7 +521,7 @@ export function Ocean3DPage() {
             </button>
           </h2>
           <ul className="ocean3d-sites">
-            {sites.length === 0 && <li className="ocean3d-empty">{isMockMode ? 'Mock 模式：站点数据不加载' : '站点数据加载中或暂无站点…'}</li>}
+            {sites.length === 0 && <li className="ocean3d-empty">{isMockMode() ? 'Mock 模式：站点数据不加载' : '站点数据加载中或暂无站点…'}</li>}
             {sites.map((s) => (
               <li key={s.id}>
                 <button onClick={() => { worldRef.current?.focusSite(s.id); setSiteDetail(s); }}>
@@ -538,7 +538,7 @@ export function Ocean3DPage() {
           </ul>
 
           <h2 className="ocean3d-section"><Radio size={15} />实时检测联动</h2>
-          <p className="ocean3d-hint">上传水下影像，任务<b>实时驱动本场景</b>：任务ROV出发巡检、标注帧同步上屏、检出目标逐个标定，完成后站点指数自动刷新{isMockMode ? '（Mock 模式将模拟全流程）' : ''}</p>
+          <p className="ocean3d-hint">上传水下影像，任务<b>实时驱动本场景</b>：任务ROV出发巡检、标注帧同步上屏、检出目标逐个标定，完成后站点指数自动刷新{isMockMode() ? '（Mock 模式将模拟全流程）' : ''}</p>
           <div className="ocean3d-live">
             <label className="ocean3d-live-site">联动站点
               <select value={liveSiteValue} disabled={liveBusy}
