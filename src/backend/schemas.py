@@ -61,6 +61,28 @@ class MessageResponse(BaseModel):
     message: str
 
 
+# ============ 人脸识别 ============
+class FaceInfo(BaseModel):
+    """账号已录入的人脸信息（不含特征向量）"""
+    id: int
+    name: str
+    created_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class FaceListResponse(BaseModel):
+    """当前账号已录入的人脸列表"""
+    items: list[FaceInfo]
+
+
+class FaceLoginResponse(BaseModel):
+    """人脸识别登录成功返回：JWT + 识别到的用户名"""
+    access_token: str
+    username: str
+    token_type: str = "bearer"
+
+
 # ============ 检测 ============
 class DetectionResultItem(BaseModel):
     """检测到的单个目标"""

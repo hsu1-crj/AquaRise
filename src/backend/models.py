@@ -23,6 +23,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     Boolean,
@@ -127,6 +128,29 @@ class LoginSession(Base):
 
     def __repr__(self):
         return f"<LoginSession id={self.id} user_id={self.user_id} expires_at={self.expires_at}>"
+
+
+# ============ 2b. 人脸记录表（人脸识别登录/注册） ============
+class FaceRecord(Base):
+    """账号已录入的人脸特征。一个账号最多 config.MAX_FACES_PER_USER(3) 张。
+
+    descriptor 存 np.float32 归一化特征向量的 tobytes()（二进制，不落盘图片文件），
+    识别时 np.frombuffer 还原后与待识别向量做余弦相似度匹配。
+    create_all 会自动创建新表；已在库则忽略。
+    """
+
+    __tablename__ = "face_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(30), nullable=False, default="人脸")  # 展示名
+    descriptor = Column(LargeBinary, nullable=False)  # np.float32 特征向量 tobytes()
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<FaceRecord id={self.id} user_id={self.user_id}>"
 
 
 # ============ 3. 检测任务表 ============

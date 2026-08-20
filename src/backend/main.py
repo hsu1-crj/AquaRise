@@ -46,6 +46,7 @@ from routers import (  # noqa: E402
     chat_router,
     detect_router,
     digital_human_router,
+    face_router,
     knowledge_router,
     marine_router,
     reports_router,
@@ -263,6 +264,7 @@ app.add_middleware(
 
 # ============ 挂载 API 路由 ============
 app.include_router(auth_router.router)           # /login /register /logout /captcha /api/v1/auth/*
+app.include_router(face_router.router)           # /api/v1/auth/face/*（人脸识别登录/注册）
 app.include_router(detect_router.router)         # /api/v1/detect/* + /api/v1/detections
 app.include_router(chat_router.router)           # /api/v1/chat (SSE) /api/v1/chat/history
 app.include_router(stats_router.router)          # /api/v1/stats/*

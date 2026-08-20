@@ -84,3 +84,12 @@ DH_SDK_INTEGRITY = os.getenv(
 YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", str(PROJECT_ROOT / "src" / "vision" / "best.pt"))
 YOLO_CONF = float(os.getenv("YOLO_CONF", "0.25"))
 YOLO_DEVICE = os.getenv("YOLO_DEVICE") or None
+
+# 人脸识别：YOLO26 检测「人」→ 人体框内 Haar 级联定位人脸 → 自研特征匹配。
+# FACE_MODEL_PATH 指向本地已预下载权重（src/vision/yolo26n.pt，5.5MB，完全离线）。
+FACE_MODEL_PATH = os.getenv("FACE_MODEL_PATH", str(PROJECT_ROOT / "src" / "vision" / "yolo26n.pt"))
+FACE_CONF = float(os.getenv("FACE_CONF", "0.25"))
+# 余弦相似度阈值：待识别特征与库内某张人脸相似度 >= 该值才判定命中
+FACE_SIMILARITY_THRESHOLD = float(os.getenv("FACE_SIMILARITY_THRESHOLD", "0.78"))
+# 一个账号最多录入的人脸数
+MAX_FACES_PER_USER = int(os.getenv("MAX_FACES_PER_USER", "3"))

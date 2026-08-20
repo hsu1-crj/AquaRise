@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -362,6 +362,32 @@ export const api = {
         phone_num: data.phoneNum?.trim() || null,
       }),
     });
+  },
+
+  /** 录入人脸（个人中心）：multipart 上传照片，一个账号最多 3 张 */
+  async enrollFace(file: File, name?: string): Promise<FaceInfo> {
+    const form = new FormData();
+    form.append('file', file);
+    if (name?.trim()) form.append('name', name.trim());
+    return request<FaceInfo>('/api/v1/auth/face/enroll', { method: 'POST', body: form });
+  },
+
+  /** 当前账号已录入人脸列表 */
+  async listFaces(): Promise<FaceInfo[]> {
+    const payload = await request<{ items: FaceInfo[] }>('/api/v1/auth/face/list');
+    return payload.items;
+  },
+
+  /** 删除某张已录入人脸 */
+  async deleteFace(id: number): Promise<{ message: string }> {
+    return request<{ message: string }>(`/api/v1/auth/face/${id}`, { method: 'DELETE' });
+  },
+
+  /** 人脸识别登录：multipart 上传摄像头照片，成功返回 JWT + 识别账号 */
+  async faceLogin(file: File): Promise<FaceLoginResult> {
+    const form = new FormData();
+    form.append('file', file);
+    return request<FaceLoginResult>('/api/v1/auth/face/login', { method: 'POST', body: form });
   },
 
   /** 上传文档到 RAG 知识库（海洋守护者「导入质量分析报告」），返回入库后的文档记录 */

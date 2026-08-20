@@ -223,3 +223,14 @@ export interface UserInfo {
   role: 'admin' | 'user';
   created_at?: string;
 }
+
+export interface FaceInfo {
+  id: number;
+  name: string;
+  created_at?: string;
+}
+
+export interface FaceLoginResult {
+  access_token: string;
+  username: string;
+}
