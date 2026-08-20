@@ -11,7 +11,6 @@ import {
   FileCheck2,
   FlaskConical,
   History,
-  Library,
   LayoutDashboard,
   LoaderCircle,
   LogOut,
@@ -68,7 +67,6 @@ const navGroups: Array<{
     title: '智能服务',
     items: [
       { id: 'assistant', label: '海洋守护者', icon: DigitalHumanIcon, badge: '数字人' },
-      { id: 'knowledge', label: '知识库', icon: Library },
       { id: 'atlas', label: '海瞳 · 生命图谱', icon: HaitongLogo, badge: '3D' },
     ],
   },

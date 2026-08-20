@@ -16,7 +16,7 @@ const ReportsPage = lazy(() => import('./pages/Reports').then((module) => ({ def
 const ProfilePage = lazy(() => import('./pages/UtilityPages').then((module) => ({ default: module.ProfilePage })));
 const MarineAtlasPage = lazy(() => import('./pages/MarineAtlas').then((module) => ({ default: module.MarineAtlasPage })));
 
-const validPages: Record<PageKey, true> = { dashboard: true, ocean3d: true, detection: true, history: true, analysis: true, screen: true, reports: true, assistant: true, knowledge: true, atlas: true, profile: true };
+const validPages: Record<PageKey, true> = { dashboard: true, ocean3d: true, detection: true, history: true, analysis: true, screen: true, reports: true, assistant: true, atlas: true, profile: true };
 
 /** 启动时是否已有登录态：本次会话标记存在，或本地存有 token（保持登录） */
 function hasStoredAuth(): boolean {

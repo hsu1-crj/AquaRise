@@ -1,21 +1,7 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, CheckCircle2, Database, FileText, LockKeyhole, Save, Search, UploadCloud, UserRound } from 'lucide-react';
+import { CheckCircle2, LockKeyhole, Save, UserRound } from 'lucide-react';
 import { api } from '../services/api';
 import type { UserInfo } from '../types';
-
-const documents = [
-  { name: '海洋塑料污染治理技术指南.pdf', type: 'PDF', chunks: 128, status: '已入库', date: '2026-08-05' },
-  { name: 'TrashCan 数据集类别说明.txt', type: 'TXT', chunks: 46, status: '已入库', date: '2026-08-04' },
-  { name: 'MARPOL 73-78 公约附件 V.pdf', type: 'PDF', chunks: 294, status: '已入库', date: '2026-08-03' },
-  { name: '渤海综合治理攻坚战行动方案.docx', type: 'DOCX', chunks: 82, status: '处理中', date: '2026-08-02' },
-];
-
-export function KnowledgePage() {
-  const [query, setQuery] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const upload = () => { setUploading(true); window.setTimeout(() => setUploading(false), 900); };
-  return <div className="page-stack"><section className="page-heading compact"><div><span className="eyebrow"><i /> OCEAN KNOWLEDGE</span><h1>海洋知识库</h1><p>管理 RAG 检索文档，为海洋守护者提供可信专业知识。</p></div><label className="primary-button file-button"><UploadCloud />{uploading ? '正在上传…' : '上传文档'}<input type="file" accept=".pdf,.doc,.docx,.txt" onChange={upload} disabled={uploading} /></label></section><section className="knowledge-stats"><article className="panel glass"><Database /><div><span>知识文档</span><strong>36</strong><small>共 1.82 GB</small></div></article><article className="panel glass"><BookOpen /><div><span>知识分片</span><strong>4,628</strong><small>今日新增 128</small></div></article><article className="panel glass"><CheckCircle2 /><div><span>向量化完成率</span><strong>97.2%</strong><small>1 个任务处理中</small></div></article></section><section className="panel glass data-panel"><div className="reports-toolbar"><div><h2>文档资源</h2><span>支持 PDF、Word、TXT，上传后自动分片与向量化</span></div><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索知识文档" /></label></div><div className="document-list">{documents.filter((item) => item.name.includes(query)).map((item) => <article key={item.name}><div className="document-icon"><FileText /></div><div><strong>{item.name}</strong><span>{item.type} · {item.chunks} 个知识分片 · {item.date}</span></div><em className={item.status === '处理中' ? 'processing' : ''}><i />{item.status}</em><button>查看分片</button></article>)}</div></section></div>;
-}
 
 export function ProfilePage({ user, onUserUpdated }: { user?: UserInfo | null; onUserUpdated?: (user: UserInfo) => void }) {
   const [email, setEmail] = useState(user?.email ?? '');
