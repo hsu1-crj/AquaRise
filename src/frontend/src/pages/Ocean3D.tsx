@@ -11,7 +11,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { Wind, Crosshair, FileText, Info, Pause, Play, Radar, Radio, RefreshCw, Sprout, Trash2, UploadCloud, Volume2, VolumeX, Waves, X } from 'lucide-react';
+import { Wind, Crosshair, FileText, Globe2, Info, Maximize2, Minimize2, Pause, Play, Radar, Radio, RefreshCw, Sprout, Trash2, UploadCloud, Volume2, VolumeX, Waves, X } from 'lucide-react';
 import { formatStoryYear } from '../three/story';
 import type { GarbageStoryState } from '../three/story';
 import { api, isMockMode } from '../services/api';
@@ -150,6 +150,21 @@ export function Ocean3DPage() {
   const globeActiveRef = useRef(true);
   const setGlobeMode = (active: boolean) => { globeActiveRef.current = active; setGlobeActive(active); };
   const [activeStation, setActiveStation] = useState(0);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [visiblePanels, setVisiblePanels] = useState<Record<string, boolean>>({
+    kpis: true, monitor: true, volunteer: true, pollution: true, detail: true, story: true, guide: true, legend: true,
+  });
+  const togglePanel = (key: string) => setVisiblePanels((current) => ({ ...current, [key]: !current[key] }));
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void pageRef.current?.requestFullscreen();
+  };
+  useEffect(() => {
+    const onFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFullscreen);
+    return () => document.removeEventListener('fullscreenchange', onFullscreen);
+  }, []);
   // 实时检测联动
   const [live, setLive] = useState<LiveState | null>(null);
   const [liveSiteId, setLiveSiteId] = useState<number | null>(null);
@@ -565,7 +580,7 @@ export function Ocean3DPage() {
   const quizSolved = quiz != null && collectedPois.includes(quiz.id);
 
   return (
-    <div className={`ocean3d-page ${globeActive ? 'globe-mode' : ''}`}>
+    <div ref={pageRef} className={`ocean3d-page ${globeActive ? 'globe-mode' : ''}${visiblePanels.kpis ? '' : ' hide-kpis'}${visiblePanels.monitor ? '' : ' hide-monitor'}${visiblePanels.volunteer ? '' : ' hide-volunteer'}${visiblePanels.pollution ? '' : ' hide-pollution'}${visiblePanels.detail ? '' : ' hide-detail'}${visiblePanels.story ? '' : ' hide-story'}${visiblePanels.guide ? '' : ' hide-guide'}${visiblePanels.legend ? '' : ' hide-legend'}`}>
       <div ref={containerRef} className="ocean3d-canvas" />
       {globeActive && (
         <aside className="ocean3d-globe-sites glass" aria-label="全球监测站点">
@@ -582,8 +597,12 @@ export function Ocean3DPage() {
         </aside>
       )}
       {!globeActive && (<>
-      {/* 顶部: 标题 + 模式切换 */}
       <header className="ocean3d-topbar glass">
+          <button className="topbar-btn globe-btn" aria-label="返回地球" title="返回地球选择站点" onClick={() => { worldRef.current?.showGlobe(buildGlobeStations(sites)); setGlobeMode(true); }}><Globe2 size={17} /></button>
+          <button className="topbar-btn" aria-label={fullscreen ? '退出全屏' : '进入全屏'} title={fullscreen ? '退出全屏' : '进入全屏'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+          <nav className="ocean3d-panel-controls" aria-label="3D面板显示控制">
+            {([['kpis', '数据总览'], ['monitor', '监测面板'], ['volunteer', '科普面板'], ['pollution', '污染提示'], ['guide', '数字人'], ['legend', '图例']] as const).map(([key, label]) => <button key={key} className={visiblePanels[key] ? 'active' : ''} onClick={() => togglePanel(key)}>{label}</button>)}
+          </nav>
         <div>
           <span className="eyebrow"><i /> OCEAN DIGITAL TWIN</span>
           <h1>海洋 3D 态势</h1>
@@ -621,13 +640,13 @@ export function Ocean3DPage() {
       </header>
 
       {/* 污染聚合面板(右侧, 替代旧的浮动叠加卡: 按类型聚合计数, 点击展开危害链) */}
-      {mode === 'volunteer' && (
+      {visiblePanels.pollution && mode === 'volunteer' && (
         <PollutionPanel items={pollutions}
           onClearOne={(key) => { worldRef.current?.removeStoryByKey(key); }} />
       )}
 
       {/* 全局KPI实数条（系统真实统计, 3D场景与项目业务接轨的门面） */}
-      {summary && (
+      {visiblePanels.kpis && summary && (
         <div className="ocean3d-kpis">
           <div className="glass"><b>{summary.totalTasks}</b><span>累计任务</span></div>
           <div className="glass"><b>{summary.totalObjects}</b><span>检出目标</span></div>
@@ -637,7 +656,7 @@ export function Ocean3DPage() {
       )}
 
       {/* 监测模式: 站点面板 + 实时联动 + 海况 + 扩散推演控制 */}
-      {mode === 'monitor' && (
+      {visiblePanels.monitor && mode === 'monitor' && (
         <aside className="ocean3d-panel glass">
           <h2><Waves size={15} />监测站点 · 实时数据
             <button className="ocean3d-sync" disabled={syncBusy} title="同步最新检测数据(上传识别后点击或等待45s自动同步)" onClick={() => syncSites(true)}>
@@ -754,7 +773,7 @@ export function Ocean3DPage() {
       )}
 
       {/* 科普模式: 垃圾选择 + 知识收集 + 投放引导 */}
-      {mode === 'volunteer' && (
+      {visiblePanels.volunteer && mode === 'volunteer' && (
         <aside className="ocean3d-panel glass ocean3d-panel-left">
           <h2><Trash2 size={15} />投放垃圾 · 看看会发生什么</h2>
           <p className="ocean3d-hint">选择垃圾类型，<b>点击海面</b>投放，观察它的漂移沉降与真实危害链</p>
@@ -802,7 +821,7 @@ export function Ocean3DPage() {
       )}
 
       {/* 站点详情卡（点击浮标） */}
-      {siteDetail && (
+      {visiblePanels.detail && siteDetail && (
         <div className="ocean3d-card glass">
           <button className="ocean3d-close" aria-label="关闭" onClick={() => setSiteDetail(null)}><X size={15} /></button>
           <h3><span className="dot" style={{ background: LEVEL_COLOR(siteDetail.pollutionIndex) }} />{siteDetail.code} · {siteDetail.name}</h3>
@@ -892,7 +911,7 @@ export function Ocean3DPage() {
       )}
 
       {/* 时间加速叙事HUD（科普模式投放后） */}
-      {story?.active && (
+      {visiblePanels.story && story?.active && (
         <div className="ocean3d-story glass">
           <div className="ocean3d-story-time">
             <span className="live-dot" />
@@ -910,7 +929,7 @@ export function Ocean3DPage() {
       )}
 
       {/* 数字人导游(科普模式, 未配置数字人时降级语音模式) */}
-      {mode === 'volunteer' && (guideOpen
+      {visiblePanels.guide && mode === 'volunteer' && (guideOpen
         ? <GuideDock voiceOn={voiceOn} onClose={() => setGuideOpen(false)} />
         : (
           <button className="ocean3d-guide-reopen glass" onClick={() => setGuideOpen(true)}>

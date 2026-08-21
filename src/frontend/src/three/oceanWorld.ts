@@ -1304,8 +1304,13 @@ export class OceanWorld {
   };
   private onFpMove = (e: PointerEvent): void => {
     if (!this.fpDragging) return;
-    this.fpYaw -= (e.clientX - this.fpLast.x) * 0.0024;
-    this.fpPitch = THREE.MathUtils.clamp(this.fpPitch - (e.clientY - this.fpLast.y) * 0.0024, -1.55, 1.55);
+    const dx = e.clientX - this.fpLast.x;
+    const dy = e.clientY - this.fpLast.y;
+    if (this.globe?.isVisible) this.globe.rotate(dx, dy);
+    else {
+      this.fpYaw -= dx * 0.0024;
+      this.fpPitch = THREE.MathUtils.clamp(this.fpPitch - dy * 0.0024, -1.55, 1.55);
+    }
     this.fpLast = { x: e.clientX, y: e.clientY };
   };
   private onFpUp = (): void => { this.fpDragging = false; };

@@ -11,8 +11,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Send, X } from 'lucide-react';
+import { DigitalHumanIcon } from './DigitalHumanIcon';
 import { loadXmovSDK, OceanDigitalHuman } from '../services/digitalHuman';
-import { streamChat } from '../services/api';
+import { api, streamChat } from '../services/api';
 import type { ChatMessagePayload } from '../services/api';
 import { speakQueued } from '../services/speech';
 import { onBroadcast, type BroadcastMessage } from '../services/broadcast';
@@ -69,20 +70,21 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
 
   useEffect(() => { voiceRef.current = voiceOn; }, [voiceOn]);
 
-  // 数字人初始化(未配置密钥时直接降级, 不报错)
+  // 优先读取后端公开配置；演示模式无密钥时保留语音导游，不让SDK异常阻断组件。
   useEffect(() => {
     let cancelled = false;
     const boot = async () => {
-      const appId = import.meta.env.VITE_DH_APP_ID || '';
-      const appSecret = import.meta.env.VITE_DH_APP_SECRET || '';
-      if (!appId || !appSecret) {
-        if (!cancelled) setDhMode('offline');
-        return;
-      }
       try {
-        await loadXmovSDK();
+        const publicConfig = await api.getDigitalHumanConfig().catch(() => null);
+        const appId = import.meta.env.VITE_DH_APP_ID || publicConfig?.app_id || '';
+        const appSecret = import.meta.env.VITE_DH_APP_SECRET || '';
+        if (!appId || !appSecret || publicConfig?.enabled === false) {
+          if (!cancelled) setDhMode('offline');
+          return;
+        }
+        await loadXmovSDK(publicConfig?.sdk_url, publicConfig?.sdk_integrity ?? undefined);
         if (cancelled) return;
-        const dh = new OceanDigitalHuman({ appId, appSecret, containerId: containerIdRef.current });
+        const dh = new OceanDigitalHuman({ appId, appSecret, containerId: containerIdRef.current, gatewayServer: publicConfig?.gateway_server });
         dh.on('speakStart', () => setSpeaking(true));
         dh.on('speakEnd', () => setSpeaking(false));
         dh.on('error', () => setDhMode('offline'));
@@ -195,10 +197,8 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
         </div>
         <button className="ocean3d-close" aria-label="关闭导游" onClick={onClose}><X size={15} /></button>
       </header>
-
-      {/* 数字人舞台: 居中呈现; 降级时显示拟态光核提示 */}
       <div className={`ocean3d-guide-stage ${dhMode === 'ready' ? '' : 'fallback'}`} id={containerIdRef.current}>
-        {dhMode !== 'ready' && <span className="ocean3d-guide-fallback-tag">🎤 语音导游模式</span>}
+        {dhMode !== 'ready' && <><DigitalHumanIcon size={72} className="ocean3d-guide-fallback-icon" /><span className="ocean3d-guide-fallback-tag">语音导游模式</span></>}
       </div>
 
       {/* 播报字幕条(投放提示/回答摘要都在这里, 不再弹浮动卡) */}
