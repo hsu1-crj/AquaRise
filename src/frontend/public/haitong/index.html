@@ -5909,6 +5909,10 @@ document.querySelectorAll("#soundTags [data-kind]").forEach(tag => {
 const video = $("#webcam"), canvasDet = $("#detCanvas"), ctxDet = canvasDet.getContext("2d");
 const gestureBtn = $("#gestureBtn"), hintGestureBtn = $("#hintGestureBtn");
 let gestureStream = null, gestureRunning = false, gestureTimer = null;
+let gestureManualChoice = false;
+// 手势不是视频检测：识别频率不需要追上渲染帧率。降低同步 WASM/GPU 调用频率，
+// 避免它和 2.6 万粒子地球争用主线程与显卡，摄像头预览仍由浏览器按原生帧率播放。
+const GESTURE_DETECT_INTERVAL_MS = 84;
 let lastGestureActionTime = 0;
 let handLandmarker = null, handLandmarkerError = "";
 
@@ -5940,6 +5944,7 @@ async function initHandLandmarker() {
 }
 
 async function toggleGesture() {
+ gestureManualChoice = true;
  if (gestureRunning) {
   stopGesture();
  } else {
@@ -5955,7 +5960,7 @@ async function toggleGesture() {
  return;
  }
  gestureStream = await navigator.mediaDevices.getUserMedia({
- video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
+ video: { width: { ideal: 640, max: 640 }, height: { ideal: 480, max: 480 }, frameRate: { ideal: 15, max: 20 }, facingMode: "user" }
  });
  video.srcObject = gestureStream;
  await video.play();
@@ -6055,7 +6060,7 @@ function startLandmarkLoop() {
  } catch (err) {
  // 单帧跟踪失败忽略
  }
- if (gestureRunning) gestureTimer = setTimeout(loop, 33); // ~30fps
+ if (gestureRunning) gestureTimer = setTimeout(loop, GESTURE_DETECT_INTERVAL_MS);
  }
  loop();
 }
@@ -6589,12 +6594,13 @@ function tryAutoPlayBgm() {
 }
 
 async function autoStartGesture() {
+ if (gestureManualChoice || gestureRunning || gestureStream) return;
  try {
  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
  const ready = await initHandLandmarker();
  if (!ready) return;
  gestureStream = await navigator.mediaDevices.getUserMedia({
- video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
+ video: { width: { ideal: 640, max: 640 }, height: { ideal: 480, max: 480 }, frameRate: { ideal: 15, max: 20 }, facingMode: "user" }
  });
  video.srcObject = gestureStream;
  await video.play();
@@ -6633,8 +6639,12 @@ Promise.all(SPECIES.map((_, i) => buildImgHomes(i))).then(() => {
 applySpecies(true);
 requestAnimationFrame(frame);
 tryAutoPlayBgm();
-// 进入生命图谱即请求摄像头权限；拒绝时仍可点击顶部按钮重试。
-autoStartGesture();
+// 让首屏粒子动画先稳定，再初始化 MediaPipe/摄像头；拒绝时仍可点击顶部按钮重试。
+// 初始化仍自动进行，但不与页面第一次布局、纹理加载和首帧争抢主线程/GPU。
+const scheduleCameraStartup = window.requestIdleCallback
+  ? (cb) => window.requestIdleCallback(cb, { timeout: 1800 })
+  : (cb) => window.setTimeout(cb, 1200);
+scheduleCameraStartup(() => { void autoStartGesture(); });
 window.addEventListener("resize", () => { resize(); applySpecies(true); });
 toast("海瞳 · 守护蓝色星球已就绪 · 拖拽旋转地球，滚轮/手势下潜探索物种");
 

@@ -609,6 +609,87 @@
   flex-shrink: 0;
 }
 
+.og-export-wrap {
+  position: relative;
+}
+
+.og-export-chevron {
+  transition: transform 0.2s ease;
+}
+
+.og-export-chevron.open {
+  transform: rotate(90deg);
+}
+
+.og-export-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 228px;
+  padding: 6px;
+  border: 1px solid rgba(89, 230, 239, 0.22);
+  border-radius: 12px;
+  background: rgba(5, 24, 36, 0.97);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px);
+}
+
+.og-export-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(220, 242, 249, 0.9);
+  text-align: left;
+  cursor: pointer;
+}
+
+.og-export-menu button:hover {
+  background: rgba(89, 230, 239, 0.11);
+  color: #fff;
+}
+
+.og-export-menu button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.og-export-menu button:disabled:hover {
+  background: transparent;
+  color: rgba(220, 242, 249, 0.9);
+}
+
+.og-export-menu-divider {
+  height: 1px;
+  margin: 5px 7px;
+  background: rgba(89, 230, 239, 0.14);
+}
+
+.og-export-menu button > svg {
+  flex: 0 0 auto;
+  color: var(--cyan);
+}
+
+.og-export-menu button span {
+  display: grid;
+  gap: 1px;
+}
+
+.og-export-menu strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.og-export-menu small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .og-topbar-btn {
   display: inline-flex;
   align-items: center;
@@ -647,6 +728,13 @@
   background: rgba(255, 109, 136, 0.16);
   border-color: var(--coral);
   color: #fff;
+}
+
+@media (max-width: 760px) {
+  .og-export-menu {
+    right: auto;
+    left: 0;
+  }
 }
 
 /* 快捷问题探索栏 */
@@ -1317,6 +1405,8 @@
 }
 
 /* --- 质量分析报告导入条 --- */
+.og-report-analysis-panel{margin:0 18px 12px;padding:14px 16px;border:1px solid rgba(92,218,255,.18);border-radius:12px;background:linear-gradient(135deg,rgba(8,46,63,.92),rgba(5,29,43,.88));box-shadow:0 10px 28px rgba(0,0,0,.16)}
+.og-report-analysis-panel header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.og-report-analysis-panel h3{margin:4px 0 0;font-size:14px;color:#e8fcff}.og-analysis-risk{font-size:10px;padding:5px 9px;border-radius:999px;background:rgba(255,189,102,.14);color:#ffcf86}.risk-极高{background:rgba(255,95,110,.16);color:#ff8290}.risk-高{background:rgba(255,143,102,.16);color:#ffad85}.risk-低{background:rgba(56,224,178,.12);color:#67e9c0}.og-analysis-summary{margin:10px 0;color:#b6d9e2;font-size:11px;line-height:1.7}.og-analysis-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.og-analysis-columns>div{min-width:0}.og-analysis-columns strong{font-size:10px;color:#68dcf4}.og-analysis-columns ul{margin:7px 0 0;padding-left:15px;color:#c9e6ec;font-size:10px;line-height:1.65}.og-analysis-columns li{margin-bottom:5px}.og-analysis-columns li b{color:#ffcf86;margin-right:3px}.og-analysis-columns small{display:block;color:#7fa9b6;font-size:9px;margin-top:3px}.og-report-analysis-panel footer{display:flex;justify-content:space-between;align-items:center;margin-top:9px;padding-top:9px;border-top:1px solid rgba(92,218,255,.09);color:#789ca8;font-size:9px}.og-report-analysis-panel footer button{display:inline-flex;align-items:center;gap:4px;border:0;background:none;color:#8bdff0;font-size:9px;cursor:pointer}
 .og-import-bar {
   display: flex;
   align-items: center;

@@ -7,6 +7,8 @@ POST /api/v1/reports           生成报告（JSON，前端 api.createReport）
 POST /api/v1/reports/generate  生成报告（表单，兼容旧调用）
 """
 
+import html
+import json
 import os
 import re
 from collections import Counter
@@ -18,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models import DetectionTask, Report, ReportType, SeaArea, User, UserRole
+from models import DetectionResult, DetectionTask, Report, ReportAnalysis, ReportType, SeaArea, User, UserRole
 from schemas import (
     CreateBatchReportRequest,
     CreateReportRequest,
@@ -26,6 +28,8 @@ from schemas import (
     FrontendReportListResponse,
     POLLUTION_SCORE,
     ReportInfo,
+    ReportAnalysisResponse,
+    ReportSolution,
     pollution_level_zh,
 )
 
@@ -129,7 +133,7 @@ def _build_category_bars(counter: Counter, color: str = "linear-gradient(90deg,#
     for name, count in counter.most_common():
         pct = count / total * 100
         rows += (
-            f'<div class="hbar-row"><div class="hbar-lbl">{name}</div>'
+            f'<div class="hbar-row"><div class="hbar-lbl">{html.escape(str(name))}</div>'
             f'<div class="hbar-track"><div class="hbar-fill" style="width:{pct:.1f}%;'
             f'background:{color}"></div></div>'
             f'<div class="hbar-val">{count} 个 · {pct:.1f}%</div></div>'
@@ -147,11 +151,11 @@ def _build_result_table(results) -> str:
         if r.bbox_x1 is not None and r.bbox_y1 is not None:
             pos = f"x:{r.bbox_x1:.0f},y:{r.bbox_y1:.0f}"
         rows += (
-            f"<tr><td>{i}</td><td>{r.class_name or '-'}</td>"
+            f"<tr><td>{i}</td><td>{html.escape(str(r.class_name or '-'))}</td>"
             f'<td><div class="conf"><div class="bar"><i style="width:{pct}%"></i></div></div>'
             f'{pct:.0f}%</td>'
-            f"<td>{r.material_type or '-'}</td>"
-            f"<td>{pos or '-'}</td>"
+            f"<td>{html.escape(str(r.material_type or '-'))}</td>"
+            f"<td>{html.escape(pos or '-')}</td>"
             f"<td>{r.frame_index}</td></tr>"
         )
     return rows
@@ -162,9 +166,9 @@ def _build_level_notice(level_raw: str | None) -> str:
     v = getattr(level_raw, "value", level_raw)
     summary = LEVEL_SUMMARY.get(str(v), LEVEL_SUMMARY["good"])
     advice = LEVEL_ADVICE.get(str(v), LEVEL_ADVICE["good"])
-    items = "".join(f"<li>{a}</li>" for a in advice)
+    items = "".join(f"<li>{html.escape(str(a))}</li>" for a in advice)
     return (
-        f'<div class="notice"><b>评定说明：</b>{summary}'
+        f'<div class="notice"><b>评定说明：</b>{html.escape(str(summary))}'
         f"<ul>{items}</ul></div>"
     )
 
@@ -213,7 +217,7 @@ def _build_report_html(task: DetectionTask, sea_area_name: str = "近岸监测�
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>海域污染评估报告 - {task.file_name}</title>
+<title>海域污染评估报告 - {html.escape(str(task.file_name or "未命名任务"))}</title>
 <style>{_PAGE_STYLE}</style></head><body>
 <div class="page">
 <div class="hero">
@@ -221,7 +225,7 @@ def _build_report_html(task: DetectionTask, sea_area_name: str = "近岸监测�
 <div class="sub">水下垃圾自动识别 · 海洋污染分析系统</div>
 <div class="meta">
 <span class="chip">任务ID：{task.id}</span>
-<span class="chip">监测海域：{sea_area_name}</span>
+<span class="chip">监测海域：{html.escape(str(sea_area_name))}</span>
 <span class="chip">类型：{'视频' if task.task_type.value == 'video' else '图片'}</span>
 </div>
 </div>
@@ -263,12 +267,12 @@ def _build_report_html(task: DetectionTask, sea_area_name: str = "近岸监测�
 <section>
 <h2>ℹ️ 基本信息</h2>
 <table>
-<tr><th>源文件</th><td>{task.file_name}</td></tr>
-<tr><th>任务类型</th><td>{task.task_type.value}</td></tr>
+<tr><th>源文件</th><td>{html.escape(str(task.file_name or "-"))}</td></tr>
+<tr><th>任务类型</th><td>{html.escape(str(task.task_type.value if task.task_type else "-"))}</td></tr>
 <tr><th>检测目标数</th><td>{class_total}（逐目标明细）/ {task.total_objects}（任务计数）</td></tr>
 <tr><th>最高置信度</th><td>{max_conf*100:.0f}%</td></tr>
 <tr><th>处理耗时</th><td>{task.processing_time or 0}s</td></tr>
-<tr><th>完成时间</th><td>{task.completed_at}</td></tr>
+<tr><th>完成时间</th><td>{html.escape(str(task.completed_at or "-"))}</td></tr>
 </table>
 </section>
 </div>
@@ -363,7 +367,7 @@ async def preview_report(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """在线预览：返回与该报告对应的 HTML 报告文件内容（供浏览器新窗口展示）"""
+    """在线预览：返回与该报告对应的 HTML 报告文件内容。"""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
@@ -385,23 +389,150 @@ async def delete_report(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """删除报告：同时删除数据库记录与磁盘上的 HTML 报告文件"""
+    """删除报告：同时删除数据库记录与磁盘上的 HTML 报告文件。"""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
     if current_user.role != UserRole.admin and report.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权限删除该报告")
-    # 删除磁盘上的 HTML 文件（若存在）
     if report.report_path:
         html_path = os.path.abspath(report.report_path)
         if os.path.isfile(html_path):
             try:
                 os.remove(html_path)
             except OSError:
-                pass  # 文件删除失败不阻塞数据库记录删除
+                pass
     db.delete(report)
     db.commit()
     return {"detail": "报告已删除", "id": report_id}
+
+
+def _analysis_for_task(task: DetectionTask, results: list[DetectionResult]) -> dict:
+    """从检测事实生成结构化分析；不让模型改写数量、等级和置信度。"""
+    level_raw = getattr(task.pollution_level, "value", task.pollution_level) or "excellent"
+    level = pollution_level_zh(level_raw)
+    risk = {"优": "低", "良": "低", "中": "中", "差": "高", "严重": "极高"}.get(level, "中")
+    low_conf = [r for r in results if float(r.confidence or 0) < 0.7]
+    by_class: dict[str, int] = {}
+    by_material: dict[str, int] = {}
+    for row in results:
+        by_class[row.class_name] = by_class.get(row.class_name, 0) + 1
+        material = row.material_type or "未知"
+        by_material[material] = by_material.get(material, 0) + 1
+    top = sorted(by_class.items(), key=lambda item: (-item[1], item[0]))[:3]
+    findings = [
+        f"本次共识别 {int(task.total_objects or 0)} 个垃圾目标，污染等级为“{level}”，风险级别为“{risk}”。",
+    ]
+    if top:
+        findings.append("高频类别为：" + "、".join(f"{name}（{count}）" for name, count in top) + "。")
+    if low_conf:
+        findings.append(f"有 {len(low_conf)} 个目标置信度低于 70%，不宜直接作为正式统计结论。")
+    causes = []
+    if any("渔网" in name or "绳" in name for name in by_class):
+        causes.append("可能存在废弃渔具或缠绕类垃圾持续输入，应结合渔业活动和潮流方向排查。")
+    if any("塑料" in (material or "") for material in by_material) or any("塑料" in name for name in by_class):
+        causes.append("塑料类目标占比明显，建议核查沿岸生活垃圾、河流输入和港口作业源。")
+    if not causes:
+        causes.append("仅凭单次检测不能确认唯一污染来源，建议结合连续监测、潮汐和现场记录判断。")
+    solutions = [
+        ReportSolution(priority="P0", action="复核低置信度目标，确认类别、目标框和原始图像，再决定是否纳入正式统计。", owner="检测复核人员", deadline="24小时内", validation="复核后置信度与类别记录完整，形成复核清单"),
+        ReportSolution(priority="P1", action="按高频类别和高风险目标分区清理；渔网、绳索及大型缠绕物由专业人员分段解缠，避免直接拖拽。", owner="现场治理团队", deadline="72小时内" if risk in {"高", "极高"} else "7天内", validation="记录清理数量、重量、位置和前后影像"),
+        ReportSolution(priority="P2", action="沿同一路线复测，并把本次结果与治理后结果纳入连续趋势分析，必要时加密监测频次。", owner="监测管理人员", deadline="治理后7天内", validation="比较目标数量、密度、等级和高风险类别变化"),
+    ]
+    return {
+        "summary": f"报告显示该任务处于“{level}”污染等级，检出 {int(task.total_objects or 0)} 个目标。建议先完成结果复核，再按风险优先级治理并复测。",
+        "risk_level": risk,
+        "key_findings": findings,
+        "possible_causes": causes,
+        "solutions": [solution.model_dump() for solution in solutions],
+        "follow_up_monitoring": ["治理前后使用相同路线和近似采样条件复测", "连续记录垃圾数量、密度、类别和置信度", "高风险点位根据趋势结果调整复测周期"],
+        "evidence": [
+            {"id": f"R{row.id}", "class_name": row.class_name, "confidence": round(float(row.confidence or 0), 4), "material": row.material_type or "未知", "source": f"检测结果 #{row.id}"}
+            for row in results[:30]
+        ],
+    }
+
+
+@router.post("/{report_id}/analyze", response_model=ReportAnalysisResponse)
+async def analyze_report(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """报告导入后的结构化分析与处置方案。事实由后端统计，结果可重复查看。"""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权限分析该报告")
+    if not report.task_id:
+        # 批量报告没有单一 task_id，但 summary 已包含批次数量、目标数、综合等级和质量分，
+        # 仍可完成可追溯的宏观分析，证据明确标记为报告摘要而不是伪造逐目标结果。
+        match = re.match(
+            r"批量报告：共 (\d+) 张图片，检出 (\d+) 个垃圾目标，综合污染等级 (\S+)，质量分 (\d+)",
+            report.summary or "",
+        )
+        if not match:
+            raise HTTPException(status_code=422, detail="批量报告摘要字段不完整，无法分析")
+        image_count, object_count, level, score = match.groups()
+        risk = {"优": "低", "良": "低", "中": "中", "差": "高", "严重": "极高"}.get(level, "中")
+        payload = {
+            "summary": f"本批次包含 {image_count} 张图片，共检出 {object_count} 个垃圾目标，综合污染等级为“{level}”，质量分为 {score}。建议结合原始图片复核类别和空间分布后制定治理计划。",
+            "risk_level": risk,
+            "key_findings": [f"批次规模：{image_count} 张图片。", f"综合检出 {object_count} 个垃圾目标，等级为“{level}”。", f"质量分为 {score}，需结合原始证据判断治理优先级。"],
+            "possible_causes": ["批量摘要未包含类别、点位和时间序列，暂不能据此确认单一污染来源。"],
+            "solutions": [
+                ReportSolution(priority="P0", action="抽查本批次原始图片，复核高风险或低置信度目标，并补齐点位与采样时间。", owner="报告审核人员", deadline="24小时内", validation="形成抽查记录和字段补全清单").model_dump(),
+                ReportSolution(priority="P1", action="按点位和类别汇总后安排分区清理，缠绕类和大型目标优先处置。", owner="现场治理团队", deadline="72小时内", validation="记录清理前后数量和影像").model_dump(),
+                ReportSolution(priority="P2", action="治理后使用同等条件复测，比较批次目标数量、密度和等级变化。", owner="监测管理人员", deadline="治理后7天内", validation="形成治理前后对比报告").model_dump(),
+            ],
+            "follow_up_monitoring": ["补充各图片对应的海域、点位和采样时间", "按相同采样路线复测", "建立批次前后对比趋势"],
+            "evidence": [{"id": f"RPT-{report.id}", "class_name": "批量报告摘要", "confidence": 1.0, "material": "汇总字段", "source": f"报告 RPT-{report.id}"}],
+        }
+        analysis = ReportAnalysis(report_id=report.id, user_id=current_user.id, status="completed", result_json=json.dumps(payload, ensure_ascii=False), model_name="ds-ocean_mingzhe")
+        db.add(analysis); db.commit(); db.refresh(analysis)
+        return ReportAnalysisResponse(id=analysis.id, report_id=report.id, status=analysis.status, model_name=analysis.model_name, created_at=f"{analysis.created_at:%Y-%m-%d %H:%M}", **payload)
+    task = db.query(DetectionTask).filter(DetectionTask.id == report.task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="报告关联任务不存在")
+    rows = db.query(DetectionResult).filter(DetectionResult.task_id == task.id).order_by(DetectionResult.id.asc()).all()
+    payload = _analysis_for_task(task, rows)
+    analysis = ReportAnalysis(
+        report_id=report.id,
+        user_id=current_user.id,
+        status="completed",
+        result_json=json.dumps(payload, ensure_ascii=False),
+        model_name="ds-ocean_mingzhe",
+    )
+    db.add(analysis)
+    db.commit()
+    db.refresh(analysis)
+    return ReportAnalysisResponse(
+        id=analysis.id, report_id=report.id, status=analysis.status,
+        model_name=analysis.model_name, created_at=f"{analysis.created_at:%Y-%m-%d %H:%M}", **payload,
+    )
+
+
+@router.get("/{report_id}/analysis", response_model=ReportAnalysisResponse)
+async def get_report_analysis(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """读取报告最近一次结构化分析。"""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权限查看该报告分析")
+    analysis = db.query(ReportAnalysis).filter(ReportAnalysis.report_id == report_id).order_by(ReportAnalysis.id.desc()).first()
+    if not analysis:
+        raise HTTPException(status_code=404, detail="该报告尚未分析")
+    payload = json.loads(analysis.result_json)
+    return ReportAnalysisResponse(
+        id=analysis.id, report_id=report_id, status=analysis.status,
+        model_name=analysis.model_name, created_at=f"{analysis.created_at:%Y-%m-%d %H:%M}", **payload,
+    )
 
 
 def _resolve_report_type(format_value: str) -> ReportType:

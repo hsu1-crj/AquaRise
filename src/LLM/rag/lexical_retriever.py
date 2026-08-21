@@ -13,6 +13,18 @@ from typing import Dict, List, Optional
 _CJK = re.compile(r"[\u4e00-\u9fff]")
 _WORD = re.compile(r"[A-Za-z0-9_+#.-]+")
 MIN_RELEVANCE_SCORE = 0.10
+MAX_RESULTS_PER_SOURCE = 2
+_GENERIC_TERMS = {
+    "海洋", "海岸", "海滩", "海水", "海域", "问题", "怎么", "如何", "什么", "这个", "那个",
+    "相关", "方面", "可以", "应该", "需要", "进行", "一下", "变成", "成为", "守护者", "告诉",
+}
+_NOISE_CHARS = set("怎么如何这个那个变成成为守护者告诉以及是否请问和的了呢吗")
+_SIGNAL_TERMS = {
+    "垃圾", "塑料", "塑料袋", "微塑料", "渔网", "渔具", "珊瑚", "鲸鱼", "海豚", "鲨鱼", "生态",
+    "检测", "识别", "置信度", "报告", "污染", "清理", "打捞", "回收", "样方", "样带", "声呐",
+    "传感器", "无人艇", "usv", "rov", "rfid", "pops", "富集", "食物链", "洋流", "潮汐", "碳汇",
+    "巡航", "拦截", "监测", "复测", "降级", "风险标注", "作业", "切割", "微创", "网格", "抽检",
+}
 
 
 def _terms(text: str) -> set[str]:
@@ -21,6 +33,16 @@ def _terms(text: str) -> set[str]:
     for n in (2, 3, 4):
         terms.update(chars[i:i+n] for i in range(max(0, len(chars)-n+1)))
     return terms
+
+
+def _substantive_terms(text: str) -> set[str]:
+    terms = _terms(text)
+    signal_terms = {term for term in _SIGNAL_TERMS if term in text.lower()}
+    return {
+        term for term in terms
+        if term not in _GENERIC_TERMS
+        and (term in signal_terms or not any(char in _NOISE_CHARS for char in term))
+    }
 
 
 class LocalKnowledgeRetriever:
@@ -53,11 +75,18 @@ class LocalKnowledgeRetriever:
         q_terms = _terms(query)
         if not q_terms:
             return []
+        q_substantive_terms = _substantive_terms(query)
         scored = []
+        query_has_cjk = bool(_CJK.search(query))
+        query_has_identifier = bool(_WORD.search(query))
         action_query = bool(re.search(r"治理|措施|处理|清理|怎么做|如何|建议|流程", query))
         action_terms = ("源头", "减量", "拦截", "清理", "回收", "复测", "监测", "记录", "评估", "管理")
         for item in self.chunks:
             overlap = len(q_terms & item["terms"])
+            # 至少命中一个非泛化主题词，避免“海洋/问题”等常见词把无关段落抬进 Top-K。
+            substantive_overlap = len(q_substantive_terms & _substantive_terms(item["content"]))
+            if q_substantive_terms and substantive_overlap == 0:
+                continue
             phrase = sum(1 for t in q_terms if len(t) > 2 and t in item["content"])
             title_overlap = len(q_terms & _terms(Path(item["source"]).stem))
             score = (
@@ -67,6 +96,11 @@ class LocalKnowledgeRetriever:
             )
             if action_query:
                 score += sum(0.18 for term in action_terms if term in item["content"])
+            # 英文类别标识是检测字段，不应压过中文语义问题；只有标识命中时轻微降权。
+            if query_has_cjk and query_has_identifier and overlap and not any(
+                term in item["content"] for term in q_terms if _CJK.search(term)
+            ):
+                score *= 0.82
             if len(item["content"]) < 90:
                 score *= 0.7
             # 过滤仅由常见汉字或偶然词命中的弱相关片段，防止把“天气”等问题
@@ -74,7 +108,21 @@ class LocalKnowledgeRetriever:
             if score >= MIN_RELEVANCE_SCORE:
                 scored.append((score, item))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [{"content": x[1]["content"], "metadata": {"source": x[1]["source"]}, "score": round(x[0], 4)} for x in scored[:k]]
+        results = []
+        source_counts: dict[str, int] = {}
+        for score, item in scored:
+            source = item["source"]
+            if source_counts.get(source, 0) >= MAX_RESULTS_PER_SOURCE:
+                continue
+            results.append({
+                "content": item["content"],
+                "metadata": {"source": source},
+                "score": round(score, 4),
+            })
+            source_counts[source] = source_counts.get(source, 0) + 1
+            if len(results) >= k:
+                break
+        return results
 
     def format_context(self, query: str, k: int = 5) -> str:
         results = self.search(query, k)

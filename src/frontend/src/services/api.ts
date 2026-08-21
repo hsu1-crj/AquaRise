@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, ReportAnalysis, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -223,6 +223,14 @@ export const api = {
     const numId = reportId.replace(/^RPT-/i, '');
     await request(`/api/v1/reports/${numId}`, { method: 'DELETE' });
   },
+  async analyzeReport(reportId: string | number): Promise<ReportAnalysis> {
+    const id = String(reportId).replace(/^RPT-/, '');
+    return request<ReportAnalysis>(`/api/v1/reports/${encodeURIComponent(id)}/analyze`, { method: 'POST' });
+  },
+  async getReportAnalysis(reportId: string | number): Promise<ReportAnalysis> {
+    const id = String(reportId).replace(/^RPT-/, '');
+    return request<ReportAnalysis>(`/api/v1/reports/${encodeURIComponent(id)}/analysis`);
+  },
   async detectImage(file: File, width: number, height: number, siteId?: number): Promise<DetectionResult> {
     if (isMockMode()) { await wait(1300); return createMockDetection(width, height); }
     const form = new FormData();
@@ -407,6 +415,9 @@ export const api = {
   async deleteKnowledgeDoc(docId: number): Promise<{ message: string }> {
     return request<{ message: string }>(`/api/v1/knowledge/${docId}`, { method: 'DELETE' });
   },
+  async analyzeKnowledgeDoc(docId: number): Promise<ReportAnalysis> {
+    return request<ReportAnalysis>(`/api/v1/knowledge/${docId}/analyze`, { method: 'POST' });
+  },
 };
 
 export interface ChatMessagePayload { role: 'system' | 'user' | 'assistant'; content: string }
@@ -425,6 +436,7 @@ export async function streamChat(
   sessionId: string,
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  context?: { reportId?: number | null; documentId?: number | null },
 ): Promise<void> {
   if (isMockMode()) {
     const reply = '从监测数据看，建议优先处理废弃渔网与大型塑料制品：它们会造成持续缠绕风险，并进一步碎化为微塑料。可先由 ROV 标记坐标和深度，再制定分区打捞路线；作业后复测垃圾密度，并将前后数据纳入质量报告。';
@@ -439,7 +451,13 @@ export async function streamChat(
   const response = await fetch('/api/v1/chat', {
     method: 'POST',
     headers: authHeaders({ headers: { 'Content-Type': 'application/json' } }),
-    body: JSON.stringify({ messages, stream: true, session_id: sessionId }),
+    body: JSON.stringify({
+      messages,
+      stream: true,
+      session_id: sessionId,
+      report_id: context?.reportId ?? undefined,
+      document_id: context?.documentId ?? undefined,
+    }),
     signal,
   });
   if (!response.ok || !response.body) {
