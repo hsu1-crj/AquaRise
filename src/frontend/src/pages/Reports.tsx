@@ -26,7 +26,20 @@ export function ReportsPage({ initialQuery = '', initialReportId }: { initialQue
   }, [reports, pendingFocus]);
   const filtered = useMemo(() => reports.filter((item) => `${item.id}${item.title}${item.area}${item.summary}`.includes(query)), [reports, query]);
 
-  const downloadReport = (report: Report) => {
+  // 下载报告：有预览地址时下载与在线预览一致的完整 HTML 报告；否则回退为摘要文本
+  const downloadReport = async (report: Report) => {
+    let html = '';
+    if (report.reportUrl) {
+      try { html = await api.getReportHtml(report.id); } catch { html = ''; }
+    }
+    if (html) {
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${report.title.replace(/[\\/:*?"<>|]/g, '-')}.html`;
+      link.click(); URL.revokeObjectURL(link.href);
+      return;
+    }
     const content = `${report.title}\n\n报告编号：${report.id}\n监测海域：${report.area}\n生成时间：${report.createdAt}\n质量评分：${report.score}\n污染等级：${report.level}\n识别目标：${report.objectCount} 件\n\n评估摘要\n${report.summary}\n\n本报告由海瞳海洋智守平台生成。`;
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${report.id}.txt`; link.click(); URL.revokeObjectURL(link.href);

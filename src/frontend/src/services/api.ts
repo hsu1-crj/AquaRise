@@ -231,6 +231,23 @@ export const api = {
     const id = String(reportId).replace(/^RPT-/, '');
     return request<ReportAnalysis>(`/api/v1/reports/${encodeURIComponent(id)}/analysis`);
   },
+  /** 拉取报告的完整 HTML 内容（对应报告 preview 接口，用于下载成 .html 文件） */
+  async getReportHtml(reportId: string): Promise<string> {
+    if (isMockMode()) { return ''; }
+    const numId = reportId.replace(/^RPT-/i, '');
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`/api/v1/reports/${numId}/preview`, { headers: authHeaders(), signal: controller.signal });
+      if (!response.ok) {
+        handleUnauthorized(response);
+        throw new Error(`报告内容获取失败（${response.status}）`);
+      }
+      return await response.text();
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  },
   async detectImage(file: File, width: number, height: number, siteId?: number): Promise<DetectionResult> {
     if (isMockMode()) { await wait(1300); return createMockDetection(width, height); }
     const form = new FormData();
