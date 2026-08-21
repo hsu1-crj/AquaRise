@@ -52,6 +52,19 @@ const DEMO_GLOBE_STATIONS: GlobeStationView[] = [
   { id: 2, code: 'AU-02', name: '大堡礁站', lat: -16.9, lng: 145.8, region: '昆士兰外海', country: '澳大利亚', pollutionIndex: 2.6 },
   { id: 3, code: 'US-03', name: '蒙特雷湾站', lat: 36.62, lng: -121.9, region: '加州近岸', country: '美国', pollutionIndex: 5.9 },
 ];
+const DEMO_SITE_STATS: SiteStat[] = DEMO_GLOBE_STATIONS.map((station, index) => ({
+  id: station.id,
+  code: station.code,
+  name: station.name,
+  lat: station.lat,
+  lng: station.lng,
+  taskCount: [24, 18, 11][index] ?? 0,
+  totalObjects: [386, 214, 172][index] ?? 0,
+  pollutionIndex: station.pollutionIndex,
+  lastTaskAt: ['2026-08-19 16:42', '2026-08-19 10:26', '2026-08-18 09:15'][index] ?? null,
+}));
+const sitesForMode = (siteList: SiteStat[]): SiteStat[] =>
+  siteList.length > 0 ? siteList : DEMO_SITE_STATS;
 
 const toGlobeStation = (site: SiteStat): GlobeStationView => ({
   id: site.id, code: site.code, name: site.name, lat: site.lat, lng: site.lng,
@@ -188,10 +201,16 @@ export function Ocean3DPage() {
     setGlobeMode(true);
     api.getSummary().then(setSummary).catch(() => { /* KPI条失败不阻塞场景 */ });
     api.getSiteStats().then((list) => {
-      setSites(list);
-      try { world.setSites(list); } catch (err) { (window as unknown as Record<string, unknown>).__ocean3dError = String(err); }
-      if (globeActiveRef.current) world.showGlobe(buildGlobeStations(list));
-    }).catch(() => { if (globeActiveRef.current) world.showGlobe(buildGlobeStations([])); });
+      const visibleSites = sitesForMode(list);
+      setSites(visibleSites);
+      try { world.setSites(visibleSites); } catch (err) { (window as unknown as Record<string, unknown>).__ocean3dError = String(err); }
+      if (globeActiveRef.current) world.showGlobe(buildGlobeStations(visibleSites));
+    }).catch(() => {
+      const fallbackSites = sitesForMode([]);
+      setSites(fallbackSites);
+      world.setSites(fallbackSites);
+      if (globeActiveRef.current) world.showGlobe(buildGlobeStations(fallbackSites));
+    });
     api.getMarine().then(setMarine).catch(() => setMarine(null));
     return () => {
       if (playTimerRef.current) window.clearInterval(playTimerRef.current);
@@ -254,8 +273,9 @@ export function Ocean3DPage() {
     if (!world) return;
     if (manual) setSyncBusy(true);
     api.getSiteStats().then((list) => {
-      setSites(list);
-      try { world.setSites(list); } catch { /* 场景未就绪时忽略 */ }
+      const visibleSites = sitesForMode(list);
+      setSites(visibleSites);
+      try { world.setSites(visibleSites); } catch { /* 场景未就绪时忽略 */ }
       if (manual) {
         setSyncAt(new Date().toTimeString().slice(0, 5));
         api.getSummary().then(setSummary).catch(() => undefined);
