@@ -598,16 +598,13 @@ export function Ocean3DPage() {
       )}
       {!globeActive && (<>
       <header className="ocean3d-topbar glass">
-          <button className="topbar-btn globe-btn" aria-label="返回地球" title="返回地球选择站点" onClick={() => { worldRef.current?.showGlobe(buildGlobeStations(sites)); setGlobeMode(true); }}><Globe2 size={17} /></button>
-          <button className="topbar-btn" aria-label={fullscreen ? '退出全屏' : '进入全屏'} title={fullscreen ? '退出全屏' : '进入全屏'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
-          <nav className="ocean3d-panel-controls" aria-label="3D面板显示控制">
-            {([['kpis', '数据总览'], ['monitor', '监测面板'], ['volunteer', '科普面板'], ['pollution', '污染提示'], ['guide', '数字人'], ['legend', '图例']] as const).map(([key, label]) => <button key={key} className={visiblePanels[key] ? 'active' : ''} onClick={() => togglePanel(key)}>{label}</button>)}
-          </nav>
         <div>
           <span className="eyebrow"><i /> OCEAN DIGITAL TWIN</span>
           <h1>海洋 3D 态势</h1>
         </div>
         <div className="ocean3d-topbar-actions">
+          <button className="topbar-btn globe-btn" aria-label="返回地球" title="返回地球选择站点" onClick={() => { worldRef.current?.showGlobe(buildGlobeStations(sites)); setGlobeMode(true); }}><Globe2 size={17} /></button>
+          <button className="topbar-btn" aria-label={fullscreen ? '退出全屏' : '进入全屏'} title={fullscreen ? '退出全屏' : '进入全屏'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           {/* 环境系统: 昼夜 × 天气 */}
           <div className="ocean3d-env" aria-label="环境模式">
             <div className="env-group" role="group" aria-label="时间模式">
@@ -638,16 +635,23 @@ export function Ocean3DPage() {
           </div>
         </div>
       </header>
+      <nav className="ocean3d-panel-controls" aria-label="3D面板显示控制">
+        {([['kpis', '数据总览'], ['monitor', '监测面板'], ['volunteer', '科普面板'], ['pollution', '污染提示'], ['guide', '数字人'], ['legend', '图例']] as const).map(([key, label]) => <button key={key} className={visiblePanels[key] ? 'active' : ''} onClick={() => togglePanel(key)}>{label}</button>)}
+      </nav>
 
       {/* 污染聚合面板(右侧, 替代旧的浮动叠加卡: 按类型聚合计数, 点击展开危害链) */}
       {visiblePanels.pollution && mode === 'volunteer' && (
-        <PollutionPanel items={pollutions}
-          onClearOne={(key) => { worldRef.current?.removeStoryByKey(key); }} />
+        <PollutionPanel
+          items={pollutions}
+          onClearOne={(key) => { worldRef.current?.removeStoryByKey(key); }}
+          onClose={() => togglePanel('pollution')}
+        />
       )}
 
       {/* 全局KPI实数条（系统真实统计, 3D场景与项目业务接轨的门面） */}
       {visiblePanels.kpis && summary && (
         <div className="ocean3d-kpis">
+          <button className="ocean3d-panel-close" aria-label="关闭数据总览" onClick={() => togglePanel('kpis')}><X size={13} /></button>
           <div className="glass"><b>{summary.totalTasks}</b><span>累计任务</span></div>
           <div className="glass"><b>{summary.totalObjects}</b><span>检出目标</span></div>
           <div className="glass"><b>{summary.seaAreas}</b><span>监测海域</span></div>
@@ -659,9 +663,12 @@ export function Ocean3DPage() {
       {visiblePanels.monitor && mode === 'monitor' && (
         <aside className="ocean3d-panel glass">
           <h2><Waves size={15} />监测站点 · 实时数据
-            <button className="ocean3d-sync" disabled={syncBusy} title="同步最新检测数据(上传识别后点击或等待45s自动同步)" onClick={() => syncSites(true)}>
-              <RefreshCw size={13} className={syncBusy ? 'spin' : undefined} />{syncBusy ? '同步中…' : syncAt ? `同步 ${syncAt}` : '同步检测'}
-            </button>
+            <span className="ocean3d-panel-heading-actions">
+              <button className="ocean3d-sync" disabled={syncBusy} title="同步最新检测数据(上传识别后点击或等待45s自动同步)" onClick={() => syncSites(true)}>
+                <RefreshCw size={13} className={syncBusy ? 'spin' : undefined} />{syncBusy ? '同步中…' : syncAt ? `同步 ${syncAt}` : '同步检测'}
+              </button>
+              <button className="ocean3d-panel-close" aria-label="关闭监测面板" onClick={() => togglePanel('monitor')}><X size={13} /></button>
+            </span>
           </h2>
           <ul className="ocean3d-sites">
             {sites.length === 0 && <li className="ocean3d-empty">{isMockMode() ? 'Mock 模式：站点数据不加载' : '站点数据加载中或暂无站点…'}</li>}
@@ -775,7 +782,7 @@ export function Ocean3DPage() {
       {/* 科普模式: 垃圾选择 + 知识收集 + 投放引导 */}
       {visiblePanels.volunteer && mode === 'volunteer' && (
         <aside className="ocean3d-panel glass ocean3d-panel-left">
-          <h2><Trash2 size={15} />投放垃圾 · 看看会发生什么</h2>
+          <h2><Trash2 size={15} />投放垃圾 · 看看会发生什么 <button className="ocean3d-panel-close" aria-label="关闭科普面板" onClick={() => togglePanel('volunteer')}><X size={13} /></button></h2>
           <p className="ocean3d-hint">选择垃圾类型，<b>点击海面</b>投放，观察它的漂移沉降与真实危害链</p>
           <div className="ocean3d-chips">
             {GARBAGE_IMPACTS.map((g) => (
@@ -913,6 +920,7 @@ export function Ocean3DPage() {
       {/* 时间加速叙事HUD（科普模式投放后） */}
       {visiblePanels.story && story?.active && (
         <div className="ocean3d-story glass">
+          <button className="ocean3d-panel-close" aria-label="关闭时间叙事" onClick={() => togglePanel('story')}><X size={13} /></button>
           <div className="ocean3d-story-time">
             <span className="live-dot" />
             <b>{formatStoryYear(story.year)}</b>
@@ -938,13 +946,14 @@ export function Ocean3DPage() {
         ))}
 
       {/* 图例 */}
-      <footer className="ocean3d-legend glass">
+      {visiblePanels.legend && <footer className="ocean3d-legend glass">
+        <button className="ocean3d-panel-close" aria-label="关闭图例" onClick={() => togglePanel('legend')}><X size={13} /></button>
         <span><i style={{ background: '#27dafa' }} />污染良好</span>
         <span><i style={{ background: '#ffbd66' }} />污染中等</span>
         <span><i style={{ background: '#ff5f6e' }} />污染严重</span>
         <span><i style={{ background: '#54f1a9' }} />扩散粒子</span>
         {mode === 'volunteer' && <span><i style={{ background: '#ffd76a' }} />知识漂流瓶</span>}
-      </footer>
+      </footer>}
       </>)}
     </div>
   );
@@ -952,16 +961,17 @@ export function Ocean3DPage() {
 
 /** 污染聚合面板: 右侧固定面板按类型汇总活跃污染(替代会互相重叠的浮动卡),
  *  点击类型行展开该类危害链与清除操作 */
-function PollutionPanel({ items, onClearOne }: {
+function PollutionPanel({ items, onClearOne, onClose }: {
   items: Array<{ info: GarbageImpact; count: number }>;
   onClearOne: (key: string) => void;
+  onClose: () => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   if (items.length === 0) return null;
   const total = items.reduce((sum, item) => sum + item.count, 0);
   return (
     <aside className="ocean3d-pollution glass" aria-label="污染警示">
-      <h2><Trash2 size={14} />污染警示 · {total} 处</h2>
+      <h2><Trash2 size={14} />污染警示 · {total} 处 <button className="ocean3d-panel-close" aria-label="关闭污染提示" onClick={onClose}><X size={13} /></button></h2>
       <ul>
         {items.map(({ info, count }) => (
           <li key={info.key}>
