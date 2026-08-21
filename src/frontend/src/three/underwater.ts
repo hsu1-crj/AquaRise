@@ -944,56 +944,31 @@ export class UnderwaterWorld {
 
   // ---------- 鱼群(骨骼动画 GLB + boids) ----------
   private async loadSchools(): Promise<void> {
-    for (const spec of SCHOOLS) {
+    const centers: Array<[number, number]> = [[-78, -62], [-18, -82], [64, -70], [86, 8], [-72, 44], [8, 72], [70, 58]];
+    for (let schoolIndex = 0; schoolIndex < SCHOOLS.length; schoolIndex += 1) {
+      const spec = SCHOOLS[schoolIndex];
       try {
         const gltf = await this.gltf.loadAsync(`models/fish/${spec.file}.glb`);
-        const clip = gltf.animations.find((c) => c.name.toLowerCase().includes('swim')) ?? gltf.animations[0];
-        if (!clip) continue;
-        const template = normalizeModelSize(gltf.scene, spec.size);
-        // 真实鱼类观感: 湿润银灰背色 + 高光泽, 覆盖低模原色(浑浊水中呈剪影+反光)
-        const speciesTint = new THREE.Color(spec.tint);
+        const source = gltf.scene;
         const agents: FishAgent[] = [];
         const schoolGroup = new THREE.Group();
-        for (let i = 0; i < spec.count; i++) {
-          const animated = cloneSkinned(template);
-          // 材质独立克隆 + 个体明度微差(同一群内也有深浅)
-          const fishMat = new THREE.MeshStandardMaterial({
-            color: speciesTint.clone().offsetHSL(0, 0, (Math.random() - 0.5) * 0.12),
-            roughness: 0.32, metalness: 0.55, envMapIntensity: 0.9,
-          });
-          animated.traverse((o) => {
-            const m = o as THREE.Mesh;
-            if (m.isMesh) m.material = fishMat;
-          });
-          const mixer = new THREE.AnimationMixer(animated);
-          const action = mixer.clipAction(clip);
-          action.timeScale = 0.85 + Math.random() * 0.5;
-          action.play();
-          const wrap = new THREE.Group();
-          wrap.add(animated);
-          wrap.rotation.y = spec.yawFix;
-          wrap.scale.setScalar(0.8 + Math.random() * 0.45); // 个体大小自然差异
-          const holder = new THREE.Group();
-          holder.add(wrap);
-          schoolGroup.add(holder);
-          const a = Math.random() * Math.PI * 2;
-          const r = Math.random() * 3.5;
-          agents.push({
-            obj: holder,
-            mixer,
-            action,
-            pos: new THREE.Vector3(
-              (Math.random() - 0.5) * spec.roam,
-              (spec.band[0] + spec.band[1]) / 2 + (Math.random() - 0.5) * 1.5,
-              (Math.random() - 0.5) * spec.roam,
-            ),
-            vel: new THREE.Vector3(Math.cos(a) * spec.speed, 0, Math.sin(a) * spec.speed),
-            offset: new THREE.Vector3(Math.cos(a) * r, (Math.random() - 0.5) * 1.6, Math.sin(a) * r),
-            phase: Math.random() * Math.PI * 2,
-          });
+        const [cx, cz] = centers[schoolIndex % centers.length];
+        const centerY = (spec.band[0] + spec.band[1]) / 2;
+        for (let i = 0; i < spec.count; i += 1) {
+          const obj = cloneSkinned(source) as THREE.Group;
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.random() * spec.roam * 0.55;
+          const pos = new THREE.Vector3(cx + Math.cos(angle) * radius, centerY + (Math.random() - 0.5) * 1.5, cz + Math.sin(angle) * radius);
+          obj.position.copy(pos);
+          obj.scale.setScalar(spec.size * (0.88 + Math.random() * 0.24));
+          obj.rotation.y = spec.yawFix;
+          const mixer = obj.animations?.length ? new THREE.AnimationMixer(obj) : null;
+          const action = mixer && obj.animations?.[0] ? mixer.clipAction(obj.animations[0]).play() : null;
+          schoolGroup.add(obj);
+          agents.push({ obj, mixer, action, pos, vel: new THREE.Vector3(Math.cos(angle) * spec.speed, 0, Math.sin(angle) * spec.speed), offset: new THREE.Vector3(Math.cos(angle) * radius, (Math.random() - 0.5) * 1.6, Math.sin(angle) * radius), phase: Math.random() * Math.PI * 2 });
         }
         this.root.add(schoolGroup);
-        this.schools.push({ spec, agents, center: new THREE.Vector3(0, (spec.band[0] + spec.band[1]) / 2, 0), phase: Math.random() * Math.PI * 2 });
+        this.schools.push({ spec, agents, center: new THREE.Vector3(cx, centerY, cz), phase: Math.random() * Math.PI * 2 });
       } catch {
         // 单一物种加载失败仅跳过该群
       }

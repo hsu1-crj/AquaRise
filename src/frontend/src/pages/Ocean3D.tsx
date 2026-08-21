@@ -636,7 +636,10 @@ export function Ocean3DPage() {
         </div>
       </header>
       <nav className="ocean3d-panel-controls" aria-label="3D面板显示控制">
-        {([['kpis', '数据总览'], ['monitor', '监测面板'], ['volunteer', '科普面板'], ['pollution', '污染提示'], ['guide', '数字人'], ['legend', '图例']] as const).map(([key, label]) => <button key={key} className={visiblePanels[key] ? 'active' : ''} onClick={() => togglePanel(key)}>{label}</button>)}
+        {(mode === 'monitor'
+          ? ([['kpis', '数据总览'], ['monitor', '监测面板']] as const)
+          : ([['volunteer', '科普面板'], ['guide', '数字人'], ['pollution', '污染提示']] as const)
+        ).map(([key, label]) => <button key={key} className={visiblePanels[key] ? 'active' : ''} onClick={() => togglePanel(key)}>{label}</button>)}
       </nav>
 
       {/* 污染聚合面板(右侧, 替代旧的浮动叠加卡: 按类型聚合计数, 点击展开危害链) */}
@@ -945,15 +948,6 @@ export function Ocean3DPage() {
           </button>
         ))}
 
-      {/* 图例 */}
-      {visiblePanels.legend && <footer className="ocean3d-legend glass">
-        <button className="ocean3d-panel-close" aria-label="关闭图例" onClick={() => togglePanel('legend')}><X size={13} /></button>
-        <span><i style={{ background: '#27dafa' }} />污染良好</span>
-        <span><i style={{ background: '#ffbd66' }} />污染中等</span>
-        <span><i style={{ background: '#ff5f6e' }} />污染严重</span>
-        <span><i style={{ background: '#54f1a9' }} />扩散粒子</span>
-        {mode === 'volunteer' && <span><i style={{ background: '#ffd76a' }} />知识漂流瓶</span>}
-      </footer>}
       </>)}
     </div>
   );
