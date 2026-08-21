@@ -412,6 +412,7 @@ class FrontendReport(BaseModel):
     objectCount: int
     status: str          # 已生成 / 生成中
     summary: str
+    reportUrl: str = ""  # 可打开的 HTML 报告预览地址（GET /api/v1/reports/{id}/preview）
 
 
 class FrontendReportListResponse(BaseModel):

@@ -217,6 +217,12 @@ export const api = {
     const payload = await request<{ items: Report[] }>('/api/v1/reports/?page=1&page_size=50');
     return payload.items;
   },
+  async deleteReport(reportId: string): Promise<void> {
+    if (isMockMode()) { await wait(); return; }
+    // reportId 形如 RPT-<id>，转为纯数字路径参数
+    const numId = reportId.replace(/^RPT-/i, '');
+    await request(`/api/v1/reports/${numId}`, { method: 'DELETE' });
+  },
   async detectImage(file: File, width: number, height: number, siteId?: number): Promise<DetectionResult> {
     if (isMockMode()) { await wait(1300); return createMockDetection(width, height); }
     const form = new FormData();

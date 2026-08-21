@@ -181,6 +181,7 @@ export interface Report {
   objectCount: number;
   status: '已生成' | '生成中';
   summary: string;
+  reportUrl?: string; // HTML 报告预览地址（GET /api/v1/reports/{id}/preview）
 }
 
 /** RAG 知识库文档（后端 /api/v1/knowledge 返回形状） */

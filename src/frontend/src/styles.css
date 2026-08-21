@@ -2140,3 +2140,5 @@
 .screen-state-overlay button{margin-left:6px;padding:5px 14px;border:1px solid rgba(75,220,255,.45);border-radius:8px;background:rgba(75,220,255,.14);color:#eaffff;cursor:pointer;font-size:11px}
 .screen-state-overlay button:hover{background:rgba(75,220,255,.28)}
 .screen-alerts .no-record{padding:26px 16px;color:rgba(207,232,244,.45);font-size:11px;text-align:center}
+
+.icon-button.danger{color:#ff8292;background:rgba(214,69,61,.14);border-color:rgba(214,69,61,.38)}.icon-button.danger:hover{background:rgba(214,69,61,.26);color:#ffb3bc}.secondary-button.danger{color:#ff8292;border-color:rgba(214,69,61,.45)}.secondary-button.danger:hover{background:rgba(214,69,61,.16)}

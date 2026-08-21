@@ -9,14 +9,16 @@ POST /api/v1/reports/generate  生成报告（表单，兼容旧调用）
 
 import os
 import re
+from collections import Counter
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models import DetectionTask, Report, ReportType, User, UserRole
+from models import DetectionTask, Report, ReportType, SeaArea, User, UserRole
 from schemas import (
     CreateBatchReportRequest,
     CreateReportRequest,
@@ -30,24 +32,248 @@ from schemas import (
 # 污染等级严重度（用于多图批量报告取"综合最差等级"）
 LEVEL_SEVERITY = {"excellent": 0, "good": 1, "moderate": 2, "poor": 3, "severe": 4}
 
+# 污染等级 → 文字说明与治理建议（用于报告正文）
+LEVEL_SUMMARY = {
+    "excellent": "本监测范围内未检出或极少垃圾目标，海域整体处于优良状态，近岸水质与生态保持健康。",
+    "good": "本监测范围检出少量垃圾目标，污染程度轻微，对海洋生态影响有限，建议继续保持常态化监测。",
+    "moderate": "本监测范围检出处于中等水平的垃圾目标，存在一定污染风险，建议针对高频类别开展重点清理与溯源。",
+    "poor": "本监测范围垃圾目标密度偏高，污染状况已较为明显，建议列为重点巡查区域并安排专项清理作业。",
+    "severe": "本监测范围检出大量垃圾目标，污染严重，已构成对海洋生态的直接威胁，建议立即启动应急清理与全面整治。",
+}
+# 污染等级 → 治理建议（逐条，用于报告给出可执行动作）
+LEVEL_ADVICE = {
+    "excellent": ["继续保持现有监测频率，定期抽样复核", "对识别到的零星垃圾安排随巡清理"],
+    "good": ["维持月度巡检，关注垃圾密度变化趋势", "对高频出现的垃圾类别加强源头管控"],
+    "moderate": ["提高监测频次至半月一次", "针对高频垃圾类别制定专项打捞计划", "结合水文条件排查可能的陆源输入通道"],
+    "poor": ["将本海域列为重点巡查区域，每周巡检", "组织专项清理，优先处置高密度类别", "向上游与沿岸排放点溯源并推动整改"],
+    "severe": ["立即启动应急清理并设置临时拦截装置", "协调多部门联合整治与水域封控评估", "建立每日监测与整改跟踪机制，直至等级回落"],
+}
+
+# 报告页共用的内联样式（海洋主题，离线可用，不依赖外部资源）
+_PAGE_STYLE = """
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Microsoft YaHei','PingFang SC',sans-serif;background:#eef6fb;color:#1c2b36;padding:24px 12px;line-height:1.6}
+.page{max-width:900px;margin:0 auto;background:#fff;border-radius:14px;box-shadow:0 6px 24px rgba(11,109,143,.12);overflow:hidden}
+.hero{background:linear-gradient(135deg,#0b6d8f 0%,#1a9bb5 60%,#3fbfc9 100%);color:#fff;padding:26px 30px}
+.hero h1{font-size:23px;font-weight:700;letter-spacing:1px}
+.hero .sub{font-size:13px;opacity:.85;margin-top:6px}
+.hero .meta{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;font-size:12px}
+.hero .chip{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:3px 10px;border-radius:20px}
+.body{padding:26px 30px 30px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:14px;margin-bottom:26px}
+.card{background:#f4fafd;border:1px solid #d7eaf4;border-radius:10px;padding:16px 14px;text-align:center}
+.card .num{font-size:26px;font-weight:700;color:#0b6d8f}
+.card .lbl{font-size:12px;color:#5a7385;margin-top:4px}
+.card .lvl{font-size:17px;font-weight:700;padding:4px 12px;border-radius:16px;display:inline-block;color:#fff}
+.lvl-excellent{background:#2ea86b}.lvl-good{background:#4cae4c}.lvl-moderate{background:#e8a23d}.lvl-poor{background:#e0763a}.lvl-severe{background:#d6453d}
+section{margin-bottom:26px}
+section h2{font-size:16px;color:#0b6d8f;border-left:4px solid #1a9bb5;padding-left:10px;margin-bottom:14px}
+.hbar-row{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.hbar-lbl{width:150px;font-size:13px;text-align:right;flex-shrink:0;color:#33475a}
+.hbar-track{flex:1;background:#eaf3f9;border-radius:6px;height:18px;overflow:hidden}
+.hbar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,#1a9bb5,#3fbfc9);transition:width .4s}
+.hbar-val{width:96px;font-size:12px;color:#5a7385;flex-shrink:0}
+table{width:100%;border-collapse:collapse;margin:6px 0}
+th,td{border:1px solid #d7eaf4;padding:9px 11px;text-align:left;font-size:13px}
+th{background:#eaf6fb;color:#0b6d8f;white-space:nowrap}
+tr:nth-child(even){background:#f7fbfd}
+.conf{min-width:150px}
+.conf .bar{height:8px;background:#eaf3f9;border-radius:5px;overflow:hidden;width:100%}
+.conf .bar i{display:block;height:100%;background:linear-gradient(90deg,#2ea86b,#3fbfc9)}
+.notice{background:#fff8ec;border:1px solid #f0d9a8;border-left:4px solid #e8a23d;border-radius:8px;padding:14px 16px;font-size:13px;margin-top:14px}
+.notice b{color:#b0781a}
+.notice ul{margin:8px 0 0 18px}
+.notice li{margin-bottom:4px}
+.empty{color:#8aa3b3;font-size:13px;padding:14px;text-align:center;background:#f8fbfd;border:1px dashed #cfe0ea;border-radius:8px}
+.foot{background:#f4fafd;border-top:1px solid #d7eaf4;padding:14px 30px;font-size:11px;color:#8aa3b3;text-align:center}
+"""
+
+
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
 
-def _build_report_html(task: DetectionTask) -> str:
-    """生成一份简单的 HTML 报告"""
-    level = pollution_level_zh(task.pollution_level)
+def _level_class(level_raw: str | None) -> str:
+    """英文污染等级 → 徽标 CSS 类名"""
+    v = getattr(level_raw, "value", level_raw)
+    return f"lvl-{v}" if v in LEVEL_SEVERITY else "lvl-good"
+
+
+def _result_stats(task: DetectionTask) -> dict:
+    """从任务的逐目标检测结果汇总出：类别分布、材质分布、置信度统计"""
+    results = list(task.results or [])
+    class_counter: Counter = Counter()
+    material_counter: Counter = Counter()
+    confs: list[float] = []
+    for r in results:
+        class_counter[r.class_name or "未知"] += 1
+        if r.material_type:
+            material_counter[r.material_type] += 1
+        if r.confidence is not None:
+            confs.append(r.confidence)
+    total = sum(class_counter.values()) or 1
+    return {
+        "results": results,
+        "class_counter": class_counter,
+        "class_total": total,
+        "material_counter": material_counter,
+        "confs": confs,
+    }
+
+
+def _build_category_bars(counter: Counter, color: str = "linear-gradient(90deg,#1a9bb5,#3fbfc9)") -> str:
+    """类别/材质分布 → CSS 横向条形图 HTML"""
+    if not counter:
+        return '<div class="empty">暂无明细数据</div>'
+    total = sum(counter.values()) or 1
+    rows = ""
+    for name, count in counter.most_common():
+        pct = count / total * 100
+        rows += (
+            f'<div class="hbar-row"><div class="hbar-lbl">{name}</div>'
+            f'<div class="hbar-track"><div class="hbar-fill" style="width:{pct:.1f}%;'
+            f'background:{color}"></div></div>'
+            f'<div class="hbar-val">{count} 个 · {pct:.1f}%</div></div>'
+        )
+    return rows
+
+
+def _build_result_table(results) -> str:
+    """逐目标明细表的行"""
+    rows = ""
+    for i, r in enumerate(results, 1):
+        conf = r.confidence or 0
+        pct = round(conf * 100)
+        pos = ""
+        if r.bbox_x1 is not None and r.bbox_y1 is not None:
+            pos = f"x:{r.bbox_x1:.0f},y:{r.bbox_y1:.0f}"
+        rows += (
+            f"<tr><td>{i}</td><td>{r.class_name or '-'}</td>"
+            f'<td><div class="conf"><div class="bar"><i style="width:{pct}%"></i></div></div>'
+            f'{pct:.0f}%</td>'
+            f"<td>{r.material_type or '-'}</td>"
+            f"<td>{pos or '-'}</td>"
+            f"<td>{r.frame_index}</td></tr>"
+        )
+    return rows
+
+
+def _build_level_notice(level_raw: str | None) -> str:
+    """污染等级说明 + 治理建议块"""
+    v = getattr(level_raw, "value", level_raw)
+    summary = LEVEL_SUMMARY.get(str(v), LEVEL_SUMMARY["good"])
+    advice = LEVEL_ADVICE.get(str(v), LEVEL_ADVICE["good"])
+    items = "".join(f"<li>{a}</li>" for a in advice)
+    return (
+        f'<div class="notice"><b>评定说明：</b>{summary}'
+        f"<ul>{items}</ul></div>"
+    )
+
+
+def _build_report_html(task: DetectionTask, sea_area_name: str = "近岸监测点") -> str:
+    """生成一份信息丰富的 HTML 检测报告"""
+    level_raw = task.pollution_level.value if task.pollution_level else None
+    level = pollution_level_zh(level_raw)
+    score = POLLUTION_SCORE.get(str(level_raw), 68)
+    stats = _result_stats(task)
+    class_total = stats["class_total"]
+    category_count = len(stats["class_counter"])
+
+    avg_conf = sum(stats["confs"]) / len(stats["confs"]) if stats["confs"] else 0
+    max_conf = max(stats["confs"]) if stats["confs"] else 0
+
+    material_bars = _build_category_bars(
+        stats["material_counter"], "linear-gradient(90deg,#c0782e,#e0a04a)"
+    )
+    conf_bins = (
+        ("≥80%", sum(1 for c in stats["confs"] if c >= 0.8)),
+        ("60%~80%", sum(1 for c in stats["confs"] if 0.6 <= c < 0.8)),
+        ("&lt;60%", sum(1 for c in stats["confs"] if c < 0.6)),
+    )
+
+    # 类别分布（无结果时给占位）
+    if stats["results"]:
+        category_section = _build_category_bars(stats["class_counter"])
+        table_section = (
+            "<table><tr><th>#</th><th>目标类别</th><th>置信度</th>"
+            "<th>材质</th><th>位置(x,y)</th><th>帧号</th></tr>"
+            f"{_build_result_table(stats['results'])}</table>"
+        )
+        conf_rows = "".join(
+            f"<tr><td>{lb}</td><td>{cnt}</td></tr>" for lb, cnt in conf_bins
+        )
+        conf_table = (
+            "<table><tr><th>置信度区间</th><th>目标数量</th></tr>"
+            f"{conf_rows}</table>"
+        )
+    else:
+        category_section = '<div class="empty">该任务没有逐目标明细数据</div>'
+        table_section = '<div class="empty">无明细数据</div>'
+        conf_table = '<div class="empty">无置信度数据</div>'
+
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8">
-<title>海域污染评估报告</title></head><body>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>海域污染评估报告 - {task.file_name}</title>
+<style>{_PAGE_STYLE}</style></head><body>
+<div class="page">
+<div class="hero">
 <h1>🌊 海域污染评估报告</h1>
-<p><b>任务ID：</b>{task.id}</p>
-<p><b>文件名：</b>{task.file_name}</p>
-<p><b>任务类型：</b>{task.task_type.value}</p>
-<p><b>检出垃圾总数：</b>{task.total_objects}</p>
-<p><b>污染等级：</b>{level}</p>
-<p><b>处理耗时：</b>{task.processing_time or 0}s</p>
-<p><b>完成时间：</b>{task.completed_at}</p>
-<hr><p><small>本报告由海洋污染分析系统自动生成（测试版）</small></p>
+<div class="sub">水下垃圾自动识别 · 海洋污染分析系统</div>
+<div class="meta">
+<span class="chip">任务ID：{task.id}</span>
+<span class="chip">监测海域：{sea_area_name}</span>
+<span class="chip">类型：{'视频' if task.task_type.value == 'video' else '图片'}</span>
+</div>
+</div>
+<div class="body">
+<div class="cards">
+<div class="card"><div class="num">{task.total_objects}</div><div class="lbl">检出垃圾总数</div></div>
+<div class="card"><div class="lvl {_level_class(level_raw)}">{level}</div><div class="lbl" style="margin-top:8px">污染等级</div></div>
+<div class="card"><div class="num">{score}</div><div class="lbl">环境质量分</div></div>
+<div class="card"><div class="num">{avg_conf*100:.0f}%</div><div class="lbl">平均置信度</div></div>
+<div class="card"><div class="num">{category_count}</div><div class="lbl">检出类别数</div></div>
+<div class="card"><div class="num">{task.processing_time or 0}s</div><div class="lbl">处理耗时</div></div>
+</div>
+
+<section>
+<h2>📊 垃圾类别分布</h2>
+{category_section}
+</section>
+
+<section>
+<h2>🧱 材质构成</h2>
+{material_bars}
+</section>
+
+<section>
+<h2>🎯 置信度统计</h2>
+{conf_table}
+</section>
+
+<section>
+<h2>🔍 目标明细</h2>
+{table_section}
+</section>
+
+<section>
+<h2>📝 评估结论与治理建议</h2>
+{_build_level_notice(level_raw)}
+</section>
+
+<section>
+<h2>ℹ️ 基本信息</h2>
+<table>
+<tr><th>源文件</th><td>{task.file_name}</td></tr>
+<tr><th>任务类型</th><td>{task.task_type.value}</td></tr>
+<tr><th>检测目标数</th><td>{class_total}（逐目标明细）/ {task.total_objects}（任务计数）</td></tr>
+<tr><th>最高置信度</th><td>{max_conf*100:.0f}%</td></tr>
+<tr><th>处理耗时</th><td>{task.processing_time or 0}s</td></tr>
+<tr><th>完成时间</th><td>{task.completed_at}</td></tr>
+</table>
+</section>
+</div>
+<div class="foot">本报告由水下垃圾自动识别与海洋污染分析系统自动生成</div>
+</div>
 </body></html>"""
 
 
@@ -71,6 +297,7 @@ def _to_frontend_report(report: Report) -> FrontendReport:
                 objectCount=object_count,
                 status="已生成",
                 summary=report.summary or "",
+                reportUrl=f"/api/v1/reports/{report.id}/preview",
             )
 
     task = (
@@ -97,6 +324,7 @@ def _to_frontend_report(report: Report) -> FrontendReport:
         objectCount=object_count,
         status="已生成",
         summary=report.summary or "",
+        reportUrl=f"/api/v1/reports/{report.id}/preview",
     )
 
 
@@ -129,6 +357,53 @@ async def get_report(
     return ReportInfo.model_validate(report)
 
 
+@router.get("/{report_id}/preview", response_class=HTMLResponse)
+async def preview_report(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """在线预览：返回与该报告对应的 HTML 报告文件内容（供浏览器新窗口展示）"""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权限查看该报告")
+    if not report.report_path:
+        raise HTTPException(status_code=404, detail="报告文件缺失")
+    html_path = os.path.abspath(report.report_path)
+    if not os.path.isfile(html_path):
+        raise HTTPException(status_code=404, detail="报告文件不存在")
+    with open(html_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return HTMLResponse(content=content)
+
+
+@router.delete("/{report_id}")
+async def delete_report(
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """删除报告：同时删除数据库记录与磁盘上的 HTML 报告文件"""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权限删除该报告")
+    # 删除磁盘上的 HTML 文件（若存在）
+    if report.report_path:
+        html_path = os.path.abspath(report.report_path)
+        if os.path.isfile(html_path):
+            try:
+                os.remove(html_path)
+            except OSError:
+                pass  # 文件删除失败不阻塞数据库记录删除
+    db.delete(report)
+    db.commit()
+    return {"detail": "报告已删除", "id": report_id}
+
+
 def _resolve_report_type(format_value: str) -> ReportType:
     """前端 format（html 等）→ 合法 ReportType，非法值回退 single"""
     try:
@@ -139,10 +414,14 @@ def _resolve_report_type(format_value: str) -> ReportType:
 
 def _generate_report_for_task(db: Session, task: DetectionTask, user_id: int, report_type: str) -> Report:
     """生成 HTML 报告文件 + 写 reports 表，返回 Report"""
+    sea_name = "近岸监测点"
+    if task.sea_area_id:
+        area = db.query(SeaArea).filter(SeaArea.id == task.sea_area_id).first()
+        sea_name = area.name if area else sea_name
     os.makedirs("reports", exist_ok=True)
     path = f"reports/report_task{task.id}_{int(datetime.now().timestamp())}.html"
     with open(path, "w", encoding="utf-8") as f:
-        f.write(_build_report_html(task))
+        f.write(_build_report_html(task, sea_area_name=sea_name))
 
     report = Report(
         task_id=task.id,
@@ -157,59 +436,111 @@ def _generate_report_for_task(db: Session, task: DetectionTask, user_id: int, re
     return report
 
 
-def _build_batch_report_html(tasks: list[DetectionTask]) -> str:
-    """聚合多张图片的检测结果，生成一份合并 HTML 报告"""
+def _build_batch_report_html(tasks: list[DetectionTask], sea_area_name: str = "近岸监测点") -> str:
+    """聚合多张图片的检测结果，生成一份信息丰富的合并 HTML 报告"""
     total_objects = sum(t.total_objects for t in tasks)
-    rows = ""
-    for i, task in enumerate(tasks, 1):
-        level = pollution_level_zh(task.pollution_level)
-        rows += (
-            f"<tr><td>{i}</td><td>{task.file_name}</td>"
-            f"<td>{task.total_objects}</td><td>{level}</td>"
-            f"<td>{task.completed_at or '-'}</td></tr>"
-        )
+
+    # 跨所有任务汇总类别 / 材质分布
+    class_counter: Counter = Counter()
+    material_counter: Counter = Counter()
+    all_confs: list[float] = []
+    for t in tasks:
+        for r in t.results or []:
+            class_counter[r.class_name or "未知"] += 1
+            if r.material_type:
+                material_counter[r.material_type] += 1
+            if r.confidence is not None:
+                all_confs.append(r.confidence)
+    avg_conf = sum(all_confs) / len(all_confs) if all_confs else 0
+
     worst = max(
         (t.pollution_level.value for t in tasks if t.pollution_level),
         key=lambda v: LEVEL_SEVERITY.get(v, 0),
         default="excellent",
     )
     level = pollution_level_zh(worst)
+    score = POLLUTION_SCORE.get(str(worst), 68)
+
+    # 逐图明细表
+    rows = ""
+    for i, task in enumerate(tasks, 1):
+        lvl = pollution_level_zh(task.pollution_level)
+        rows += (
+            f"<tr><td>{i}</td><td>{task.file_name}</td>"
+            f"<td>{task.total_objects}</td>"
+            f'<td><span class="lvl {_level_class(task.pollution_level.value if task.pollution_level else None)}">{lvl}</span></td>'
+            f"<td>{task.completed_at or '-'}</td></tr>"
+        )
+
+    category_section = _build_category_bars(class_counter)
+    material_section = _build_category_bars(
+        material_counter, "linear-gradient(90deg,#c0782e,#e0a04a)"
+    )
+    is_single_area = len(set(t.sea_area_id for t in tasks)) == 1
+
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>多图批量识别质量报告</title>
-<style>
-body{{font-family:'Microsoft YaHei',sans-serif;max-width:820px;margin:24px auto;color:#1c2b36}}
-h1{{color:#0b6d8f;border-bottom:2px solid #0b6d8f;padding-bottom:10px}}
-table{{width:100%;border-collapse:collapse;margin:18px 0}}
-th,td{{border:1px solid #cfe0ea;padding:9px 12px;text-align:left;font-size:14px}}
-th{{background:#eaf6fb}}
-.summary{{display:flex;gap:22px;flex-wrap:wrap;padding:14px 16px;background:#f2f9fd;border:1px solid #cfe0ea;border-radius:8px}}
-.summary div{{flex:1;min-width:130px}}
-.summary strong{{display:block;font-size:22px;color:#0b6d8f}}
-.summary span{{font-size:12px;color:#5a7385}}
-small{{color:#8aa3b3}}
-</style></head><body>
+<style>{_PAGE_STYLE}</style></head><body>
+<div class="page">
+<div class="hero">
 <h1>🌊 多图批量识别质量报告</h1>
-<p><b>涉及图片：</b>{len(tasks)} 张</p>
-<div class="summary">
-<div><span>检出垃圾总数</span><strong>{total_objects}</strong></div>
-<div><span>综合污染等级</span><strong>{level}</strong></div>
-<div><span>质量分</span><strong>{POLLUTION_SCORE.get(worst, 68)}</strong></div>
+<div class="sub">水下垃圾自动识别 · 海洋污染分析系统</div>
+<div class="meta">
+<span class="chip">涉及图片：{len(tasks)} 张</span>
+<span class="chip">监测海域：{sea_area_name if is_single_area else '多个海域'}</span>
+<span class="chip">生成时间：{datetime.now():%Y-%m-%d %H:%M}</span>
 </div>
+</div>
+<div class="body">
+<div class="cards">
+<div class="card"><div class="num">{total_objects}</div><div class="lbl">检出垃圾总数</div></div>
+<div class="card"><div class="lvl {_level_class(worst)}">{level}</div><div class="lbl" style="margin-top:8px">综合污染等级</div></div>
+<div class="card"><div class="num">{score}</div><div class="lbl">环境质量分</div></div>
+<div class="card"><div class="num">{avg_conf*100:.0f}%</div><div class="lbl">平均置信度</div></div>
+<div class="card"><div class="num">{len(class_counter)}</div><div class="lbl">涉及类别数</div></div>
+</div>
+
+<section>
+<h2>📋 逐图检测结果</h2>
 <table>
 <tr><th>#</th><th>文件名</th><th>检出目标</th><th>污染等级</th><th>完成时间</th></tr>
 {rows}
 </table>
-<hr><p><small>本报告由海洋污染分析系统自动生成（测试版）</small></p>
+</section>
+
+<section>
+<h2>📊 垃圾类别分布（汇总）</h2>
+{category_section}
+</section>
+
+<section>
+<h2>🧱 材质构成（汇总）</h2>
+{material_section}
+</section>
+
+<section>
+<h2>📝 综合评估结论与治理建议</h2>
+{_build_level_notice(worst)}
+</section>
+</div>
+<div class="foot">本报告由水下垃圾自动识别与海洋污染分析系统自动生成</div>
+</div>
 </body></html>"""
 
 
 def _generate_batch_report(db: Session, tasks: list[DetectionTask], user_id: int, report_type: str) -> Report:
     """按多张图片聚合生成一份 HTML 报告 + 一条 reports 记录，返回 Report"""
+    sea_name = "近岸监测点"
+    area_ids = {t.sea_area_id for t in tasks if t.sea_area_id}
+    if area_ids:
+        area = db.query(SeaArea).filter(SeaArea.id.in_(area_ids)).first()
+        sea_name = area.name if area else sea_name
     os.makedirs("reports", exist_ok=True)
     path = f"reports/report_batch_{int(datetime.now().timestamp())}.html"
     with open(path, "w", encoding="utf-8") as f:
-        f.write(_build_batch_report_html(tasks))
+        f.write(_build_batch_report_html(tasks, sea_area_name=sea_name))
 
     total_objects = sum(t.total_objects for t in tasks)
     worst = max(
