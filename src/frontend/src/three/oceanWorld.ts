@@ -28,6 +28,8 @@ import type { KnowledgePoi } from '../data/knowledgePois';
 import type { GarbageStoryState } from './story';
 import { EnvironmentController } from './weather';
 import type { TimeMode, WeatherMode } from './weather';
+import { EarthGlobe } from './globe';
+import type { GlobeStation } from './globe';
 
 export interface SiteVisual {
   id: number;
@@ -44,6 +46,8 @@ export interface OceanHandlers {
   onWaterClick?: (point: THREE.Vector3) => void;
   onGarbageImpact?: (key: string) => void;
   onPoiClick?: (poi: KnowledgePoi) => void;
+  onGlobeSelect?: (station: GlobeStation) => void;
+  onGlobeEnter?: (stationId: number) => void;
 }
 
 
@@ -361,6 +365,9 @@ export class OceanWorld {
   private underwater: UnderwaterWorld;
   private coastline?: THREE.Group;
   private rov?: RovUnit;
+  private activeSiteId: number | null = null;
+  private globe?: EarthGlobe;
+  private globeTravelStationId: number | null = null;
   private rovScratch = new THREE.Vector3();
 
   private siteGroup = new THREE.Group();
@@ -665,6 +672,7 @@ export class OceanWorld {
       const pulseGeo = new THREE.RingGeometry(4.1, 4.5, 44);
       pulseGeo.rotateX(-Math.PI / 2);
       const pulse = new THREE.Mesh(pulseGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
+      group.userData.siteId = site.id;
       pulse.position.y = 0.15;
       group.add(pulse);
       this.pulseRings.push({ ring: pulse, phase: sites.indexOf(site) * 0.9 });
@@ -712,6 +720,64 @@ export class OceanWorld {
     const yaw = Math.atan2(-dir.x, -dir.z);
     const pitch = Math.atan2(dir.y, Math.hypot(dir.x, dir.z));
     this.camGoal = { pos, yaw, pitch };
+  }
+  setActiveSite(siteId: number | null): void {
+    this.activeSiteId = siteId;
+    this.siteGroup.traverse((object) => {
+      const id = object.userData.siteId as number | undefined;
+      if (id != null) object.visible = siteId == null || id === siteId;
+    });
+  }
+
+  switchToSite(siteId: number): void {
+    this.setActiveSite(siteId);
+    this.focusSite(siteId);
+    this.wasUnderwater = false;
+    this.underwaterState = false;
+  }
+
+  showGlobe(stations: GlobeStation[]): void {
+    if (!this.globe) {
+      this.globe = new EarthGlobe(this.scene, stations, (station) => {
+        this.globeTravelStationId = station.id;
+        this.handlers.onGlobeSelect?.(station);
+      });
+    } else {
+      this.globe.setStations(stations);
+    }
+    this.globe.show(this.camera);
+    this.globeTravelStationId = null;
+    if (this.water) this.water.visible = false;
+    if (this.sky) this.sky.visible = false;
+    if (this.coastline) this.coastline.visible = false;
+    this.siteGroup.visible = false;
+    this.scene.fog = null;
+  }
+
+  private hideGlobe(): void {
+    this.globe?.hide();
+    if (this.water) this.water.visible = true;
+    if (this.sky) this.sky.visible = true;
+    if (this.coastline) this.coastline.visible = true;
+    this.siteGroup.visible = true;
+    this.applyDepthVisuals();
+  }
+
+  travelGlobeToSite(siteId: number): boolean {
+    const station = this.globe?.travelTo(siteId);
+    if (!station) return false;
+    this.globeTravelStationId = station.id;
+    this.handlers.onGlobeSelect?.(station);
+    return true;
+  }
+
+  private updateGlobe(dt: number, t: number): void {
+    if (!this.globe?.isVisible) return;
+    if (!this.globe.update(dt, t, this.camera)) return;
+    const stationId = this.globeTravelStationId;
+    this.hideGlobe();
+    if (stationId != null) this.handlers.onGlobeEnter?.(stationId);
+    this.globeTravelStationId = null;
   }
 
   // ---------- 环境系统(昼夜/天气) ----------
@@ -997,6 +1063,11 @@ export class OceanWorld {
 
   // ---------- 拾取 ----------
   private pick(e: PointerEvent): void {
+    if (this.globe?.isVisible) {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      this.globe.handleClick(e.clientX, e.clientY, this.camera, rect);
+      return;
+    }
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
@@ -1104,9 +1175,14 @@ export class OceanWorld {
     this.lastRenderMs = now;
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.getElapsedTime();
+    if (this.globe?.isVisible) {
+      this.updateGlobe(dt, t);
+      if (this.composer) this.composer.render();
+      else this.renderer.render(this.scene, this.camera);
+      return;
+    }
     this.applyDepthVisuals();
     const underwater = this.underwaterState;
-    // 环境系统(昼夜/天气)每帧过渡 + 夜晚元素可见性
     this.env?.update(dt, t, this.camera, underwater);
     this.env?.applyVisibility(t, underwater);
 
@@ -1287,12 +1363,14 @@ export class OceanWorld {
     const floor = this.underwater.getHeightAt(this.camera.position.x, this.camera.position.z) ?? -8;
     this.camera.position.y = THREE.MathUtils.clamp(this.camera.position.y, floor + 0.5, 30);
     const r = Math.hypot(this.camera.position.x, this.camera.position.z);
+    this.globe?.dispose();
     if (r > 480) this.camera.position.multiplyScalar(480 / r);
     this.camera.quaternion.setFromEuler(new THREE.Euler(this.fpPitch, this.fpYaw, 0, 'YXZ'));
   }
 
 
   dispose(): void {
+    this.globe?.dispose();
     cancelAnimationFrame(this.raf);
     this.env?.dispose();
     this.clearLiveTask();

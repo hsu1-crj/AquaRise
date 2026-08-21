@@ -36,6 +36,30 @@ const LEVEL_COLOR = (index: number | null): string =>
   index == null ? '#2a7f9e' : index >= 7 ? '#ff5f6e' : index >= 5 ? '#ffbd66' : '#27dafa';
 const LEVEL_TEXT = (index: number | null): string =>
   index == null ? '暂无数据' : index >= 7 ? '严重' : index >= 5 ? '中等' : '良好';
+type GlobeStationView = {
+  id: number;
+  code: string;
+  name: string;
+  lat: number;
+  lng: number;
+  region: string;
+  country: string;
+  pollutionIndex: number | null;
+};
+
+const DEMO_GLOBE_STATIONS: GlobeStationView[] = [
+  { id: 1, code: 'CN-01', name: '舟山近岸站', lat: 29.96, lng: 122.38, region: '东海 · 舟山', country: '中国', pollutionIndex: 3.4 },
+  { id: 2, code: 'AU-02', name: '大堡礁站', lat: -16.9, lng: 145.8, region: '昆士兰外海', country: '澳大利亚', pollutionIndex: 2.6 },
+  { id: 3, code: 'US-03', name: '蒙特雷湾站', lat: 36.62, lng: -121.9, region: '加州近岸', country: '美国', pollutionIndex: 5.9 },
+];
+
+const toGlobeStation = (site: SiteStat): GlobeStationView => ({
+  id: site.id, code: site.code, name: site.name, lat: site.lat, lng: site.lng,
+  region: '监测海域', country: '项目站点', pollutionIndex: site.pollutionIndex,
+});
+
+const buildGlobeStations = (siteList: SiteStat[]): GlobeStationView[] =>
+  isMockMode() || siteList.length === 0 ? DEMO_GLOBE_STATIONS : siteList.slice(0, 3).map(toGlobeStation);
 
 // 实时联动上传约束(与 Detection 页一致)
 const LIVE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -109,6 +133,10 @@ export function Ocean3DPage() {
   const [tFrac, setTFrac] = useState(0);
   const simRef = useRef<DiffusionResult | null>(null);
 
+  const [globeActive, setGlobeActive] = useState(true);
+  const globeActiveRef = useRef(true);
+  const setGlobeMode = (active: boolean) => { globeActiveRef.current = active; setGlobeActive(active); };
+  const [activeStation, setActiveStation] = useState(0);
   // 实时检测联动
   const [live, setLive] = useState<LiveState | null>(null);
   const [liveSiteId, setLiveSiteId] = useState<number | null>(null);
@@ -134,30 +162,36 @@ export function Ocean3DPage() {
   useEffect(() => {
     if (!containerRef.current) return;
     const world = new OceanWorld(containerRef.current, {
-      onSiteClick: (site) => { setSiteDetail(site); },
+      onSiteClick: (site) => { setSiteDetail(site); setActiveStation(site.id); },
+      onGlobeSelect: (station) => { setActiveStation(station.id); worldRef.current?.setActiveSite(station.id); },
+      onGlobeEnter: (stationId) => {
+        setGlobeMode(false);
+        setActiveStation(stationId);
+        worldRef.current?.setActiveSite(stationId);
+        worldRef.current?.switchToSite(stationId);
+      },
       onWaterClick: (point) => {
         if (modeRef.current !== 'volunteer') return;
         const info = impactByKey(garbageKeyRef.current);
         world.dropGarbage(point, garbageKeyRef.current, info?.color ?? '#ff6f91');
         setDropCount((c) => c + 1);
         if (voiceOnRef.current) playSplashSound();
-        // 播报走总线: 同类型1.6s内合并计数, 由数字人导游(或语音队列)排队念出, 不截断上一条
         if (info) reportGarbageDrop(info.name, info.chain.slice(0, 2).join('，'));
       },
       onGarbageImpact: (key) => { setImpact(impactByKey(key) ?? null); },
       onPoiClick: (poi) => { setQuiz(poi); setQuizWrong(null); },
     });
     worldRef.current = world;
-    // 调试/测试暴露口（仅浏览器控制台使用，不参与业务逻辑）
     (window as unknown as Record<string, unknown>).__oceanWorld = world;
-    // 科普知识漂流瓶(按本地进度点亮已收集)
     world.setKnowledgePOIs(KNOWLEDGE_POIS, loadPoiProgress());
+    world.showGlobe(buildGlobeStations([]));
+    setGlobeMode(true);
     api.getSummary().then(setSummary).catch(() => { /* KPI条失败不阻塞场景 */ });
     api.getSiteStats().then((list) => {
       setSites(list);
       try { world.setSites(list); } catch (err) { (window as unknown as Record<string, unknown>).__ocean3dError = String(err); }
-    })
-      .catch(() => { /* 站点加载失败时场景仍可浏览（无数据柱） */ });
+      if (globeActiveRef.current) world.showGlobe(buildGlobeStations(list));
+    }).catch(() => { if (globeActiveRef.current) world.showGlobe(buildGlobeStations([])); });
     api.getMarine().then(setMarine).catch(() => setMarine(null));
     return () => {
       if (playTimerRef.current) window.clearInterval(playTimerRef.current);
@@ -511,9 +545,23 @@ export function Ocean3DPage() {
   const quizSolved = quiz != null && collectedPois.includes(quiz.id);
 
   return (
-    <div className="ocean3d-page">
+    <div className={`ocean3d-page ${globeActive ? 'globe-mode' : ''}`}>
       <div ref={containerRef} className="ocean3d-canvas" />
-
+      {globeActive && (
+        <aside className="ocean3d-globe-sites glass" aria-label="全球监测站点">
+          <div className="globe-sites-heading"><span className="globe-eyebrow">GLOBAL OCEAN NETWORK</span><h2>监测站点</h2><p>选择站点，地球将自动定位并进入海面环境</p></div>
+          <div className="globe-site-list">
+            {buildGlobeStations(sites).map((station) => (
+              <button key={station.id} className={activeStation === station.id ? 'active' : ''} onClick={() => { setActiveStation(station.id); worldRef.current?.travelGlobeToSite(station.id); }}>
+                <span className="globe-site-status" style={{ background: LEVEL_COLOR(station.pollutionIndex) }} />
+                <span className="globe-site-copy"><b>{station.code} · {station.name}</b><small>{station.country} · {station.region}</small></span>
+                <span className="globe-site-risk">{LEVEL_TEXT(station.pollutionIndex)}</span>
+              </button>
+            ))}
+          </div>
+        </aside>
+      )}
+      {!globeActive && (<>
       {/* 顶部: 标题 + 模式切换 */}
       <header className="ocean3d-topbar glass">
         <div>
@@ -858,6 +906,7 @@ export function Ocean3DPage() {
         <span><i style={{ background: '#54f1a9' }} />扩散粒子</span>
         {mode === 'volunteer' && <span><i style={{ background: '#ffd76a' }} />知识漂流瓶</span>}
       </footer>
+      </>)}
     </div>
   );
 }
