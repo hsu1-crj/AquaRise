@@ -245,7 +245,7 @@ function AquaCoreStage({ status, isSpeaking }: { status: DigitalHumanStatus; isS
         <div className="og-core-ring ring-2" />
         <div className="og-core-ring ring-3" />
         <div className="og-core-center">
-          <Brain className="og-core-icon" size={36} />
+          <DigitalHumanIcon className="og-core-icon" size={40} />
         </div>
         {/* 声呐音频能量波动 */}
         <div className="og-wave-bars">
@@ -378,7 +378,7 @@ function MessageBubble({
   return (
     <article className={`og-msg ${message.role}`}>
       <div className={`og-mav ${isAssistant ? 'og-mav-ai' : 'og-mav-user'}`}>
-        {isAssistant ? <Waves size={16} /> : userInitial}
+        {isAssistant ? <DigitalHumanIcon size={18} /> : <span className="og-profile-avatar">{userInitial}<i /></span>}
       </div>
 
       <div className="og-mbub-wrap">
@@ -1493,6 +1493,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               <Waves size={18} />
             </div>
             <div>
+              <span className="og-topbar-kicker">海域研判工作台 / 02</span>
               <div className="og-topbar-title-row">
                 <h2>海洋守护者</h2>
                 <span className="og-model-chip">ds-ocean_mingzhe</span>
