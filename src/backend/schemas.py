@@ -61,6 +61,28 @@ class MessageResponse(BaseModel):
     message: str
 
 
+# ============ 人脸识别 ============
+class FaceInfo(BaseModel):
+    """账号已录入的人脸信息（不含特征向量）"""
+    id: int
+    name: str
+    created_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class FaceListResponse(BaseModel):
+    """当前账号已录入的人脸列表"""
+    items: list[FaceInfo]
+
+
+class FaceLoginResponse(BaseModel):
+    """人脸识别登录成功返回：JWT + 识别到的用户名"""
+    access_token: str
+    username: str
+    token_type: str = "bearer"
+
+
 # ============ 检测 ============
 class DetectionResultItem(BaseModel):
     """检测到的单个目标"""
@@ -296,6 +318,49 @@ class FrontendDetectionListResponse(BaseModel):
     """检测历史列表（前端 api.getHistory）"""
     items: list[FrontendDetectionRecord]
     total: int = 0
+
+
+class SiteItem(BaseModel):
+    """监测站点（前端 SiteInfo，GET /api/v1/sites）"""
+    id: int
+    code: str
+    name: str
+    lat: float
+    lng: float
+    depthM: float | None = None
+    note: str | None = None
+
+
+class SiteEvidence(BaseModel):
+    """单条检测证据(3D场景浮窗用)"""
+    taskId: int
+    mediaUrl: str | None = None    # 标注图(/uploads/image_detail/..)或标注视频
+    className: str | None = None   # 主要垃圾类别
+    objectCount: int = 0
+    level: str | None = None       # 优/良/中/差/严重
+    at: str | None = None
+
+
+class SiteStatItem(BaseModel):
+    """单站点聚合（GET /api/v1/stats/sites，近 30 天已完成任务）"""
+    id: int
+    code: str
+    name: str
+    lat: float
+    lng: float
+    seaAreaId: int | None = None  # 所属海域 id（前端据此按海域过滤站点）
+    taskCount: int = 0
+    totalObjects: int = 0
+    pollutionIndex: float | None = None  # 无任务时为 null（前端显示空态）
+    lastTaskAt: str | None = None
+    evidence: list[SiteEvidence] = []  # 站点最近检测证据(标注图URL+摘要), 3D场景展示
+
+
+class SeaAreaItem(BaseModel):
+    """海域（GET /api/v1/stats/sea-areas）"""
+    id: int
+    name: str
+    code: str | None = None
 
 
 class FrontendDetectionBox(BaseModel):

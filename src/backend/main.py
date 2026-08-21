@@ -33,13 +33,22 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 import config  # noqa: E402
 import models  # noqa: F401  E402  导入全部模型，注册到 Base.metadata 才能建表
 from auth import hash_password  # noqa: E402
-from database import Base, SessionLocal, engine, ensure_database_exists, ensure_login_session_platform_column  # noqa: E402
+from database import (  # noqa: E402
+    Base,
+    SessionLocal,
+    engine,
+    ensure_database_exists,
+    ensure_login_session_platform_column,
+    ensure_monitoring_sites_sea_area_column,
+)
 from routers import (  # noqa: E402
     auth_router,
     chat_router,
     detect_router,
     digital_human_router,
+    face_router,
     knowledge_router,
+    marine_router,
     reports_router,
     stats_router,
 )
@@ -93,6 +102,7 @@ async def lifespan(app: FastAPI):
     ensure_database_exists()
     Base.metadata.create_all(bind=engine)
     ensure_login_session_platform_column()
+    ensure_monitoring_sites_sea_area_column()
 
     db = SessionLocal()
     try:
@@ -112,6 +122,8 @@ async def lifespan(app: FastAPI):
                 admin.password_hash = admin.password_hash or hash_password("123456")
                 admin.role = models.UserRole.admin
                 db.commit()
+        sea_ids = _ensure_sea_areas(db)
+        _ensure_monitoring_sites(db, sea_ids)
     finally:
         db.close()
 
@@ -130,6 +142,107 @@ async def lifespan(app: FastAPI):
         pass
 
     yield
+
+
+# 旧演示种子站点（舟山/深圳/珠海/青岛等），用于迁移替换为渤海站点。
+# 注意：_LEGACY_SITE_CODES 中的代号 A-01~C-01 与当前真实种子站点代号重合，
+# 故迁移删除前必须过滤掉属于 _BOHAI_SITE_SEEDS 的站点，避免误删真实站点。
+_LEGACY_SITE_CODES = {"A-01", "A-02", "B-01", "B-02", "C-01"}
+_LEGACY_SITE_NAMES = ("舟山", "大鹏湾", "万山群岛", "胶州湾")
+
+# 渤海海域：北戴河 / 秦皇岛 / 渤海湾（全局海域维度主数据，检测任务的 sea_area_id 归属）
+_SEA_AREA_SEEDS = [
+    ("北戴河", "BDH", "渤海辽东湾西南沿岸，旅游景区近岸"),
+    ("秦皇岛", "QHD", "秦皇岛港及山海关老龙头一带沿岸"),
+    ("渤海湾", "BHB", "渤海湾北缘与西端（曹妃甸 / 塘沽）沿岸"),
+]
+
+# 渤海近岸监测站点：覆盖北戴河 / 秦皇岛 / 渤海湾三个海域（本项目全部检测行为的归属点位）
+_BOHAI_SITE_SEEDS = [
+    ("A-01", "北戴河·滨海近岸监测点", 39.82, 119.52, 8, "渤海辽东湾西南，旅游景区近岸"),
+    ("A-02", "北戴河·浅水湾监测点", 39.80, 119.47, 6, "浅水湾防潮堤外，休闲海滩"),
+    ("B-01", "秦皇岛·海港区近岸监测点", 39.93, 119.60, 12, "秦皇岛港出港航道附近"),
+    ("B-02", "秦皇岛·山海关近岸监测点", 39.99, 119.76, 15, "山海关老龙头海域"),
+    ("C-01", "渤海湾·曹妃甸近岸监测点", 39.27, 118.46, 14, "渤海湾北缘，曹妃甸工业区近岸"),
+    ("C-02", "渤海湾·塘沽近岸监测点", 39.00, 117.72, 10, "渤海湾西端，天津港近岸"),
+]
+
+
+def _is_legacy_site(site) -> bool:
+    """判断是否为旧演示种子站点（舟山/大鹏湾/万山群岛/胶州湾等），用于迁移替换。"""
+    name = site.name or ""
+    return site.code in _LEGACY_SITE_CODES or any(k in name for k in _LEGACY_SITE_NAMES)
+
+
+def _ensure_sea_areas(db) -> dict[str, int]:
+    """播种渤海海域（幂等），返回 {海域名: id} 映射供站点回填使用。"""
+    id_by_name: dict[str, int] = {}
+    for name, code, note in _SEA_AREA_SEEDS:
+        area = db.query(models.SeaArea).filter(models.SeaArea.name == name).first()
+        if area is None:
+            area = models.SeaArea(name=name, code=code, note=note)
+            db.add(area)
+            db.flush()
+        elif area.code != code or area.note != note:
+            area.code = code
+            area.note = note
+        id_by_name[name] = area.id
+    db.commit()
+    return id_by_name
+
+
+def _site_sea_area_name(name: str) -> str | None:
+    """按站点名前缀（'北戴河·…' → 北戴河）解析所属海域名；无前导海域名返回 None。"""
+    return name.split("·", 1)[0] if name else None
+
+
+def _ensure_monitoring_sites(db, sea_ids: dict[str, int]) -> None:
+    """播种渤海监测站点（幂等 + 迁移），并按站点名前缀回填 sea_area_id 挂靠海域。
+
+    monitoring_sites 是新表，由 create_all 直接创建，无需 ALTER 旧表；
+    sea_area_id 列由 database.ensure_monitoring_sites_sea_area_column() 幂等补充，
+    检测任务的软外键见 models.MonitoringSite 设计说明。
+    历史版本曾播种舟山/深圳/珠海/青岛等演示站点，此处将这些旧种子站点替换为
+    渤海三地站点（北戴河/秦皇岛/渤海湾）。用户手工新增的非种子站点不做删除。
+
+    幂等性按 site.code 判重：只删除「不在 _BOHAI_SITE_SEEDS 中的旧种子站点」
+    （_LEGACY_SITE_CODES 与真实种子代号重合，不能按代号误删），
+    并只插入 code 尚不存在的真实种子站点 —— 重启多次不报 Duplicate entry。"""
+    seed_codes = {seed[0] for seed in _BOHAI_SITE_SEEDS}
+    # 迁移：删除旧演示站点中「不属于当前真实种子」的站点；真实种子站点即使代号
+    # 出现在 _LEGACY_SITE_CODES 中也保留（否则 C-02 等未被删、重插即报唯一键冲突）。
+    legacy = db.query(models.MonitoringSite).filter(
+        models.MonitoringSite.code.in_(_LEGACY_SITE_CODES)
+    ).all()
+    for site in legacy:
+        if site.code not in seed_codes:
+            db.delete(site)
+    # 幂等播种：code 已存在的站点跳过，避免 duplicate
+    existing = set(
+        code for (code,) in db.query(models.MonitoringSite.code).all()
+    )
+    for code, name, lat, lng, depth, note in _BOHAI_SITE_SEEDS:
+        if code in existing:
+            continue
+        sea_name = _site_sea_area_name(name)
+        db.add(models.MonitoringSite(code=code, name=name, lat=lat, lng=lng,
+                                     depth_m=depth, note=note,
+                                     sea_area_id=sea_ids.get(sea_name) if sea_name else None))
+        existing.add(code)
+    db.commit()
+    # 为新播种的种子站点回填一次海域 id；也覆盖旧站点替换后残留的 NULL（幂等）
+    _backfill_site_sea_area(db, sea_ids)
+
+
+def _backfill_site_sea_area(db, sea_ids: dict[str, int]) -> None:
+    """为 monitoring_sites 中 sea_area_id 为 NULL 的站点，按名称前缀回填海域 id（幂等）。"""
+    for site in db.query(models.MonitoringSite).filter(
+        models.MonitoringSite.sea_area_id.is_(None)
+    ).all():
+        sea_name = _site_sea_area_name(site.name)
+        if sea_name and sea_name in sea_ids:
+            site.sea_area_id = sea_ids[sea_name]
+    db.commit()
 
 
 # ============ 创建应用 ============
@@ -151,9 +264,11 @@ app.add_middleware(
 
 # ============ 挂载 API 路由 ============
 app.include_router(auth_router.router)           # /login /register /logout /captcha /api/v1/auth/*
+app.include_router(face_router.router)           # /api/v1/auth/face/*（人脸识别登录/注册）
 app.include_router(detect_router.router)         # /api/v1/detect/* + /api/v1/detections
 app.include_router(chat_router.router)           # /api/v1/chat (SSE) /api/v1/chat/history
 app.include_router(stats_router.router)          # /api/v1/stats/*
+app.include_router(marine_router.router)         # /api/v1/stats/marine (真实海况, 缓存+降级)
 app.include_router(reports_router.router)        # /api/v1/reports/*
 app.include_router(knowledge_router.router)      # /api/v1/knowledge/*
 app.include_router(digital_human_router.router)  # /api/v1/digital-human/*

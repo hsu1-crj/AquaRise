@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 import config
 from auth import get_current_user
 from database import get_db
-from models import DetectionResult, DetectionTask, TaskStatus, TaskType, User
+from models import DetectionResult, DetectionTask, SeaArea, TaskStatus, TaskType, User
 from schemas import (
     DetectionResultItem,
     FrontendDetectionBox,
@@ -56,6 +56,17 @@ PROGRESS = {
 }
 
 
+def _validate_sea_area(db: Session, sea_area_id: int | None) -> int | None:
+    """软外键校验（契约 v1.1 §1）：sea_area_id 必须存在于 sea_areas，否则 400。
+    sea_area_id 缺省（None）合法——历史行为完全不变。"""
+    if sea_area_id is None:
+        return None
+    from models import SeaArea
+
+    if not db.query(SeaArea).filter(SeaArea.id == sea_area_id).first():
+        raise HTTPException(status_code=400, detail=f"海域不存在：{sea_area_id}")
+    return sea_area_id
+
 def _save_upload(file: UploadFile, subdir: str) -> str:
     """保存上传文件到 uploads/<subdir>/，返回相对路径"""
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -67,9 +78,10 @@ def _save_upload(file: UploadFile, subdir: str) -> str:
     return file_path
 
 
-def _process_single_image(file: UploadFile, current_user: User, db: Session) -> FrontendDetectionResult:
+def _process_single_image(file: UploadFile, current_user: User, db: Session,
+                          sea_area_id: int | None = None) -> FrontendDetectionResult:
     """单张图片：保存 → YOLO 推理 → 建任务/结果 → 返回前端 DetectionResult 形状。
-    单图与多图端点共用，保证行为一致。"""
+    单图与多图端点共用，保证行为一致。sea_area_id 为任务归属海域（软外键）。"""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_IMAGE:
         raise HTTPException(status_code=400, detail="不支持的图片格式，支持 jpg/png/webp/bmp")
@@ -89,6 +101,7 @@ def _process_single_image(file: UploadFile, current_user: User, db: Session) -> 
         file_name=file.filename or file_path,
         file_path=file_path,
         status=TaskStatus.processing,
+        sea_area_id=sea_area_id,
     )
     db.add(task)
     db.commit()
@@ -144,7 +157,8 @@ def _process_single_image(file: UploadFile, current_user: User, db: Session) -> 
         objects=objects,
         pollutionLevel=pollution_level_zh(level),
         density=round(len(objects) / 10.0, 1),
-        qualityScore=POLLUTION_SCORE.get(str(level), 68),
+        # 等级基线 + 数量连续修正: 同等级内检出越多分越低(最多扣9分不越级), 避免"恒定68分"
+        qualityScore=round(POLLUTION_SCORE.get(str(level), 68) - min(9, len(objects) * 0.6)),
         processedAt=f"{datetime.now():%Y-%m-%d %H:%M}",
     )
 
@@ -154,17 +168,19 @@ async def detect_image(
     file: UploadFile = File(...),
     width: int = Form(1280),
     height: int = Form(720),
+    site_id: int | None = Form(None, description="海域ID（可选，软外键→sea_areas；字段名保持 site_id 兼容）"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """图片检测：上传 → YOLO 推理 → 结果写库 → 返回前端 DetectionResult 形状
     （sourceWidth/Height 取自图片真实尺寸；width/height 表单参数仅向前端契约保留）"""
-    return _process_single_image(file, current_user, db)
+    return _process_single_image(file, current_user, db, _validate_sea_area(db, site_id))
 
 
 @router.post("/detect/images", response_model=MultiImageDetectResponse)
 async def detect_images(
     files: list[UploadFile] = File(...),
+    site_id: int | None = Form(None, description="海域ID（可选，整批共用；字段名保持 site_id 兼容）"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -177,10 +193,11 @@ async def detect_images(
 
     items: list[MultiImageDetectItem] = []
     success_count = 0
+    valid_sea_area_id = _validate_sea_area(db, site_id)
     for file in files:
         name = file.filename or "未命名图片"
         try:
-            result = _process_single_image(file, current_user, db)
+            result = _process_single_image(file, current_user, db, valid_sea_area_id)
             items.append(MultiImageDetectItem(success=True, fileName=name, result=result))
             success_count += 1
         except HTTPException as exc:
@@ -228,11 +245,14 @@ async def list_detections(
         .all()
     )
 
+    # 海域 id → 名称映射：任务 location 显示所属海域名（旧任务无 sea_area_id 或无匹配海域时回退默认文案）
+    sea_name_map = {a.id: a.name for a in db.query(SeaArea).all()}
+
     items = [
         FrontendDetectionRecord(
             id=f"DET-{t.id}",
             createdAt=f"{t.created_at:%Y-%m-%d %H:%M}" if t.created_at else "",
-            location="近岸监测点",
+            location=sea_name_map.get(t.sea_area_id, "近岸监测点"),
             type=TASK_TYPE_ZH.get(t.task_type.value, "图片"),
             objectCount=t.total_objects or 0,
             level=pollution_level_zh(t.pollution_level),
@@ -246,6 +266,7 @@ async def list_detections(
 @router.post("/detect/video", response_model=VideoDetectResponse)
 async def detect_video(
     file: UploadFile = File(...),
+    site_id: int | None = Form(None, description="海域ID（可选，软外键→sea_areas；字段名保持 site_id 兼容）"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -262,6 +283,7 @@ async def detect_video(
         file_name=file.filename or file_path,
         file_path=file_path,
         status=TaskStatus.pending,
+        sea_area_id=_validate_sea_area(db, site_id),
     )
     db.add(task)
     db.commit()

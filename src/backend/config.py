@@ -84,3 +84,11 @@ DH_SDK_INTEGRITY = os.getenv(
 YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", str(PROJECT_ROOT / "src" / "vision" / "best.pt"))
 YOLO_CONF = float(os.getenv("YOLO_CONF", "0.25"))
 YOLO_DEVICE = os.getenv("YOLO_DEVICE") or None
+
+# 人脸识别：InsightFace（FaceAnalysis）一条链路完成 检测+对齐+512维嵌入。
+# 权重包（buffalo_l）由 insightface 自动下载到本地模型目录；离线环境可预先下载。
+# 匹配用欧氏距离，越小越相似；FACE_EMBEDDING_THRESHOLD 为判定“同一人”的距离上限（调严）。
+FACE_EMBEDDING_THRESHOLD = float(os.getenv("FACE_EMBEDDING_THRESHOLD", "0.5"))
+FACE_MODEL_PACK = os.getenv("FACE_MODEL_PACK", "buffalo_l")
+# 一个账号最多录入的人脸数
+MAX_FACES_PER_USER = int(os.getenv("MAX_FACES_PER_USER", "3"))

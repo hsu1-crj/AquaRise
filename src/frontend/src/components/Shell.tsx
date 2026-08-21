@@ -1,27 +1,38 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useSeaArea } from '../context/SeaAreaContext';
 import {
-  BarChart3,
+  Activity,
+  AreaChart,
   Bell,
   Bot,
+  Check,
   ChevronDown,
+  Clock3,
+  Compass,
   FileBarChart,
+  FileCheck2,
   FlaskConical,
   History,
   LayoutDashboard,
-  Library,
   LoaderCircle,
   LogOut,
   Maximize2,
+  Orbit,
   Menu,
+  MonitorPlay,
   Radar,
+  ScanLine,
   Search,
   ShieldCheck,
+  Sparkles,
   UserRound,
   Waves,
   X,
 } from 'lucide-react';
 import type { DetectionRecord, PageKey, Report, UserInfo } from '../types';
 import { api, isMockMode } from '../services/api';
+import { HaitongLogo } from './HaitongLogo';
+import { DigitalHumanIcon } from './DigitalHumanIcon';
 
 interface ShellProps {
   page: PageKey;
@@ -33,21 +44,34 @@ interface ShellProps {
   children: ReactNode;
 }
 
-const navGroups: Array<{ title: string; items: Array<{ id: PageKey; label: string; icon: typeof Waves }> }> = [
-  { title: '监测中心', items: [
-    { id: 'dashboard', label: '态势总览', icon: LayoutDashboard },
-    { id: 'detection', label: '智能识别', icon: Radar },
-    { id: 'history', label: '检测历史', icon: History },
-  ] },
-  { title: '研判与决策', items: [
-    { id: 'analysis', label: '污染分析', icon: BarChart3 },
-    { id: 'screen', label: '指挥大屏', icon: Maximize2 },
-    { id: 'reports', label: '质量报告', icon: FileBarChart },
-  ] },
-  { title: '智能服务', items: [
-    { id: 'assistant', label: '海洋守护者', icon: Bot },
-    { id: 'knowledge', label: '知识库', icon: Library },
-  ] },
+const navGroups: Array<{
+  title: string;
+  items: Array<{ id: PageKey; label: string; icon: any; badge?: string }>;
+}> = [
+  {
+    title: '监测中心',
+    items: [
+      { id: 'dashboard', label: '态势总览', icon: Compass },
+      { id: 'ocean3d', label: '海洋 3D 态势', icon: Orbit },
+      { id: 'detection', label: '智能识别', icon: ScanLine, badge: 'AI' },
+      { id: 'history', label: '检测历史', icon: Clock3 },
+    ],
+  },
+  {
+    title: '研判与决策',
+    items: [
+      { id: 'analysis', label: '污染分析', icon: AreaChart },
+      { id: 'screen', label: '指挥大屏', icon: MonitorPlay },
+      { id: 'reports', label: '质量报告', icon: FileCheck2 },
+    ],
+  },
+  {
+    title: '智能服务',
+    items: [
+      { id: 'assistant', label: '海洋守护者', icon: DigitalHumanIcon, badge: '数字人' },
+      { id: 'atlas', label: '海瞳 · 生命图谱', icon: HaitongLogo, badge: '3D' },
+    ],
+  },
 ];
 
 export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children }: ShellProps) {
@@ -61,13 +85,19 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
+  // 侧边栏全局海域下拉
+  const { seaAreaId, seaAreaName, seaAreas, setSeaAreaId } = useSeaArea();
+  const [pillOpen, setPillOpen] = useState(false);
+  const pillRef = useRef<HTMLDivElement | null>(null);
+
   // 点击搜索框外或按 Esc 关闭下拉；按 ⌘/Ctrl+K 聚焦搜索框
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
       if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) setDropOpen(false);
+      if (pillRef.current && !pillRef.current.contains(event.target as Node)) setPillOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setDropOpen(false); return; }
+      if (event.key === 'Escape') { setDropOpen(false); setPillOpen(false); return; }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         searchInputRef.current?.focus();
@@ -119,7 +149,7 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
       <aside className="sidebar glass-strong">
         <div className="brand">
           <div className="brand-mark">
-            <Waves size={22} />
+            <HaitongLogo size={26} />
             <span className="brand-radar-ring" />
           </div>
           <div className="brand-meta">
@@ -132,7 +162,33 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
           </div>
           <label htmlFor="nav-toggle" className="nav-close" aria-label="关闭导航"><X size={16} /></label>
         </div>
-        <div className="project-pill"><span className="live-dot" />渤海近岸监测项目<ChevronDown size={14} /></div>
+        <div className="project-pill-wrap" ref={pillRef}>
+          <div
+            className="project-pill"
+            role="button"
+            tabIndex={0}
+            aria-haspopup="listbox"
+            aria-expanded={pillOpen}
+            onClick={() => setPillOpen((open) => !open)}
+            onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPillOpen((open) => !open); } }}
+          >
+            <span className="live-dot" />
+            <span className="pill-label">{seaAreaName}</span>
+            <ChevronDown size={14} className={pillOpen ? 'rotated' : ''} />
+          </div>
+          {pillOpen && (
+            <div className="sea-area-menu" role="listbox">
+              <button className={seaAreaId === '' ? 'active' : ''} role="option" aria-selected={seaAreaId === ''} onClick={() => { setSeaAreaId(''); setPillOpen(false); }}>
+                <span>全部海域</span>{seaAreaId === '' && <Check size={13} />}
+              </button>
+              {seaAreas.map((area) => (
+                <button key={area.id} className={seaAreaId === area.id ? 'active' : ''} role="option" aria-selected={seaAreaId === area.id} onClick={() => { setSeaAreaId(area.id); setPillOpen(false); }}>
+                  <span>{area.name}</span>{seaAreaId === area.id && <Check size={13} />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <nav aria-label="主导航">
           {navGroups.map((group) => (
             <div className="nav-group" key={group.title}>
@@ -140,8 +196,49 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
               {group.items.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => onNavigate(item.id)}>
-                    <Icon size={19} /><span>{item.label}</span>{item.id === 'detection' && <b>AI</b>}
+                  <button
+                    key={item.id}
+                    className={`nav-item ${page === item.id ? 'active' : ''} ${item.id === 'atlas' ? 'nav-item-atlas' : ''} ${item.id === 'assistant' ? 'nav-item-assistant' : ''}`}
+                    onClick={() => onNavigate(item.id)}
+                  >
+                    <Icon
+                      size={20}
+                      className={
+                        item.id === 'atlas'
+                          ? 'nav-atlas-icon'
+                          : item.id === 'assistant'
+                          ? 'nav-assistant-icon'
+                          : ''
+                      }
+                    />
+                    <span>{item.label}</span>
+                    {item.badge && (
+                      <b
+                        className={`nav-badge ${item.badge === '3D' ? 'badge-3d' : item.badge === '数字人' ? 'badge-human' : ''}`}
+                        style={
+                          item.badge === '3D'
+                            ? {
+                                background: 'linear-gradient(135deg, #38f8d4, #1be7ff)',
+                                color: '#011928',
+                                fontWeight: 800,
+                                boxShadow: '0 0 10px rgba(56, 248, 212, 0.4)',
+                              }
+                            : item.badge === '数字人'
+                            ? {
+                                background: 'linear-gradient(135deg, #5cf2ae, #2bdcff)',
+                                color: '#011e2b',
+                                fontWeight: 800,
+                                fontSize: '9px',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                boxShadow: '0 0 10px rgba(92, 242, 174, 0.35)',
+                              }
+                            : undefined
+                        }
+                      >
+                        {item.badge}
+                      </b>
+                    )}
                   </button>
                 );
               })}

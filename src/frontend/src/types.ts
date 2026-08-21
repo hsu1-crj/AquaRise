@@ -2,11 +2,12 @@ export type PageKey =
   | 'dashboard'
   | 'detection'
   | 'history'
+  | 'ocean3d'
   | 'analysis'
   | 'screen'
   | 'reports'
   | 'assistant'
-  | 'knowledge'
+  | 'atlas'
   | 'profile';
 
 export type PollutionLevel = '优' | '良' | '中' | '差' | '严重';
@@ -31,6 +32,38 @@ export interface ClassRankItem {
   count: number;
 }
 
+
+/** 海域（北戴河 / 秦皇岛 / 渤海湾），侧边栏全局海域下拉的数据源 */
+export interface SeaArea {
+  id: number;
+  name: string;
+  code?: string | null;
+}
+
+/** 监测站点分维度统计（后端 /stats/sites；无任务的站点 taskCount=0、pollutionIndex=null） */
+export interface SiteStat {
+  id: number;
+  code: string;
+  name: string;
+  lat: number;
+  lng: number;
+  seaAreaId?: number | null;
+  taskCount: number;
+  totalObjects: number;
+  pollutionIndex: number | null;
+  lastTaskAt: string | null;
+  evidence?: SiteEvidence[];
+}
+
+/** 站点检测证据（标注图/预览帧, 3D场景浮窗用） */
+export interface SiteEvidence {
+  taskId: number;
+  mediaUrl: string | null;
+  className: string | null;
+  objectCount: number;
+  level: string | null;
+  at: string | null;
+}
 /** 分析页聚合数据（后端 /stats/analysis；近 30 天 vs 前 30 天环比） */
 export interface StatsAnalysis {
   pollutionIndex: number; // 综合污染指数 0-10
@@ -42,6 +75,19 @@ export interface StatsAnalysis {
   totalObjects: number; // 近 30 天检出垃圾总数
   materialBreakdown: Record<string, number>; // 材质桶 → 数量
   classRanking: ClassRankItem[]; // 高频类别 TOP N
+}
+
+/** 真实海况快照（GET /api/v1/stats/marine; Open-Meteo + 后端缓存降级） */
+export interface MarineInfo {
+  fetchedAt: string;
+  observedAt?: string | null; // 数据源观测时间(Open-Meteo本地时间, 展示用)
+  waveHeightM: number | null;
+  waveDirectionDeg: number | null; // 浪向来向方位角°
+  wavePeriodS: number | null;
+  seaTempC: number | null;
+  windSpeedMs: number | null;
+  windDirectionDeg: number | null; // 风向来向方位角°
+  stale: boolean; // true=外网失败返回的旧缓存
 }
 
 export interface DetectionBox {
@@ -174,4 +220,15 @@ export interface UserInfo {
   phone_num?: string | null;
   role: 'admin' | 'user';
   created_at?: string;
+}
+
+export interface FaceInfo {
+  id: number;
+  name: string;
+  created_at?: string;
+}
+
+export interface FaceLoginResult {
+  access_token: string;
+  username: string;
 }

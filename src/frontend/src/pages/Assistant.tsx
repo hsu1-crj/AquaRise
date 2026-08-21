@@ -36,6 +36,7 @@ import {
   type DigitalHumanStatus,
 } from '../services/digitalHuman';
 import type { KnowledgeDocInfo, Report, UserInfo } from '../types';
+import { DigitalHumanIcon } from '../components/DigitalHumanIcon';
 
 // ---------- helpers & interfaces ----------
 
@@ -1318,11 +1319,14 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         <div className="og-stage-header">
           <div className="og-stage-brand">
             <div className="og-brand-orb">
-              <Waves size={18} />
+              <DigitalHumanIcon size={22} />
             </div>
             <div>
-              <h3>海洋守护者</h3>
-              <small>Ocean Guardian AI</small>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <h3>海洋守护者</h3>
+                <span className="digital-human-badge">AI 数字人</span>
+              </div>
+              <small>OCEAN GUARDIAN · DIGITAL HUMAN AI</small>
             </div>
           </div>
 
