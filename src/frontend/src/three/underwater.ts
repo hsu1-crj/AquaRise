@@ -66,29 +66,27 @@ float causticWave(vec2 p, float t) {
 `;
 
 interface SchoolSpec {
-  file: string;
+  /** 物种标识 */
+  id: string;
+  /** 体色 / 肚皮色(马卡龙糖果系) */
+  body: number;
+  belly: number;
   count: number;
   size: number;
-  /** 活动深度带(场景y), 会被地形自动抬升 */
+  /** 活动深度带(场景y) */
   band: [number, number];
   speed: number;
   /** 群体游牧半径 */
   roam: number;
-  /** 模型前向与 -Z 的偏航修正 */
-  yawFix: number;
-  /** 物种基色(银灰/蓝背等自然色, 浑浊水中呈剪影) */
-  tint: number;
 }
 
-/** 鱼群群落表: 小型鱼三群 + 海豚小群 + 双髻鲨巡逻 + 蝠鲼滑翔 + 座头鲸深水巡航 */
+/** Q版小鱼群落: 糖果色 + 小体型 + 稀疏分布, 拒绝灰暗掠食者的恐怖感 */
 const SCHOOLS: SchoolSpec[] = [
-  { file: 'fish1', count: 24, size: 1.3, band: [-14.0, -8.0], speed: 5.2, roam: 40, yawFix: Math.PI, tint: 0x8fa6b4 },
-  { file: 'fish2', count: 16, size: 1.6, band: [-16.0, -9.0], speed: 4.4, roam: 48, yawFix: Math.PI, tint: 0x9db1ba },
-  { file: 'fish3', count: 20, size: 1.1, band: [-13.0, -7.5], speed: 6.0, roam: 34, yawFix: Math.PI, tint: 0x7e97a8 },
-  { file: 'dolphin', count: 3, size: 3.0, band: [-12.0, -6.5], speed: 7.5, roam: 60, yawFix: Math.PI, tint: 0x8b9aa4 },
-  { file: 'shark', count: 2, size: 3.4, band: [-15.0, -8.5], speed: 5.6, roam: 66, yawFix: Math.PI, tint: 0x6d7a85 },
-  { file: 'manta', count: 2, size: 3.2, band: [-14.5, -8.0], speed: 3.8, roam: 56, yawFix: Math.PI, tint: 0x5b6772 },
-  { file: 'whale', count: 1, size: 5.2, band: [-17.0, -10.0], speed: 2.6, roam: 72, yawFix: Math.PI, tint: 0x53606d },
+  { id: 'clown', body: 0xff8c42, belly: 0xfff1e0, count: 10, size: 0.9, band: [-9.0, -5.5], speed: 4.2, roam: 30 },
+  { id: 'sky',   body: 0x5ec8ff, belly: 0xeaf9ff, count: 9,  size: 0.8, band: [-11.0, -6.5], speed: 3.8, roam: 36 },
+  { id: 'sakura',body: 0xff9ad5, belly: 0xfff0f8, count: 8,  size: 0.7, band: [-8.0, -4.5], speed: 3.4, roam: 26 },
+  { id: 'sun',   body: 0xffd76a, belly: 0xfffbe8, count: 7,  size: 1.0, band: [-13.0, -8.0], speed: 3.0, roam: 40 },
+  { id: 'mint',  body: 0x7de8c3, belly: 0xeffffa, count: 6,  size: 1.1, band: [-15.0, -9.0], speed: 2.6, roam: 46 },
 ];
 
 interface FishAgent {
@@ -943,50 +941,81 @@ export class UnderwaterWorld {
   }
 
   // ---------- 鱼群(骨骼动画 GLB + boids) ----------
-  private async loadSchools(): Promise<void> {
-    const centers: Array<[number, number]> = [[-78, -62], [-18, -82], [64, -70], [86, 8], [-72, 44], [8, 72], [70, 58]];
-    for (let schoolIndex = 0; schoolIndex < SCHOOLS.length; schoolIndex += 1) {
-      const spec = SCHOOLS[schoolIndex];
-      try {
-        const gltf = await this.gltf.loadAsync(`models/fish/${spec.file}.glb`);
-        const source = gltf.scene;
-        const agents: FishAgent[] = [];
-        const schoolGroup = new THREE.Group();
-        const [cx, cz] = centers[schoolIndex % centers.length];
-        const centerY = (spec.band[0] + spec.band[1]) / 2;
-        for (let i = 0; i < spec.count; i += 1) {
-          const obj = cloneSkinned(source) as THREE.Group;
-          const angle = Math.random() * Math.PI * 2;
-          const radius = Math.random() * spec.roam * 0.55;
-          const pos = new THREE.Vector3(cx + Math.cos(angle) * radius, centerY + (Math.random() - 0.5) * 1.5, cz + Math.sin(angle) * radius);
-          obj.position.copy(pos);
-          obj.scale.setScalar(spec.size * (0.88 + Math.random() * 0.24));
-          obj.rotation.y = spec.yawFix;
-          const mixer = obj.animations?.length ? new THREE.AnimationMixer(obj) : null;
-          const action = mixer && obj.animations?.[0] ? mixer.clipAction(obj.animations[0]).play() : null;
-          schoolGroup.add(obj);
-          agents.push({ obj, mixer, action, pos, vel: new THREE.Vector3(Math.cos(angle) * spec.speed, 0, Math.sin(angle) * spec.speed), offset: new THREE.Vector3(Math.cos(angle) * radius, (Math.random() - 0.5) * 1.6, Math.sin(angle) * radius), phase: Math.random() * Math.PI * 2 });
-        }
-        this.root.add(schoolGroup);
-        this.schools.push({ spec, agents, center: new THREE.Vector3(cx, centerY, cz), phase: Math.random() * Math.PI * 2 });
-      } catch {
-        // 单一物种加载失败仅跳过该群
-      }
+  /** Q版小鱼: 圆润体 + 浅色肚皮 + 大眼睛, 头朝+Z(与lookAt朝向约定一致) */
+  private makeCuteFish(body: number, belly: number): THREE.Group {
+    const g = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: body, roughness: 0.55, metalness: 0.05 });
+    const bellyMat = new THREE.MeshStandardMaterial({ color: belly, roughness: 0.6 });
+    const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 });
+    const pupil = new THREE.MeshStandardMaterial({ color: 0x1a2733, roughness: 0.3 });
+    const finMat = new THREE.MeshStandardMaterial({ color: body, roughness: 0.7, transparent: true, opacity: 0.85 });
+
+    const trunk = new THREE.Mesh(new THREE.SphereGeometry(0.5, 20, 16), bodyMat);
+    trunk.scale.set(0.9, 0.82, 1.25);
+    g.add(trunk);
+
+    const tummy = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 12), bellyMat);
+    tummy.scale.set(0.86, 0.6, 1.05);
+    tummy.position.set(0, -0.14, 0.1);
+    g.add(tummy);
+
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.44, 10), finMat);
+    tail.rotation.x = -Math.PI / 2;
+    tail.position.set(0, 0.02, -0.66);
+    g.add(tail);
+
+    const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.3, 8), finMat);
+    dorsal.position.set(0, 0.46, -0.04);
+    g.add(dorsal);
+
+    for (const side of [-1, 1]) {
+      const fin = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), finMat);
+      fin.scale.set(0.4, 0.9, 1.15);
+      fin.position.set(side * 0.42, -0.08, 0.16);
+      fin.rotation.z = side * 0.55;
+      g.add(fin);
+
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 10), eyeWhite);
+      eye.position.set(side * 0.2, 0.12, 0.42);
+      g.add(eye);
+      const look = new THREE.Mesh(new THREE.SphereGeometry(0.048, 8, 8), pupil);
+      look.position.set(side * 0.2, 0.12, 0.5);
+      g.add(look);
     }
+    return g;
+  }
+
+  private loadSchools(): void {
+    const centers: Array<[number, number]> = [[-78, -62], [-18, -82], [64, -70], [86, 8], [-72, 44]];
+    SCHOOLS.forEach((spec, schoolIndex) => {
+      const agents: FishAgent[] = [];
+      const schoolGroup = new THREE.Group();
+      const [cx, cz] = centers[schoolIndex % centers.length];
+      const centerY = (spec.band[0] + spec.band[1]) / 2;
+      for (let i = 0; i < spec.count; i += 1) {
+        const obj = this.makeCuteFish(spec.body, spec.belly);
+        obj.scale.setScalar(spec.size * (0.85 + Math.random() * 0.3));
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.random() * spec.roam * 0.5;
+        const pos = new THREE.Vector3(cx + Math.cos(angle) * radius, centerY + (Math.random() - 0.5) * 1.5, cz + Math.sin(angle) * radius);
+        obj.position.copy(pos);
+        schoolGroup.add(obj);
+        agents.push({ obj, mixer: null, action: null, pos, vel: new THREE.Vector3(Math.cos(angle) * spec.speed, 0, Math.sin(angle) * spec.speed), offset: new THREE.Vector3(Math.cos(angle) * radius, (Math.random() - 0.5) * 1.6, Math.sin(angle) * radius), phase: Math.random() * Math.PI * 2 });
+      }
+      this.root.add(schoolGroup);
+      this.schools.push({ spec, agents, center: new THREE.Vector3(cx, centerY, cz), phase: Math.random() * Math.PI * 2 });
+    });
   }
 
   private updateFish(dt: number, t: number, pollution: { center: THREE.Vector3; radius: number } | null): void {
     const look = this.tmpM;
     for (const school of this.schools) {
       const { spec, agents, center } = school;
-      // 群体游牧中心: 利萨如轨迹
-      // 小型鱼围绕礁盘游牧, 大型鱼全图巡游
-      const cx = spec.size < 3 ? 38 : 0;
-      const cz = spec.size < 3 ? -28 : 0;
+      // 群体游牧中心: 围绕各自家园做利萨如漂移
       center.set(
-        cx + Math.sin(t * 0.045 + school.phase) * spec.roam * 0.6,
+        school.center.x + Math.sin(t * 0.045 + school.phase) * spec.roam * 0.5,
         (spec.band[0] + spec.band[1]) / 2 + Math.sin(t * 0.09 + school.phase * 2) * 0.8,
-        cz + Math.cos(t * 0.052 + school.phase * 0.7) * spec.roam * 0.6,
+        school.center.z + Math.cos(t * 0.052 + school.phase * 0.7) * spec.roam * 0.5,
       );
       const n = agents.length;
       for (let i = 0; i < n; i++) {
@@ -1051,7 +1080,7 @@ export class UnderwaterWorld {
   // ---------- 总更新 ----------
   /** 物种群首个个体位置(跟随相机等外部用途), 不存在返回 null */
   getSpeciesAnchor(file: string, target: THREE.Vector3): THREE.Vector3 | null {
-    const f = this.schools.find((s) => s.spec.file === file)?.agents[0];
+    const f = this.schools.find((s) => s.spec.id === file)?.agents[0];
     return f ? target.copy(f.pos) : null;
   }
 
@@ -1061,7 +1090,6 @@ export class UnderwaterWorld {
     this.kelpUniforms.uTime.value = t;
     this.snowUniforms.uTime.value = t;
     this.bubbleUniforms.uTime.value = t;
-    this.rayUniforms.uTime.value = t;
     this.undersideUniforms.uTime.value = t;
     this.updateJellies(dt, t);
     this.updateFish(dt, t, pollution);

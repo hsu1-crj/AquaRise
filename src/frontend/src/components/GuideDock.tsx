@@ -121,9 +121,8 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     };
   }, [dhMode]);
 
-  /** 数字人/降级语音双通道播报: 带字幕条; 数字人与降级语音均走队列, 不截断上一条 */
-  const announce = (text: string) => {
-    setCaption(text);
+  /** 仅语音播报(回答已在消息区展示, 不再叠加字幕造成"回答两次") */
+  const speakOnly = (text: string) => {
     if (!voiceRef.current) return;
     const clean = cleanMarkdown(text);
     if (!clean) return;
@@ -135,6 +134,12 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
       setSpeaking(true);
       window.setTimeout(() => setSpeaking(false), Math.min(12000, clean.length * 230));
     }
+  };
+
+  /** 场景事件播报: 字幕条 + 语音 */
+  const announce = (text: string) => {
+    setCaption(text);
+    speakOnly(text);
   };
 
   // 订阅场景播报: 字幕条显示+播报, 8秒后淡出; 连续相同内容去重, 消息区只保留最新一条
@@ -179,7 +184,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
         },
         controller.signal,
       );
-      if (answer) announce(answer);
+      if (answer) speakOnly(answer);
     } catch (reason) {
       if ((reason as DOMException)?.name !== 'AbortError') {
         setMessages((list) => {
