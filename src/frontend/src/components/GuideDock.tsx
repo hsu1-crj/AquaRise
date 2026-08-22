@@ -149,7 +149,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     const off = onBroadcast((message: BroadcastMessage) => {
       if (message.text === lastBroadcastRef.current) return;
       lastBroadcastRef.current = message.text;
-      setMessages([{ role: 'guide', text: message.text }]);
+      // 场景事件只走字幕条+语音; 消息区留给问答, 避免同一段文字双处重复
       announce(message.text);
       window.clearTimeout(captionTimer);
       captionTimer = window.setTimeout(() => setCaption(''), 8000);

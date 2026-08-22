@@ -150,6 +150,7 @@ export function Ocean3DPage() {
   const globeActiveRef = useRef(true);
   const setGlobeMode = (active: boolean) => { globeActiveRef.current = active; setGlobeActive(active); };
   const [activeStation, setActiveStation] = useState(0);
+  const [pollutionOpen, setPollutionOpen] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [visiblePanels, setVisiblePanels] = useState<Record<string, boolean>>({
@@ -638,16 +639,22 @@ export function Ocean3DPage() {
       <nav className="ocean3d-panel-controls" aria-label="3D面板显示控制">
         {(mode === 'monitor'
           ? ([['kpis', '数据总览'], ['monitor', '监测面板']] as const)
-          : ([['volunteer', '科普面板'], ['guide', '数字人'], ['pollution', '污染提示']] as const)
+          : ([['volunteer', '科普面板'], ['guide', '数字人']] as const)
         ).map(([key, label]) => <button key={key} className={visiblePanels[key] ? 'active' : ''} onClick={() => togglePanel(key)}>{label}</button>)}
       </nav>
 
       {/* 污染聚合面板(右侧, 替代旧的浮动叠加卡: 按类型聚合计数, 点击展开危害链) */}
-      {visiblePanels.pollution && mode === 'volunteer' && (
+      {mode === 'volunteer' && (
+        <button className={`ocean3d-pollution-toggle glass${pollutionOpen ? ' open' : ''}`} aria-expanded={pollutionOpen}
+          onClick={() => setPollutionOpen((o) => !o)}>
+          <Trash2 size={14} />污染提示{pollutions.length > 0 ? ` · ${pollutions.length}` : ''}
+        </button>
+      )}
+      {visiblePanels.pollution && pollutionOpen && mode === 'volunteer' && (
         <PollutionPanel
           items={pollutions}
           onClearOne={(key) => { worldRef.current?.removeStoryByKey(key); }}
-          onClose={() => togglePanel('pollution')}
+          onClose={() => setPollutionOpen(false)}
         />
       )}
 

@@ -86,9 +86,11 @@ function handleUnauthorized(response: Response): void {
 }
 
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+type RequestInitWithTimeout = RequestInit & { timeoutMs?: number };
+
+async function request<T>(path: string, init?: RequestInitWithTimeout): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 15000);
+  const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? 15000);
   try {
     const response = await fetch(path, { ...init, headers: authHeaders(init), signal: init?.signal ?? controller.signal });
     if (!response.ok) {
@@ -255,7 +257,7 @@ export const api = {
     form.append('width', String(width));
     form.append('height', String(height));
     if (siteId) form.append('site_id', String(siteId));
-    return request<DetectionResult>('/api/v1/detect/image', { method: 'POST', body: form });
+    return request<DetectionResult>('/api/v1/detect/image', { method: 'POST', body: form, timeoutMs: 300000 });
   },
 
   /** 批量识别多张图片：每张图独立返回结果（单张失败不影响其余）；siteId 整批共用 */
@@ -273,7 +275,7 @@ export const api = {
     const form = new FormData();
     files.forEach((file) => form.append('files', file));
     if (siteId) form.append('site_id', String(siteId));
-    return request<MultiImageDetectResponse>('/api/v1/detect/images', { method: 'POST', body: form });
+    return request<MultiImageDetectResponse>('/api/v1/detect/images', { method: 'POST', body: form, timeoutMs: 600000 });
   },
 
   async createVideoTask(file: File, siteId?: number): Promise<{ taskId: string }> {
@@ -281,7 +283,7 @@ export const api = {
     const form = new FormData();
     form.append('file', file);
     if (siteId) form.append('site_id', String(siteId));
-    const response = await request<{ task_id?: string; taskId?: string }>('/api/v1/detect/video', { method: 'POST', body: form });
+    const response = await request<{ task_id?: string; taskId?: string }>('/api/v1/detect/video', { method: 'POST', body: form, timeoutMs: 600000 });
     return { taskId: response.taskId ?? response.task_id ?? '' };
   },
 

@@ -1678,7 +1678,10 @@
 .spin{animation:ocean3dSpin .9s linear infinite}
 @keyframes ocean3dSpin{to{transform:rotate(360deg)}}
 
-.ocean3d-pollution{position:absolute;top:86px;right:14px;z-index:6;width:238px;max-height:calc(100% - 496px);min-height:90px;overflow:auto;padding:12px;border-radius:12px}
+.ocean3d-pollution-toggle{position:absolute;left:14px;bottom:70px;z-index:9;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:10px;border:1px solid rgba(255,111,145,.4);background:rgba(30,12,20,.72);color:#ffb3bd;font-size:11px;font-weight:600;cursor:pointer}
+.ocean3d-pollution-toggle.open{border-color:#ff6f91;color:#ffd9de;background:rgba(80,20,35,.82)}
+.ocean3d-pollution{position:absolute;left:14px;bottom:112px;z-index:9;width:250px;max-height:min(46vh,420px);overflow:auto;padding:12px;border-radius:12px;transform-origin:left bottom;animation:oceanPollutionIn .22s ease}
+@keyframes oceanPollutionIn{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
 .ocean3d-pollution h2{display:flex;align-items:center;gap:7px;font-size:12px;color:#ffb3bd;margin:0 0 8px}
 .ocean3d-pollution ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
 .pollution-row{width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:rgba(5,32,48,.55);color:#dff6fa;font-size:11px;cursor:pointer;text-align:left}
@@ -2034,7 +2037,7 @@
 .quiz-explain{margin:12px 0 0;padding:10px 12px;border-radius:9px;background:rgba(84,241,169,.08);border:1px solid rgba(84,241,169,.25);color:#d8ffe9;font-size:11px;line-height:1.7}
 .quiz-explain small{display:block;margin-top:6px;color:var(--muted);font-size:9px}
 
-.ocean3d-guide{position:absolute;top:292px;bottom:52px;right:14px;z-index:8;width:264px;padding:12px;border-radius:14px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.ocean3d-guide{position:absolute;top:170px;bottom:52px;right:14px;z-index:8;width:300px;padding:12px;border-radius:14px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .ocean3d-guide header{display:flex;align-items:center;gap:9px}
 .ocean3d-guide-orb{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#8ff3ff,#1f7fa0 70%);box-shadow:0 0 10px rgba(84,241,169,.5);flex:none;transition:box-shadow .3s}
 .ocean3d-guide-orb.speaking{box-shadow:0 0 18px #54f1a9;animation:ocean3dPulse 1s infinite}
@@ -2043,7 +2046,7 @@
 .ocean3d-guide-title b{font-size:12px;color:#eaffff}
 .ocean3d-guide-title em{font-style:normal;font-size:9px;color:var(--muted)}
 .ocean3d-guide .ocean3d-close{position:static;flex:none}
-.ocean3d-guide-stage{position:relative;flex:none;width:100%;height:148px;border-radius:10px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(31,127,160,.35),rgba(3,16,26,.9));border:1px solid var(--line)}
+.ocean3d-guide-stage{position:relative;flex:none;width:100%;height:240px;border-radius:10px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(31,127,160,.35),rgba(3,16,26,.9));border:1px solid var(--line)}
 .ocean3d-guide-stage.fallback{display:flex;align-items:center;justify-content:center;height:78px}
 .ocean3d-guide-stage>div,.ocean3d-guide-stage canvas{position:absolute;inset:0;margin:auto}
 .ocean3d-guide-stage>div{display:flex!important;align-items:center;justify-content:center;width:100%!important;height:100%!important}
