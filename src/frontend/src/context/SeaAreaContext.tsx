@@ -25,10 +25,15 @@ export function SeaAreaProvider({ children }: { children: ReactNode }) {
     return Number.isInteger(parsed) && parsed > 0 ? (parsed as number) : '';
   });
 
-  // 载入海域列表（mock 返回静态 3 海域，live 调后端）
+  // 载入海域列表（mock 返回静态 3 海域，live 调后端）；
+  // localStorage 里残留的失效海域 id（历史数据变更后）自动回退"全部海域"
   useEffect(() => {
     let mounted = true;
-    api.getSeaAreas().then((list) => { if (mounted) setSeaAreas(list); }).catch(() => { /* 海域列表失败不阻塞 */ });
+    api.getSeaAreas().then((list) => {
+      if (!mounted) return;
+      setSeaAreas(list);
+      setSeaAreaIdState((current) => (current !== '' && list.some((a) => a.id === current) ? current : ''));
+    }).catch(() => { /* 海域列表失败不阻塞 */ });
     return () => { mounted = false; };
   }, []);
 

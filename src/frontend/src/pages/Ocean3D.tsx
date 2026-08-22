@@ -412,7 +412,8 @@ export function Ocean3DPage() {
     if (!world) return;
     setLive({ phase: 'uploading', kind: 'video', siteId, progress: 0, totalObjects: 0 });
     try {
-      const { taskId } = await api.createVideoTask(file, siteId);
+      // 后端 site_id 字段语义是"海域id": 必须传站点挂靠的海域, 而非站点本身
+      const { taskId } = await api.createVideoTask(file, sites.find((s) => s.id === siteId)?.seaAreaId ?? undefined);
       world.startLiveTask(siteId, siteCode);
       world.focusSite(siteId);
       setLive({ phase: 'processing', kind: 'video', siteId, progress: 0, totalObjects: 0 });
@@ -469,7 +470,7 @@ export function Ocean3DPage() {
         const url = urls[current - 1];
         if (url) world.showLiveTaskFrame(url);
         setLive((l) => (l ? { ...l, progress } : l));
-      }, siteId);
+      }, sites.find((s) => s.id === siteId)?.seaAreaId ?? undefined);
       const okItems = res.items.filter((i) => i.success && i.result);
       const targets = okItems
         .flatMap((i) => (i.result?.objects ?? []).map((o) => ({ name: o.labelZh || o.label, confidence: o.confidence })))
