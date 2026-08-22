@@ -45,12 +45,13 @@ type GlobeStationView = {
   region: string;
   country: string;
   pollutionIndex: number | null;
+  taskCount: number;
 };
 
 const DEMO_GLOBE_STATIONS: GlobeStationView[] = [
-  { id: 1, code: 'CN-01', name: '舟山近岸站', lat: 29.96, lng: 122.38, region: '东海 · 舟山', country: '中国', pollutionIndex: 3.4 },
-  { id: 2, code: 'AU-02', name: '大堡礁站', lat: -16.9, lng: 145.8, region: '昆士兰外海', country: '澳大利亚', pollutionIndex: 2.6 },
-  { id: 3, code: 'US-03', name: '蒙特雷湾站', lat: 36.62, lng: -121.9, region: '加州近岸', country: '美国', pollutionIndex: 5.9 },
+  { id: 1, code: 'CN-01', name: '北戴河站', lat: 39.82, lng: 119.52, region: '渤海 · 北戴河', country: '中国', pollutionIndex: null, taskCount: 0 },
+  { id: 2, code: 'QHD-01', name: '秦皇岛站', lat: 39.93, lng: 119.60, region: '渤海 · 秦皇岛', country: '中国', pollutionIndex: null, taskCount: 0 },
+  { id: 3, code: 'BHB-01', name: '渤海湾站', lat: 39.00, lng: 117.72, region: '渤海 · 渤海湾', country: '中国', pollutionIndex: null, taskCount: 0 },
 ];
 const DEMO_SITE_STATS: SiteStat[] = DEMO_GLOBE_STATIONS.map((station, index) => ({
   id: station.id,
@@ -63,12 +64,27 @@ const DEMO_SITE_STATS: SiteStat[] = DEMO_GLOBE_STATIONS.map((station, index) => 
   pollutionIndex: station.pollutionIndex,
   lastTaskAt: ['2026-08-19 16:42', '2026-08-19 10:26', '2026-08-18 09:15'][index] ?? null,
 }));
-const sitesForMode = (siteList: SiteStat[]): SiteStat[] =>
-  siteList.length > 0 ? siteList : DEMO_SITE_STATS;
+// 每片海域只保留一个代表监测站（北戴河/秦皇岛/渤海湾各一处）
+const seenArea = new Set<number>();
+const sitesForMode = (siteList: SiteStat[]): SiteStat[] => {
+  if (siteList.length === 0) return DEMO_SITE_STATS;
+  seenArea.clear();
+  return siteList.filter((s) => {
+    if (s.seaAreaId == null) return true;
+    if (seenArea.has(s.seaAreaId)) return false;
+    seenArea.add(s.seaAreaId);
+    return true;
+  });
+};
+
+/** 有识别任务才显示评分（初始为"无"），指数按 1-10 划分 */
+const scoreOf = (s: { pollutionIndex: number | null; taskCount: number }): number | null =>
+  s.taskCount > 0 ? s.pollutionIndex : null;
 
 const toGlobeStation = (site: SiteStat): GlobeStationView => ({
   id: site.id, code: site.code, name: site.name, lat: site.lat, lng: site.lng,
-  region: '监测海域', country: '项目站点', pollutionIndex: site.pollutionIndex,
+  region: '监测海域', country: '项目站点',
+  pollutionIndex: scoreOf(site), taskCount: site.taskCount,
 });
 
 const buildGlobeStations = (siteList: SiteStat[]): GlobeStationView[] =>
@@ -120,6 +136,7 @@ export function Ocean3DPage() {
   const [voiceOn, setVoiceOn] = useState(true);
   const [waterQuality, setWaterQuality] = useState(100);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [resultVideoUrl, setResultVideoUrl] = useState<string | null>(null);
   const [reportBusy, setReportBusy] = useState<number | null>(null);
   const voiceOnRef = useRef(true);
   useEffect(() => { voiceOnRef.current = voiceOn; }, [voiceOn]);
@@ -374,6 +391,7 @@ export function Ocean3DPage() {
     liveUrlsRef.current = [];
     worldRef.current?.clearLiveTask();
     setLive(null);
+    setResultVideoUrl(null);
   };
 
   /** Mock模式: 客户端模拟一次完整联动(无后端也能演示全流程) */
@@ -432,6 +450,7 @@ export function Ocean3DPage() {
           try {
             const res = await api.getVideoResult(taskId);
             world.feedLiveTaskTargets(res.results.slice(0, 48).map((r) => ({ name: r.className, confidence: r.confidence })));
+            setResultVideoUrl(res.annotatedVideoUrl ?? st.previewUrl ?? null);
           } catch { /* 目标列表失败不阻塞完成态 */ }
           world.finishLiveTask(summaryText);
           setLive({ phase: 'done', kind: 'video', siteId, progress: 100, totalObjects: st.totalObjects, summary: summaryText });
@@ -590,9 +609,9 @@ export function Ocean3DPage() {
           <div className="globe-site-list">
             {buildGlobeStations(sites).map((station) => (
               <button key={station.id} className={activeStation === station.id ? 'active' : ''} onClick={() => { setActiveStation(station.id); worldRef.current?.travelGlobeToSite(station.id); }}>
-                <span className="globe-site-status" style={{ background: LEVEL_COLOR(station.pollutionIndex) }} />
+                <span className="globe-site-status" style={{ background: LEVEL_COLOR(station.taskCount > 0 ? station.pollutionIndex : null) }} />
                 <span className="globe-site-copy"><b>{station.code} · {station.name}</b><small>{station.country} · {station.region}</small></span>
-                <span className="globe-site-risk">{LEVEL_TEXT(station.pollutionIndex)}</span>
+                <span className="globe-site-risk">{station.taskCount > 0 ? LEVEL_TEXT(station.pollutionIndex) : '暂无评分'}</span>
               </button>
             ))}
           </div>
@@ -686,11 +705,11 @@ export function Ocean3DPage() {
             {sites.map((s) => (
               <li key={s.id}>
                 <button onClick={() => { worldRef.current?.focusSite(s.id); setSiteDetail(s); }}>
-                  <span className="dot" style={{ background: LEVEL_COLOR(s.pollutionIndex) }} />
+                  <span className="dot" style={{ background: LEVEL_COLOR(scoreOf(s)) }} />
                   <span className="code">{s.code}</span>
                   <span className="name">{s.name.replace('监测点', '')}</span>
-                  <em style={{ color: LEVEL_COLOR(s.pollutionIndex) }}>
-                    {s.pollutionIndex == null ? '—' : `${s.pollutionIndex.toFixed(1)}`}
+                  <em style={{ color: LEVEL_COLOR(scoreOf(s)) }}>
+                    {scoreOf(s) == null ? '无' : `${scoreOf(s)!.toFixed(1)}分`}
                     <small>{s.taskCount}任务</small>
                   </em>
                 </button>
@@ -725,7 +744,12 @@ export function Ocean3DPage() {
                     <button onClick={clearLive}>{live.phase === 'done' ? '清除联动' : '关闭'}</button>
                   )}
                 </div>
-                {live.phase === 'done' && live.summary && <p className="ok">{live.summary} · 已同步站点数据</p>}
+                {live.phase === 'done' && live.summary && (
+                  <p className="ok">
+                    {live.summary} · 已同步站点数据
+                    {resultVideoUrl && <button className="ocean3d-sync" style={{ marginLeft: 8 }} onClick={() => setLightbox(resultVideoUrl)}>查看识别视频</button>}
+                  </p>
+                )}
                 {live.phase === 'error' && <p className="err">{live.error ?? '未知错误'}</p>}
               </div>
             )}
@@ -842,9 +866,9 @@ export function Ocean3DPage() {
       {visiblePanels.detail && siteDetail && (
         <div className="ocean3d-card glass">
           <button className="ocean3d-close" aria-label="关闭" onClick={() => setSiteDetail(null)}><X size={15} /></button>
-          <h3><span className="dot" style={{ background: LEVEL_COLOR(siteDetail.pollutionIndex) }} />{siteDetail.code} · {siteDetail.name}</h3>
+          <h3><span className="dot" style={{ background: LEVEL_COLOR((siteDetail as SiteStat).taskCount > 0 ? siteDetail.pollutionIndex : null) }} />{siteDetail.code} · {siteDetail.name}</h3>
           <div className="ocean3d-kv">
-            <span>污染指数</span><b style={{ color: LEVEL_COLOR(siteDetail.pollutionIndex) }}>{siteDetail.pollutionIndex?.toFixed(1) ?? '—'} / 10（{LEVEL_TEXT(siteDetail.pollutionIndex)}）</b>
+            <span>污染指数</span><b style={{ color: LEVEL_COLOR((siteDetail as SiteStat).taskCount > 0 ? siteDetail.pollutionIndex : null) }}>{(siteDetail as SiteStat).taskCount > 0 && siteDetail.pollutionIndex != null ? `${siteDetail.pollutionIndex.toFixed(1)} / 10（${LEVEL_TEXT(siteDetail.pollutionIndex)}）` : '暂无 · 识别后生成（1-10分）'}</b>
             <span>检测任务</span><b>{siteDetail.taskCount} 次</b>
             <span>累计检出</span><b>{siteDetail.totalObjects} 件垃圾</b>
             <span>最近任务</span><b>{(siteDetail as SiteStat).lastTaskAt ?? '—'}</b>
@@ -888,11 +912,12 @@ export function Ocean3DPage() {
           )}
         </div>
       )}
-
-      {/* 大图查看器 */}
+      {/* 大图/识别视频查看器 */}
       {lightbox && (
         <div className="ocean3d-lightbox" onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt="检测标注大图" />
+          {/\.(mp4|webm|mov)(\?|$)/i.test(lightbox)
+            ? <video src={lightbox} controls autoPlay style={{ maxWidth: '86vw', maxHeight: '82vh', borderRadius: 10 }} />
+            : <img src={lightbox} alt="检测标注大图" />}
           <button className="ocean3d-close" aria-label="关闭"><X size={16} /></button>
         </div>
       )}
