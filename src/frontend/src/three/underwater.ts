@@ -19,10 +19,10 @@ import { normalizeModelSize } from './story';
 /** 地形网格覆盖的场景范围(±), 与 OceanWorld 站点布局一致 */
 export const TERRAIN_HALF = 120;
 
-/** 垂直纵深: 真实测深米→场景Y倍率。4.2倍让 30m 水深→约-11、外海更深, 形成真实纵深 */
-const DEPTH_SCALE = 4.2;
-/** 保底水深(场景单位): 浅于10的近岸点抬到10, 深处保留真实值(不压平板) */
-const MIN_DEPTH = -10;
+/** 垂直纵深: 真实测深米→场景Y倍率。6.5倍让 30m 水深→约-17、外海更深, 水体高耸不压抑 */
+const DEPTH_SCALE = 6.5;
+/** 保底水深(场景单位): 浅于18的近岸点抬到18, 深处保留真实值(不压平板) */
+const MIN_DEPTH = -18;
 export type HeightAtFn = (x: number, z: number) => number | null;
 
 // ---------- 噪声(地形细节/散布抖动) ----------
@@ -82,13 +82,13 @@ interface SchoolSpec {
 
 /** 鱼群群落表: 小型鱼三群 + 海豚小群 + 双髻鲨巡逻 + 蝠鲼滑翔 + 座头鲸深水巡航 */
 const SCHOOLS: SchoolSpec[] = [
-  { file: 'fish1', count: 48, size: 2.1, band: [-6.0, -2.0], speed: 5.2, roam: 55, yawFix: Math.PI, tint: 0x8fa6b4 },
-  { file: 'fish2', count: 36, size: 2.5, band: [-6.5, -3.0], speed: 4.4, roam: 68, yawFix: Math.PI, tint: 0x9db1ba },
-  { file: 'fish3', count: 42, size: 1.8, band: [-6.8, -3.5], speed: 6.0, roam: 46, yawFix: Math.PI, tint: 0x7e97a8 },
-  { file: 'dolphin', count: 6, size: 4.6, band: [-5.5, -2.2], speed: 7.5, roam: 88, yawFix: Math.PI, tint: 0x8b9aa4 },
-  { file: 'shark', count: 3, size: 5.4, band: [-6.2, -3.0], speed: 5.6, roam: 92, yawFix: Math.PI, tint: 0x6d7a85 },
-  { file: 'manta', count: 3, size: 5.0, band: [-6.4, -3.6], speed: 3.8, roam: 78, yawFix: Math.PI, tint: 0x5b6772 },
-  { file: 'whale', count: 1, size: 8.0, band: [-7.0, -4.2], speed: 2.6, roam: 96, yawFix: Math.PI, tint: 0x53606d },
+  { file: 'fish1', count: 24, size: 1.3, band: [-14.0, -8.0], speed: 5.2, roam: 40, yawFix: Math.PI, tint: 0x8fa6b4 },
+  { file: 'fish2', count: 16, size: 1.6, band: [-16.0, -9.0], speed: 4.4, roam: 48, yawFix: Math.PI, tint: 0x9db1ba },
+  { file: 'fish3', count: 20, size: 1.1, band: [-13.0, -7.5], speed: 6.0, roam: 34, yawFix: Math.PI, tint: 0x7e97a8 },
+  { file: 'dolphin', count: 3, size: 3.0, band: [-12.0, -6.5], speed: 7.5, roam: 60, yawFix: Math.PI, tint: 0x8b9aa4 },
+  { file: 'shark', count: 2, size: 3.4, band: [-15.0, -8.5], speed: 5.6, roam: 66, yawFix: Math.PI, tint: 0x6d7a85 },
+  { file: 'manta', count: 2, size: 3.2, band: [-14.5, -8.0], speed: 3.8, roam: 56, yawFix: Math.PI, tint: 0x5b6772 },
+  { file: 'whale', count: 1, size: 5.2, band: [-17.0, -10.0], speed: 2.6, roam: 72, yawFix: Math.PI, tint: 0x53606d },
 ];
 
 interface FishAgent {
@@ -432,7 +432,7 @@ export class UnderwaterWorld {
         gz = (Math.random() - 0.5) * TERRAIN_HALF * 1.9;
       }
       const gh = this.heightAt(gx, gz);
-      if (gh == null || gh < -6.6 || gh > -1.6) continue;
+      if (gh == null || gh < -15 || gh > -2) continue;
       groves.push([gx, gz, 3 + Math.random() * 6]);
     }
     let gi = 0;
@@ -450,7 +450,7 @@ export class UnderwaterWorld {
         z = (Math.random() - 0.5) * TERRAIN_HALF * 1.9;
       }
       const h = this.heightAt(x, z);
-      if (h == null || h < -6.8 || h > -1.2) continue;
+      if (h == null || h < -15 || h > -2) continue;
       dummy.position.set(x, h - 0.15, z);
       dummy.rotation.y = Math.random() * Math.PI * 2;
       dummy.scale.set(0.8 + Math.random() * 0.8, 0.7 + Math.random() * 1.0, 1);
@@ -906,8 +906,8 @@ export class UnderwaterWorld {
       }
       const angle = Math.random() * Math.PI * 2;
       const r = 15 + Math.random() * 75;
-      group.position.set(Math.cos(angle) * r, -2.2 - Math.random() * 4.5, Math.sin(angle) * r);
-      const s = 0.7 + Math.random() * 0.9;
+      group.position.set(Math.cos(angle) * r, -6.5 - Math.random() * 8.5, Math.sin(angle) * r);
+      const s = 0.55 + Math.random() * 0.5;
       group.scale.setScalar(s);
       this.root.add(group);
       this.jellies.push({ group, bell, tentacles, phase: Math.random() * Math.PI * 2, drift: 0.12 + Math.random() * 0.2 });

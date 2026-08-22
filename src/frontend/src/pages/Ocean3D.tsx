@@ -652,7 +652,7 @@ export function Ocean3DPage() {
       )}
 
       {/* 全局KPI实数条（系统真实统计, 3D场景与项目业务接轨的门面） */}
-      {visiblePanels.kpis && summary && (
+      {visiblePanels.kpis && mode === 'monitor' && summary && (
         <div className="ocean3d-kpis">
           <button className="ocean3d-panel-close" aria-label="关闭数据总览" onClick={() => togglePanel('kpis')}><X size={13} /></button>
           <div className="glass"><b>{summary.totalTasks}</b><span>累计任务</span></div>
