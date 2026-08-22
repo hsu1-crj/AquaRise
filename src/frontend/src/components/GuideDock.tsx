@@ -78,11 +78,13 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
         const publicConfig = await api.getDigitalHumanConfig().catch(() => null);
         const appId = import.meta.env.VITE_DH_APP_ID || publicConfig?.app_id || '';
         const appSecret = import.meta.env.VITE_DH_APP_SECRET || '';
-        if (!appId || !appSecret || publicConfig?.enabled === false) {
+        // 后端 enabled 只报告服务端凭证状态; 前端本地密钥可用时仍应加载真实SDK。
+        if (!appId || !appSecret) {
           if (!cancelled) setDhMode('offline');
           return;
         }
-        await loadXmovSDK(publicConfig?.sdk_url, publicConfig?.sdk_integrity ?? undefined);
+        // 后端缓存的 sdk_integrity 是旧版本哈希, @latest 文件更新后必然拦截; 不传SRI。
+        await loadXmovSDK(publicConfig?.sdk_url);
         if (cancelled) return;
         const dh = new OceanDigitalHuman({ appId, appSecret, containerId: containerIdRef.current, gatewayServer: publicConfig?.gateway_server });
         dh.on('speakStart', () => setSpeaking(true));

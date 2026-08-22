@@ -57,8 +57,9 @@ export interface DigitalHumanConfig {
 
 export const DEFAULT_XMOV_SDK_URL =
   'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js';
-export const DEFAULT_XMOV_SDK_INTEGRITY =
-  'sha384-x6JED2qbmbCu3552Jzvj9Egb2FvDrnE2hoPUxupzkFphjuoGadVjKQupOjL3sWtu';
+// 魔珐 CDN 的 @latest 文件会随版本更新, 固定校验和会失效并拦截脚本; 默认不启用SRI,
+// 后端如返回新的 sdk_integrity 则按后端为准。
+export const DEFAULT_XMOV_SDK_INTEGRITY = '';
 
 /** 动态加载魔珐星云 SDK 脚本 */
 export function loadXmovSDK(
