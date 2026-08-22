@@ -71,7 +71,7 @@ def _pollution_index(db: Session, since, until=None) -> float:
     )
     if until:
         obj_q = obj_q.filter(DetectionTask.created_at < until)
-    objects_per_task = (obj_q.scalar() or 0) / total
+    objects_per_task = float(obj_q.scalar() or 0) / total
     return round(min(10.0, avg * 2 + min(2.0, objects_per_task / 12.0)), 1)
 
 
