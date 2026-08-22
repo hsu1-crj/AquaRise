@@ -1588,7 +1588,7 @@
 .spin{animation:ocean3dSpin .9s linear infinite}
 @keyframes ocean3dSpin{to{transform:rotate(360deg)}}
 
-.ocean3d-pollution{position:absolute;top:86px;right:14px;z-index:6;width:238px;max-height:calc(100% - 190px);overflow:auto;padding:12px;border-radius:12px}
+.ocean3d-pollution{position:absolute;top:86px;right:14px;z-index:6;width:238px;max-height:calc(100% - 545px);min-height:120px;overflow:auto;padding:12px;border-radius:12px}
 .ocean3d-pollution h2{display:flex;align-items:center;gap:7px;font-size:12px;color:#ffb3bd;margin:0 0 8px}
 .ocean3d-pollution ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
 .pollution-row{width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:rgba(5,32,48,.55);color:#dff6fa;font-size:11px;cursor:pointer;text-align:left}
@@ -1955,6 +1955,8 @@
 .ocean3d-guide .ocean3d-close{position:static;flex:none}
 .ocean3d-guide-stage{width:100%;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:radial-gradient(circle at 50% 40%,rgba(31,127,160,.35),rgba(3,16,26,.9));border:1px solid var(--line)}
 .ocean3d-guide-stage.fallback{display:flex;align-items:center;justify-content:center;min-height:64px;aspect-ratio:auto}
+.ocean3d-guide-stage>div,.ocean3d-guide-stage canvas{margin:0 auto}
+.ocean3d-guide-stage>div{display:flex!important;align-items:center;justify-content:center;width:100%;height:100%}
 .ocean3d-guide-stage.fallback::after{content:'🎤 语音导游模式';font-size:10px;color:#9fd0e8}
 .ocean3d-guide-log{max-height:132px;overflow:auto;display:flex;flex-direction:column;gap:6px}
 .ocean3d-guide-log p{margin:0;padding:7px 10px;border-radius:9px;font-size:10.5px;line-height:1.6}
@@ -2157,6 +2159,6 @@
 .ocean3d-story>.ocean3d-panel-close{position:absolute;top:6px;right:6px}
 .ocean3d-legend>.ocean3d-panel-close{margin-right:2px}
 .ocean3d-pollution h2 .ocean3d-panel-close,.ocean3d-panel>h2 .ocean3d-panel-close{margin-left:auto}
-.ocean3d-story,.ocean3d-legend{position:relative}
+.ocean3d-legend{position:relative}
 .ocean3d-page .ocean3d-panel,.ocean3d-page .ocean3d-pollution,.ocean3d-page .ocean3d-globe-sites,.ocean3d-page .ocean3d-guide{scrollbar-width:none;-ms-overflow-style:none}.ocean3d-page .ocean3d-panel::-webkit-scrollbar,.ocean3d-page .ocean3d-pollution::-webkit-scrollbar,.ocean3d-page .ocean3d-globe-sites::-webkit-scrollbar,.ocean3d-page .ocean3d-guide::-webkit-scrollbar{display:none}
 .ocean3d-topbar .globe-btn,.ocean3d-topbar button[aria-label*="全屏"]{border:1px solid rgba(83,242,206,.34);border-radius:9px;background:linear-gradient(135deg,rgba(83,242,206,.18),rgba(43,220,255,.14));color:#cffff0;box-shadow:0 0 18px rgba(43,220,255,.08);transition:transform .2s ease,background .2s ease,border-color .2s ease}.ocean3d-topbar .globe-btn:hover,.ocean3d-topbar button[aria-label*="全屏"]:hover{transform:translateY(-1px);background:linear-gradient(135deg,rgba(83,242,206,.3),rgba(43,220,255,.24));border-color:#54f1a9;color:#fff}

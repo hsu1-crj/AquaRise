@@ -137,10 +137,14 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     }
   };
 
-  // 订阅场景播报(垃圾投放汇总等): 字幕条显示+播报, 8秒后淡出字幕
+  // 订阅场景播报: 字幕条显示+播报, 8秒后淡出; 连续相同内容去重, 消息区只保留最新一条
+  const lastBroadcastRef = useRef('');
   useEffect(() => {
     let captionTimer = 0;
     const off = onBroadcast((message: BroadcastMessage) => {
+      if (message.text === lastBroadcastRef.current) return;
+      lastBroadcastRef.current = message.text;
+      setMessages([{ role: 'guide', text: message.text }]);
       announce(message.text);
       window.clearTimeout(captionTimer);
       captionTimer = window.setTimeout(() => setCaption(''), 8000);
@@ -156,7 +160,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     if (!q || busy) return;
     setInput('');
     setBusy(true);
-    setMessages((list) => [...list.slice(-5), { role: 'user', text: q }, { role: 'guide', text: '' }]);
+    setMessages([{ role: 'user', text: q }, { role: 'guide', text: '' }]);
     const controller = new AbortController();
     controllerRef.current?.abort();
     controllerRef.current = controller;
