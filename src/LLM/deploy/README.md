@@ -25,7 +25,7 @@ ollama list
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=ds-ocean_mingzhe
 LLM_TEMPERATURE=0.2
-LLM_MAX_TOKENS=1024
+LLM_MAX_TOKENS=768
 ```
 
 ## 历史候选模型部署步骤

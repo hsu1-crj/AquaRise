@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models import DetectionResult, DetectionTask, MonitoringSite, PollutionLevel, TaskStatus, User
-from schemas import (ClassRankItem, FrontendSummary, FrontendTrendPoint, SiteEvidence,
+from models import DetectionResult, DetectionTask, MonitoringSite, PollutionLevel, SeaArea, TaskStatus, User
+from schemas import (ClassRankItem, FrontendSummary, FrontendTrendPoint, SeaAreaItem, SiteEvidence,
                     SiteStatItem, StatsAnalysis)
 from services import detector as detector_svc
 
@@ -216,16 +216,26 @@ async def stats_analysis(
     )
 
 
+@router.get("/sea-areas", response_model=list[SeaAreaItem])
+async def stats_sea_areas(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """海域列表（北戴河/秦皇岛/渤海湾）：侧边栏全局海域下拉的数据源。"""
+    return db.query(SeaArea).order_by(SeaArea.id).all()
+
+
 @router.get("/sites", response_model=list[SiteStatItem])
 async def stats_sites(
     days: int = Query(30, ge=1, le=365, description="统计窗口（天），默认近 30 天"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """分站点聚合（F0）：所有监测站点 + 各站近 N 天已完成任务统计。
+    """分站点聚合（F0）：所有监测站点 + 各站所在海域近 N 天已完成任务统计。
 
     无任务的站点照常返回（taskCount=0, pollutionIndex=null），前端据此展示空态。
-    detection_tasks.sea_area_id 为软外键，此处在应用层按站点分组。"""
+    任务只存海域 id（detection_tasks.sea_area_id → sea_areas.id），故按海域聚合；
+    同一海域下多个站点共享同一聚合值（item 带 seaAreaId，前端据此按海域过滤站点）。"""
     since = datetime.now() - timedelta(days=days)
     rows = (
         db.query(
@@ -242,9 +252,9 @@ async def stats_sites(
         .group_by(DetectionTask.sea_area_id)
         .all()
     )
-    by_site = {int(r[0]): r for r in rows}
+    by_sea_area = {int(r[0]): r for r in rows}
 
-    # 污染指数在应用层计算（避免方言相关的 SQL CASE）：各站点等级分布 → 加权平均 × 2
+    # 污染指数在应用层计算（避免方言相关的 SQL CASE）：各海域等级分布 → 加权平均 + 密度项
     level_rows = (
         db.query(
             DetectionTask.sea_area_id,
@@ -261,13 +271,13 @@ async def stats_sites(
         .all()
     )
     weight_sum: dict[int, float] = {}
-    for site_id, level, cnt in level_rows:
-        weight_sum[int(site_id)] = (
-            weight_sum.get(int(site_id), 0.0)
+    for sea_area_id, level, cnt in level_rows:
+        weight_sum[int(sea_area_id)] = (
+            weight_sum.get(int(sea_area_id), 0.0)
             + _level_weight(level) * int(cnt)
         )
 
-    # 每站点最近3个已完成任务 → 标注图URL+摘要(3D场景浮窗"检测证据")
+    # 每海域最近3个已完成任务 → 标注图URL+摘要(3D场景浮窗"检测证据")
     from schemas import pollution_level_zh
     recent = (
         db.query(DetectionTask)
@@ -280,7 +290,7 @@ async def stats_sites(
         .limit(60)
         .all()
     )
-    evidence_by_site: dict[int, list[SiteEvidence]] = {}
+    evidence_by_sea_area: dict[int, list[SiteEvidence]] = {}
     for t in reversed(recent):  # 旧→新, 后者覆盖保持最新在前
         if t.sea_area_id is None:
             continue
@@ -308,27 +318,29 @@ async def stats_sites(
             level=pollution_level_zh(t.pollution_level),
             at=f"{t.completed_at:%m-%d %H:%M}" if t.completed_at else None,
         )
-        lst = evidence_by_site.setdefault(int(t.sea_area_id), [])
+        lst = evidence_by_sea_area.setdefault(int(t.sea_area_id), [])
         lst.insert(0, ev)
-        evidence_by_site[int(t.sea_area_id)] = lst[:3]
+        evidence_by_sea_area[int(t.sea_area_id)] = lst[:3]
 
     items: list[SiteStatItem] = []
     for site in db.query(MonitoringSite).order_by(MonitoringSite.code).all():
-        r = by_site.get(site.id)
+        r = by_sea_area.get(site.sea_area_id)
         if r:
             task_count = int(r[1])
             # 与 _pollution_index 同口径: 等级基底 + 平均每任务检出数量密度项(封顶+2.0)
             avg_objects = int(r[2]) / task_count
-            index = round(min(10.0, weight_sum.get(site.id, 0.0) / task_count * 2 + min(2.0, avg_objects / 12.0)), 1) if task_count else None
+            index = round(min(10.0, weight_sum.get(site.sea_area_id, 0.0) / task_count * 2 + min(2.0, avg_objects / 12.0)), 1) if task_count else None
             items.append(SiteStatItem(
                 id=site.id, code=site.code, name=site.name, lat=site.lat, lng=site.lng,
+                seaAreaId=site.sea_area_id,
                 taskCount=task_count, totalObjects=int(r[2]),
                 pollutionIndex=index,
                 lastTaskAt=f"{r[3]:%Y-%m-%d %H:%M}" if r[3] else None,
-                evidence=evidence_by_site.get(site.id, []),
+                evidence=evidence_by_sea_area.get(site.sea_area_id, []),
             ))
         else:
             items.append(SiteStatItem(
                 id=site.id, code=site.code, name=site.name, lat=site.lat, lng=site.lng,
+                seaAreaId=site.sea_area_id,
             ))
     return items

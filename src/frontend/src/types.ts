@@ -7,7 +7,6 @@ export type PageKey =
   | 'screen'
   | 'reports'
   | 'assistant'
-  | 'knowledge'
   | 'atlas'
   | 'profile';
 
@@ -34,6 +33,13 @@ export interface ClassRankItem {
 }
 
 
+/** 海域（北戴河 / 秦皇岛 / 渤海湾），侧边栏全局海域下拉的数据源 */
+export interface SeaArea {
+  id: number;
+  name: string;
+  code?: string | null;
+}
+
 /** 监测站点分维度统计（后端 /stats/sites；无任务的站点 taskCount=0、pollutionIndex=null） */
 export interface SiteStat {
   id: number;
@@ -41,6 +47,7 @@ export interface SiteStat {
   name: string;
   lat: number;
   lng: number;
+  seaAreaId?: number | null;
   taskCount: number;
   totalObjects: number;
   pollutionIndex: number | null;
@@ -174,6 +181,31 @@ export interface Report {
   objectCount: number;
   status: '已生成' | '生成中';
   summary: string;
+  reportUrl?: string; // HTML 报告预览地址（GET /api/v1/reports/{id}/preview）
+}
+
+export interface ReportSolution {
+  priority: string;
+  action: string;
+  owner: string;
+  deadline: string;
+  validation: string;
+}
+
+export interface ReportAnalysis {
+  id: number;
+  report_id: number;
+  status: string;
+  summary: string;
+  risk_level: string;
+  key_findings: string[];
+  possible_causes: string[];
+  solutions: ReportSolution[];
+  follow_up_monitoring: string[];
+  evidence: Array<{ id: string; class_name: string; confidence: number; material: string; source: string }>;
+  model_name?: string | null;
+  created_at: string;
+  doc_id?: number;
 }
 
 /** RAG 知识库文档（后端 /api/v1/knowledge 返回形状） */
@@ -214,4 +246,15 @@ export interface UserInfo {
   phone_num?: string | null;
   role: 'admin' | 'user';
   created_at?: string;
+}
+
+export interface FaceInfo {
+  id: number;
+  name: string;
+  created_at?: string;
+}
+
+export interface FaceLoginResult {
+  access_token: string;
+  username: string;
 }

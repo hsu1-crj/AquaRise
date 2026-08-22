@@ -18,11 +18,11 @@ export const HAND_LM = {
 
 // 可调阈值：真实摄像头调参时可在控制台改 window.__HAND.rules（引用同一对象）
 export const HAND_RULES = {
-  fingerRatio: 1.08,  // 指尖-腕距 > 指根-腕距 × 该值 → 手指伸直
-  thumbRatio: 1.18,   // 竖直拇指判定；张开掌另由 thumbOut 兜底
-  thumbFar: 0.80,     // 真实张开拇指实测约 1.06~1.50；避免掌内收拇指触发 palm
-  pinchRatio: 0.36,   // 拇指尖-食指尖 < 掌宽 × 该值 → pinch 捏合
-  fistCurl: 0.74      // 四指平均卷曲比 < 该值 → 紧握拳；≥ → 松弛抓握 grip
+  fingerRatio: 1.02,  // 摄像头角度会压缩指尖-腕距，允许自然弯曲的张掌被识别
+  thumbRatio: 1.08,   // 竖直拇指判定；张开掌另由 thumbOut 兜底
+  thumbFar: 0.58,     // 侧向张掌的拇指通常被透视压缩，使用更宽松的外展阈值
+  pinchRatio: 0.30,   // 拇指尖-食指尖 < 掌宽 × 该值 → pinch 捏合
+  fistCurl: 0.86      // 四指平均卷曲比 < 该值 → 紧握拳；≥ → 松弛抓握 grip
 };
 
 function dist2(a, b) {
@@ -80,13 +80,21 @@ export function classifyHandGesture(lm) {
   };
 
   let name = "unknown";
-  if (pinch) {
+  // 握拳时拇指经常压在食指上，几何上也会满足 pinch 的距离条件。
+  // 先用四指卷曲度锁定 fist，再处理 pinch，避免 planet 模式把拳头当成旋转手势。
+  const fistLike = n4 === 0 && curlRatio < HAND_RULES.fistCurl;
+  if (fistLike) {
+    name = "fist";
+  } else if (pinch) {
     // 拇指与食指捏合成圈：中/无名/小指伸直是经典 OK 手势；其余卷曲才是 pinch 夹取。
     // OK 与 pinch 共享“拇指尖-食指尖近”指标，用三指伸直度区分，避免 OK 误触发地球旋转。
     name = e.middle && e.ring && e.pinky ? "ok" : "pinch";
   } else if (n4 === 4) {
     // 四指全伸：竖直或横出的拇指都属于 palm；只有拇指收在掌心才是 four。
     name = e.thumb || thumbOut ? "palm" : "four";
+  } else if (n4 >= 3 && (e.thumb || thumbOut)) {
+    // 真实视频中常有一根指尖被遮挡或轻微弯曲，仍按张开手掌处理。
+    name = "palm";
   } else if (n4 === 3 && e.index && e.middle && e.ring) {
     name = "three";
   } else if (n4 === 2 && e.index && e.middle) {

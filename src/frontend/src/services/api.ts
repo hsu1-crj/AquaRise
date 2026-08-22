@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, ReportAnalysis, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -168,6 +168,15 @@ export const api = {
     if (filters?.query?.trim()) params.set('query', filters.query.trim());
     return request<{ items: DetectionRecord[]; total: number }>(`/api/v1/detections?${params.toString()}`);
   },
+  /** 海域列表（北戴河/秦皇岛/渤海湾）：侧边栏全局海域下拉的数据源 */
+  async getSeaAreas(): Promise<SeaArea[]> {
+    if (isMockMode()) { await wait(300); return [
+      { id: 1, name: '北戴河', code: 'BDH' },
+      { id: 2, name: '秦皇岛', code: 'QHD' },
+      { id: 3, name: '渤海湾', code: 'BHB' },
+    ]; }
+    return request<SeaArea[]>('/api/v1/stats/sea-areas');
+  },
   /** 监测站点列表（含近30天聚合；上传下拉与海域对比图共用同一端点） */
   async getSiteStats(): Promise<SiteStat[]> {
     if (isMockMode()) { await wait(400); return []; }
@@ -207,6 +216,37 @@ export const api = {
     if (isMockMode()) { await wait(); return mockReports; }
     const payload = await request<{ items: Report[] }>('/api/v1/reports/?page=1&page_size=50');
     return payload.items;
+  },
+  async deleteReport(reportId: string): Promise<void> {
+    if (isMockMode()) { await wait(); return; }
+    // reportId 形如 RPT-<id>，转为纯数字路径参数
+    const numId = reportId.replace(/^RPT-/i, '');
+    await request(`/api/v1/reports/${numId}`, { method: 'DELETE' });
+  },
+  async analyzeReport(reportId: string | number): Promise<ReportAnalysis> {
+    const id = String(reportId).replace(/^RPT-/, '');
+    return request<ReportAnalysis>(`/api/v1/reports/${encodeURIComponent(id)}/analyze`, { method: 'POST' });
+  },
+  async getReportAnalysis(reportId: string | number): Promise<ReportAnalysis> {
+    const id = String(reportId).replace(/^RPT-/, '');
+    return request<ReportAnalysis>(`/api/v1/reports/${encodeURIComponent(id)}/analysis`);
+  },
+  /** 拉取报告的完整 HTML 内容（对应报告 preview 接口，用于下载成 .html 文件） */
+  async getReportHtml(reportId: string): Promise<string> {
+    if (isMockMode()) { return ''; }
+    const numId = reportId.replace(/^RPT-/i, '');
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`/api/v1/reports/${numId}/preview`, { headers: authHeaders(), signal: controller.signal });
+      if (!response.ok) {
+        handleUnauthorized(response);
+        throw new Error(`报告内容获取失败（${response.status}）`);
+      }
+      return await response.text();
+    } finally {
+      window.clearTimeout(timeout);
+    }
   },
   async detectImage(file: File, width: number, height: number, siteId?: number): Promise<DetectionResult> {
     if (isMockMode()) { await wait(1300); return createMockDetection(width, height); }
@@ -355,6 +395,32 @@ export const api = {
     });
   },
 
+  /** 录入人脸（个人中心）：multipart 上传照片，一个账号最多 3 张 */
+  async enrollFace(file: File, name?: string): Promise<FaceInfo> {
+    const form = new FormData();
+    form.append('file', file);
+    if (name?.trim()) form.append('name', name.trim());
+    return request<FaceInfo>('/api/v1/auth/face/enroll', { method: 'POST', body: form });
+  },
+
+  /** 当前账号已录入人脸列表 */
+  async listFaces(): Promise<FaceInfo[]> {
+    const payload = await request<{ items: FaceInfo[] }>('/api/v1/auth/face/list');
+    return payload.items;
+  },
+
+  /** 删除某张已录入人脸 */
+  async deleteFace(id: number): Promise<{ message: string }> {
+    return request<{ message: string }>(`/api/v1/auth/face/${id}`, { method: 'DELETE' });
+  },
+
+  /** 人脸识别登录：multipart 上传摄像头照片，成功返回 JWT + 识别账号 */
+  async faceLogin(file: File): Promise<FaceLoginResult> {
+    const form = new FormData();
+    form.append('file', file);
+    return request<FaceLoginResult>('/api/v1/auth/face/login', { method: 'POST', body: form });
+  },
+
   /** 上传文档到 RAG 知识库（海洋守护者「导入质量分析报告」），返回入库后的文档记录 */
   async uploadKnowledgeDoc(file: File): Promise<KnowledgeDocInfo> {
     const form = new FormData();
@@ -365,6 +431,9 @@ export const api = {
   /** 删除知识库文档（磁盘文件与向量分片一并移除） */
   async deleteKnowledgeDoc(docId: number): Promise<{ message: string }> {
     return request<{ message: string }>(`/api/v1/knowledge/${docId}`, { method: 'DELETE' });
+  },
+  async analyzeKnowledgeDoc(docId: number): Promise<ReportAnalysis> {
+    return request<ReportAnalysis>(`/api/v1/knowledge/${docId}/analyze`, { method: 'POST' });
   },
 };
 
@@ -384,6 +453,7 @@ export async function streamChat(
   sessionId: string,
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  context?: { reportId?: number | null; documentId?: number | null },
 ): Promise<void> {
   if (isMockMode()) {
     const reply = '从监测数据看，建议优先处理废弃渔网与大型塑料制品：它们会造成持续缠绕风险，并进一步碎化为微塑料。可先由 ROV 标记坐标和深度，再制定分区打捞路线；作业后复测垃圾密度，并将前后数据纳入质量报告。';
@@ -398,7 +468,13 @@ export async function streamChat(
   const response = await fetch('/api/v1/chat', {
     method: 'POST',
     headers: authHeaders({ headers: { 'Content-Type': 'application/json' } }),
-    body: JSON.stringify({ messages, stream: true, session_id: sessionId }),
+    body: JSON.stringify({
+      messages,
+      stream: true,
+      session_id: sessionId,
+      report_id: context?.reportId ?? undefined,
+      document_id: context?.documentId ?? undefined,
+    }),
     signal,
   });
   if (!response.ok || !response.body) {

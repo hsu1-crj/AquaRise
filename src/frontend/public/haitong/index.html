@@ -187,13 +187,44 @@
     z-index: 45; display: flex; flex-direction: row; align-items: center;
     width: min(1020px, 94vw); transition: all 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
+  /* 地球待机态只保留居中的检索入口，给地球主体留出完整视野。 */
+  #filterHub.planet-mode {
+    top: 42px;
+    width: min(420px, 86vw);
+  }
+  #filterHub.planet-mode .filter-main-bar {
+    justify-content: center;
+    min-height: 42px;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  #filterHub.planet-mode .filter-scroll-track,
+  #filterHub.planet-mode .tier-group,
+  #filterHub.planet-mode .filter-divider,
+  #filterHub.planet-mode .taxa-sub-bar { display: none; }
+  #filterHub.planet-mode .search-trigger-btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 40px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+  #filterHub.planet-mode .search-signal {
+    width: 26px;
+    height: 26px;
+    flex-basis: 26px;
+    border-radius: 8px;
+  }
 
   .filter-main-bar {
     display: flex; align-items: center; gap: 6px;
-    width: 100%; min-width: 0; padding: 4px 6px 4px 10px; border-radius: 999px;
-    background: rgba(4, 18, 32, 0.78); border: 1px solid var(--glass-border);
+    width: 100%; min-width: 0; padding: 0; border-radius: 16px;
+    background: rgba(4, 18, 32, 0.72); border: 1px solid rgba(135, 222, 255, 0.18);
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 var(--glass-highlight);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38), inset 0 1px 0 var(--glass-highlight);
   }
 
   .filter-scroll-track {
@@ -233,20 +264,71 @@
   }
   .t-btn[data-tier="EX"].on .badge { background: var(--crimson); color: #fff; }
 
-  /* 搜索呼出触发胶囊 */
+  /* 声呐检索控制台入口 */
   .search-trigger-btn {
-    display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px;
-    border-radius: 999px; border: 1px solid var(--glass-border);
-    background: rgba(6, 24, 40, 0.6); color: var(--ink-dim); font-size: 11.5px;
-    cursor: pointer; transition: all 0.24s ease; flex: 0 0 auto; min-width: 92px;
+    position: relative; display: inline-flex; align-items: center; gap: 11px;
+    min-width: 246px; min-height: 48px; padding: 7px 11px;
+    border-radius: 12px; border: 1px solid rgba(90, 218, 239, 0.28);
+    background: linear-gradient(135deg, rgba(7, 31, 48, 0.94), rgba(5, 20, 35, 0.84));
+    color: var(--ink-dim); text-align: left; cursor: pointer; overflow: hidden;
+    transition: border-color 0.24s ease, box-shadow 0.24s ease, transform 0.24s ease;
+  }
+  .search-trigger-btn::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.55;
+    background-image: linear-gradient(rgba(99, 220, 237, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99, 220, 237, 0.055) 1px, transparent 1px);
+    background-size: 18px 18px;
+    mask-image: linear-gradient(90deg, #000 0%, transparent 88%);
   }
   .search-trigger-btn:hover {
-    border-color: rgba(56, 248, 212, 0.5); color: #fff; background: rgba(56, 248, 212, 0.1);
-    box-shadow: 0 0 16px rgba(56, 248, 212, 0.18);
+    border-color: rgba(56, 248, 212, 0.76); color: #fff;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), 0 0 22px rgba(56, 248, 212, 0.18);
+    transform: translateY(-1px);
+  }
+  .search-trigger-btn:focus-visible {
+    outline: 2px solid var(--cyan); outline-offset: 3px;
+  }
+  .search-signal {
+    position: relative; z-index: 1; display: grid; place-items: center;
+    width: 30px; height: 30px; flex: 0 0 30px; border-radius: 9px;
+    border: 1px solid rgba(56, 248, 212, 0.5); color: var(--cyan);
+    background: rgba(56, 248, 212, 0.08); overflow: hidden;
+  }
+  .search-signal::before, .search-signal::after {
+    content: ""; position: absolute; border: 1px solid rgba(56, 248, 212, 0.62);
+    border-radius: 50%; width: 11px; height: 11px;
+  }
+  .search-signal::after { width: 21px; height: 21px; opacity: 0.45; }
+  .search-signal i {
+    position: absolute; width: 3px; height: 3px; border-radius: 50%;
+    background: #fff; box-shadow: 0 0 8px var(--cyan);
+  }
+  .search-signal i:nth-child(1) { transform: translate(7px, -6px); }
+  .search-signal i:nth-child(2) { transform: translate(-7px, 6px); opacity: 0.65; }
+  .search-signal i:nth-child(3) { transform: translate(0, 0); width: 4px; height: 4px; background: var(--cyan); }
+  .search-trigger-copy {
+    position: relative; z-index: 1; display: grid; gap: 2px; min-width: 0; flex: 1;
+  }
+  .search-trigger-copy strong {
+    color: #efffff; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+  }
+  .search-trigger-copy small {
+    color: rgba(174, 219, 228, 0.58); font-size: 9px; letter-spacing: 0.05em;
   }
   .search-trigger-btn kbd {
-    font-size: 9px; padding: 1px 5px; border-radius: 4px;
-    border: 1px solid var(--glass-border); color: var(--ink-ghost); font-family: inherit;
+    position: relative; z-index: 1; font-size: 10px; min-width: 20px; padding: 3px 6px;
+    border-radius: 5px; border: 1px solid rgba(135, 222, 255, 0.24);
+    color: var(--ink-dim); font-family: var(--font-mono); text-align: center;
+    background: rgba(0, 12, 22, 0.48);
+  }
+  .search-trigger-arrow {
+    position: relative; z-index: 1; color: var(--cyan); font-size: 16px; line-height: 1;
+    opacity: 0.75; transition: transform 0.2s ease;
+  }
+  .search-trigger-btn:hover .search-trigger-arrow { transform: translate(2px, -2px); }
+  @media (max-width: 640px) {
+    .search-trigger-btn { min-width: 0; width: 100%; }
+    .search-trigger-copy small { display: none; }
   }
 
   /* 生物类群横向轻量筛选轨 (Taxa Sub-Bar) */
@@ -1328,8 +1410,8 @@
  #filterHub { top: 68px; width: 95vw; }
  .filter-main-bar { padding: 4px 6px 4px 8px; }
  .t-btn { padding: 4px 8px; font-size: 11px; }
- .search-trigger-btn { width: 38px; min-width: 38px; justify-content: center; padding: 4px 0; font-size: 11px; }
- .search-trigger-label, .search-trigger-btn kbd { display: none; }
+ .search-trigger-btn { width: auto; min-width: 170px; padding: 7px 10px; }
+ .search-trigger-copy small, .search-trigger-btn kbd { display: none; }
  #infoCard { right: auto; left: 50%; top: auto; bottom: 78px; transform: translateX(-50%) translateY(30px); width: 92vw; }
  #infoCard.show { transform: translateX(-50%) translateY(0); }
  #depthScrubber { display: none; }
@@ -1413,11 +1495,15 @@
  </div>
  </div>
 
- <!-- 搜索快捷呼出按钮 -->
- <button class="search-trigger-btn" id="openSearchBtn" title="打开智能检索 (快捷键 /)">
- <span style="color: var(--cyan);" aria-hidden="true">⌕</span>
- <span class="search-trigger-label">检索</span>
+ <!-- 声呐检索控制台入口 -->
+ <button class="search-trigger-btn" id="openSearchBtn" title="打开物种检索（快捷键 /）">
+ <span class="search-signal" aria-hidden="true"><i></i><i></i><i></i></span>
+ <span class="search-trigger-copy">
+  <strong class="search-trigger-label">检索物种</strong>
+  <small>名称 · 学名 · 威胁</small>
+ </span>
  <kbd>/</kbd>
+ <span class="search-trigger-arrow" aria-hidden="true">↗</span>
  </button>
  </div>
  </div>
@@ -1610,9 +1696,9 @@
             </svg>
           </div>
           <div class="g-info">
-            <div class="g-meta"><span class="g-name">持续张开 · 缩放显影</span><span class="g-code">palm</span></div>
-            <div class="g-desc">五指自然张开保持，稳定确认后进入平滑下潜显影，约 3 秒完整呈现物种标本。</div>
-            <div class="g-tip">无需前后移动；离开镜头重置计时，握拳可瞬间回收。</div>
+            <div class="g-meta"><span class="g-name">张开手掌 · 打开物种档案</span><span class="g-code">palm</span></div>
+            <div class="g-desc">五指自然张开并保持约 1 秒，进入物种档案页并完成显影。</div>
+            <div class="g-tip">无需前后移动；光线充足、手掌完整出现在取景框内即可。</div>
             <div class="g-test-tag"><span>▶ 点击模拟</span></div>
           </div>
         </div>
@@ -1633,9 +1719,9 @@
             </svg>
           </div>
           <div class="g-info">
-            <div class="g-meta"><span class="g-name">五指握拳 · 地球回收</span><span class="g-code">fist</span></div>
-            <div class="g-desc">迅速收拢五指紧握成拳，退出当前物种详情并重归自转的蓝色星球；鲸落期间可跳过。</div>
-            <div class="g-tip">全局一键归零至地球待机态，解除所有锁定。</div>
+            <div class="g-meta"><span class="g-name">握紧拳头 · 返回地球</span><span class="g-code">fist</span></div>
+            <div class="g-desc">五指收拢成拳并保持约 0.3 秒，关闭物种档案、回到蓝色地球。</div>
+            <div class="g-tip">全局一键归零至地球待机态，解除所有锁定；鲸落期间可跳过动画。</div>
             <div class="g-test-tag"><span>▶ 点击模拟</span></div>
           </div>
         </div>
@@ -3040,8 +3126,8 @@ let zoom = 0, zoomS = 0, targetZoom = 0;
 let lifeMode = "planet";
 let uiState = "planet";
 const reducedMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-const PALM_CONFIRM_SECONDS = 0.7;
-const PALM_REVEAL_SECONDS = 1.8;
+const PALM_CONFIRM_SECONDS = 0.45;
+const PALM_REVEAL_SECONDS = 0.95;
 const PALM_TARGET_ZOOM = 0.92;
 const SHAPE_MORPH_START = 0.10;
 const SHAPE_MORPH_END = 0.92;
@@ -3128,6 +3214,7 @@ function syncLifeMode() {
   if (nextMode === lifeMode) return;
   const previousMode = lifeMode;
   lifeMode = nextMode;
+  syncModeUi();
   if (lifeMode === "species" && previousMode === "planet") {
     photoRevealSuppressed = false;
     photoBoxEl.classList.remove("transition-hidden");
@@ -3150,6 +3237,15 @@ function syncLifeMode() {
     resetPinchTracking();
     resetIndexTracking();
   }
+}
+function syncModeUi() {
+  const hub = $("#filterHub");
+  if (hub) {
+    hub.classList.toggle("planet-mode", lifeMode === "planet");
+    hub.classList.toggle("species-mode", lifeMode === "species");
+  }
+  document.body.classList.toggle("atlas-planet-mode", lifeMode === "planet");
+  document.body.classList.toggle("atlas-species-mode", lifeMode === "species");
 }
 function syncUiState() {
   if (uiState === "diving" && targetZoom >= 0.6) {
@@ -5673,7 +5769,9 @@ async function waitForDemoNarration(index, runId) {
  await waitFor(() => !demoMode || runId !== demoRunId || speciesNarrationFor === index, 2500);
  if (!demoMode || runId !== demoRunId) return false;
  const narration = speciesNarrationPromise;
- await Promise.race([narration, sleep(30000)]);
+ // 独白资源可能被浏览器拦截或网络音频加载较慢，演示不能因此卡住。
+ // 最多等待 3.2 秒，保证每个物种都能展示后继续切换和鲸落流程。
+ await Promise.race([narration, sleep(3200)]);
  return demoMode && runId === demoRunId;
 }
 async function runDemo(runId) {
@@ -5811,6 +5909,10 @@ document.querySelectorAll("#soundTags [data-kind]").forEach(tag => {
 const video = $("#webcam"), canvasDet = $("#detCanvas"), ctxDet = canvasDet.getContext("2d");
 const gestureBtn = $("#gestureBtn"), hintGestureBtn = $("#hintGestureBtn");
 let gestureStream = null, gestureRunning = false, gestureTimer = null;
+let gestureManualChoice = false;
+// 手势不是视频检测：识别频率不需要追上渲染帧率。降低同步 WASM/GPU 调用频率，
+// 避免它和 2.6 万粒子地球争用主线程与显卡，摄像头预览仍由浏览器按原生帧率播放。
+const GESTURE_DETECT_INTERVAL_MS = 84;
 let lastGestureActionTime = 0;
 let handLandmarker = null, handLandmarkerError = "";
 
@@ -5823,9 +5925,9 @@ async function initHandLandmarker() {
  baseOptions: { modelAssetPath: "./assets/vendor/mediapipe/hand_landmarker.task", delegate: "GPU" },
  runningMode: "VIDEO",
  numHands: 1,
- minHandDetectionConfidence: 0.5,
- minHandPresenceConfidence: 0.5,
- minTrackingConfidence: 0.5
+ minHandDetectionConfidence: 0.38,
+ minHandPresenceConfidence: 0.38,
+ minTrackingConfidence: 0.38
  };
  try {
  handLandmarker = await HandLandmarker.createFromOptions(fileset, opts);
@@ -5842,10 +5944,14 @@ async function initHandLandmarker() {
 }
 
 async function toggleGesture() {
+ gestureManualChoice = true;
  if (gestureRunning) {
- stopGesture();
+  stopGesture();
  } else {
  try {
+ if (!navigator.mediaDevices?.getUserMedia) {
+  throw new Error("当前浏览器不支持摄像头访问");
+ }
  const ready = await initHandLandmarker();
  if (!ready) {
  const msg = "手势模型加载失败：" + handLandmarkerError;
@@ -5854,17 +5960,17 @@ async function toggleGesture() {
  return;
  }
  gestureStream = await navigator.mediaDevices.getUserMedia({
- video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
+ video: { width: { ideal: 640, max: 640 }, height: { ideal: 480, max: 480 }, frameRate: { ideal: 15, max: 20 }, facingMode: "user" }
  });
  video.srcObject = gestureStream;
  await video.play();
  gestureRunning = true;
  soundscape.unlock(); // 首次开启摄像头时解锁 AudioContext
- gestureBtn.classList.add("active");
  $("#preview").classList.add("show");
+ updateGestureUi(true);
  $("#statusTxt").textContent = "MediaPipe 手势感知中...";
  startLandmarkLoop();
- toast("摄像头已就绪 · 张开手掌稳定保持，0.7 秒后开始显影");
+ toast("摄像头已就绪 · 张开手掌打开物种档案，握拳返回地球");
  } catch (e) {
  console.warn("Camera init failed:", e);
  toast("摄像头开启失败，请确认允许浏览器权限，或在图鉴中直接点击卡片模拟体验");
@@ -5883,10 +5989,17 @@ function stopGesture() {
  gestureStream = null;
  }
  clearTimeout(gestureTimer);
- gestureBtn.classList.remove("active");
+ updateGestureUi(false);
  $("#preview").classList.remove("show");
  $("#statusTxt").textContent = "系统就绪 · 蓝色星球 (71%海洋)";
  toast("手势识别已关闭");
+}
+
+function updateGestureUi(active) {
+ gestureBtn.classList.toggle("active", active);
+ const label = $("#gestureTxt");
+ if (label) label.textContent = active ? "手势已开" : "手势";
+ if (hintGestureBtn) hintGestureBtn.textContent = active ? "关闭摄像头" : "开启摄像头";
 }
 
 gestureBtn.addEventListener("click", toggleGesture);
@@ -5947,14 +6060,14 @@ function startLandmarkLoop() {
  } catch (err) {
  // 单帧跟踪失败忽略
  }
- if (gestureRunning) gestureTimer = setTimeout(loop, 33); // ~30fps
+ if (gestureRunning) gestureTimer = setTimeout(loop, GESTURE_DETECT_INTERVAL_MS);
  }
  loop();
 }
 
 /* ================= 手势投票防抖状态 ================= */
 const ACTION_COOLDOWN_MS = 700;
-const DISCRETE_HOLD_MS = 620;
+const DISCRETE_HOLD_MS = 300;
 const PEACE_ARM_MS = 220;
 let lastFiredGesture = null, emptyStreak = 0;
 let discreteGestureName = null, discreteGestureStartedAt = 0, discreteGestureLastSeenAt = 0;
@@ -6106,15 +6219,10 @@ function handleServerGesture(data) {
   resetPeaceTracking();
   }
   if (emptyStreak >= 6) resetPalmHold();
-  if (emptyStreak >= 18) {
-  // 连续约 600ms 没有手才视为真正收手，避免挥到画面边缘时误返回。
-  palmWaveArmed = true;
-  if (uiState === "diving" || uiState === "species") {
-   targetZoom = 0;
-   detailLocked = false;
-   renderDetailState();
-   uiState = "returning";
-  }
+  // 手暂时离开镜头只暂停手势追踪，不改变当前页面。
+  // 回到地球必须由握拳、卡片按钮或鼠标滚轮明确触发，避免丢帧/挥手出框时强制收回。
+  if (emptyStreak >= 18 && (uiState === "diving" || uiState === "species")) {
+   $("#gestureReadout").textContent = "手部暂时离开 · 当前档案保持";
   }
  return;
  }
@@ -6202,51 +6310,35 @@ function handleServerGesture(data) {
   $("#gestureReadout").textContent = `palm (${conf}%) · 档案已固定 · 做 OK 手势解除后可切换`;
   return;
   }
-  const palmCenterX = (x1 + x2) / 2;
-  if (!palmWaveArmed) {
-   const frameMove = palmWaveLastX === null ? 0 : Math.abs(palmCenterX - palmWaveLastX);
-   const inNeutralZone = palmCenterX >= 125 && palmCenterX <= 195;
-   if (inNeutralZone && frameMove < 7) {
-    if (!palmWaveSettledAt) palmWaveSettledAt = now;
-    if (now - palmWaveSettledAt >= 450) {
-     palmWaveArmed = true;
-     palmWaveStartX = palmCenterX;
-     palmWaveStartAt = now;
-     palmWavePendingDirection = 0;
-    }
-   } else {
-    palmWaveSettledAt = 0;
-   }
-   palmWaveLastX = palmCenterX;
-   $("#gestureReadout").textContent = `palm (${conf}%) · 回到画面中央停稳后可再次切换`;
-   return;
-  }
-  if (palmWaveStartX === null || now - palmWaveStartAt > 1800) {
+  const rawPalmCenterX = (x1 + x2) / 2;
+  // 使用低通滤波后的掌心位置，降低检测框抖动对挥掌距离的影响。
+  const palmCenterX = palmWaveLastX === null
+    ? rawPalmCenterX
+    : palmWaveLastX + (rawPalmCenterX - palmWaveLastX) * 0.42;
+  palmWaveLastX = palmCenterX;
+  if (palmWaveStartX === null || now - palmWaveStartAt > 1400) {
    palmWaveStartX = palmCenterX;
    palmWaveStartAt = now;
+   palmWavePendingDirection = 0;
   }
-  // 摄像头预览水平镜像，换算成用户实际看到的左右方向。
+  // 摄像头预览水平镜像，换算成用户看到的左右方向。一次有效挥动后
+  // 立即以当前掌心重新起算，不再要求回到固定中央区域才能再次挥动。
   const screenTravel = -(palmCenterX - palmWaveStartX);
   const pendingDirection = screenTravel < 0 ? 1 : -1;
-  if (Math.abs(screenTravel) > 42 && now - palmWaveStartAt > 180) {
-   if (palmWavePendingDirection !== pendingDirection) {
-    palmWavePendingDirection = pendingDirection;
-    palmWavePendingAt = now;
-   }
-   if (now - palmWavePendingAt >= 180 && now - lastGestureActionTime > 620) {
-    switchSpecies(palmWavePendingDirection);
-    toast(palmWavePendingDirection > 0 ? "手掌向左挥：下一物种" : "手掌向右挥：上一物种");
-    lastGestureActionTime = now;
-    palmWaveArmed = false;
-    palmWaveSettledAt = 0;
-    palmWaveLastX = palmCenterX;
-    palmWavePendingDirection = 0;
-   }
-  } else if (Math.abs(screenTravel) < 28) {
+  const swipeReady = Math.abs(screenTravel) > 28
+    && now - palmWaveStartAt > 90
+    && now - lastGestureActionTime > 420;
+  if (swipeReady) {
+   switchSpecies(pendingDirection);
+   toast(pendingDirection > 0 ? "手掌向左挥：下一物种" : "手掌向右挥：上一物种");
+   lastGestureActionTime = now;
+   palmWaveStartX = palmCenterX;
+   palmWaveStartAt = now;
    palmWavePendingDirection = 0;
-   palmWavePendingAt = 0;
+  } else {
+   palmWavePendingDirection = Math.abs(screenTravel) > 18 ? pendingDirection : 0;
   }
-  $("#gestureReadout").textContent = `palm (${conf}%) · ${palmWavePendingDirection ? "保持挥动完成确认" : "左右挥掌切换动物"}`;
+  $("#gestureReadout").textContent = `palm (${conf}%) · ${palmWavePendingDirection ? "挥动确认中" : "左右挥掌切换动物"}`;
   return;
  }
  if (detailLocked) {
@@ -6502,22 +6594,23 @@ function tryAutoPlayBgm() {
 }
 
 async function autoStartGesture() {
+ if (gestureManualChoice || gestureRunning || gestureStream) return;
  try {
  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
  const ready = await initHandLandmarker();
  if (!ready) return;
  gestureStream = await navigator.mediaDevices.getUserMedia({
- video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
+ video: { width: { ideal: 640, max: 640 }, height: { ideal: 480, max: 480 }, frameRate: { ideal: 15, max: 20 }, facingMode: "user" }
  });
  video.srcObject = gestureStream;
  await video.play();
  gestureRunning = true;
  soundscape.unlock();
- gestureBtn.classList.add("active");
+ updateGestureUi(true);
  $("#preview").classList.add("show");
  $("#statusTxt").textContent = "MediaPipe 手势感知中...";
  startLandmarkLoop();
- toast("AI 视觉手势已自动启动 · 张开手掌稳定保持后缓慢显影");
+ toast("AI 视觉手势已自动启动 · 张开手掌打开物种档案，握拳返回地球");
  } catch (e) {
  console.log("Auto-start gesture prompt/fallback:", e);
  }
@@ -6529,6 +6622,7 @@ buildEarthHomes();
 buildFallbackImgHomes();
 buildIntroHomes();
 buildWhaleFallHomes();
+syncModeUi();
 resize();
 updateBadgeCounts();
 buildDots();
@@ -6545,6 +6639,12 @@ Promise.all(SPECIES.map((_, i) => buildImgHomes(i))).then(() => {
 applySpecies(true);
 requestAnimationFrame(frame);
 tryAutoPlayBgm();
+// 让首屏粒子动画先稳定，再初始化 MediaPipe/摄像头；拒绝时仍可点击顶部按钮重试。
+// 初始化仍自动进行，但不与页面第一次布局、纹理加载和首帧争抢主线程/GPU。
+const scheduleCameraStartup = window.requestIdleCallback
+  ? (cb) => window.requestIdleCallback(cb, { timeout: 1800 })
+  : (cb) => window.setTimeout(cb, 1200);
+scheduleCameraStartup(() => { void autoStartGesture(); });
 window.addEventListener("resize", () => { resize(); applySpecies(true); });
 toast("海瞳 · 守护蓝色星球已就绪 · 拖拽旋转地球，滚轮/手势下潜探索物种");
 

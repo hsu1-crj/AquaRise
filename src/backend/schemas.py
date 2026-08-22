@@ -61,6 +61,28 @@ class MessageResponse(BaseModel):
     message: str
 
 
+# ============ 人脸识别 ============
+class FaceInfo(BaseModel):
+    """账号已录入的人脸信息（不含特征向量）"""
+    id: int
+    name: str
+    created_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class FaceListResponse(BaseModel):
+    """当前账号已录入的人脸列表"""
+    items: list[FaceInfo]
+
+
+class FaceLoginResponse(BaseModel):
+    """人脸识别登录成功返回：JWT + 识别到的用户名"""
+    access_token: str
+    username: str
+    token_type: str = "bearer"
+
+
 # ============ 检测 ============
 class DetectionResultItem(BaseModel):
     """检测到的单个目标"""
@@ -326,11 +348,19 @@ class SiteStatItem(BaseModel):
     name: str
     lat: float
     lng: float
+    seaAreaId: int | None = None  # 所属海域 id（前端据此按海域过滤站点）
     taskCount: int = 0
     totalObjects: int = 0
     pollutionIndex: float | None = None  # 无任务时为 null（前端显示空态）
     lastTaskAt: str | None = None
     evidence: list[SiteEvidence] = []  # 站点最近检测证据(标注图URL+摘要), 3D场景展示
+
+
+class SeaAreaItem(BaseModel):
+    """海域（GET /api/v1/stats/sea-areas）"""
+    id: int
+    name: str
+    code: str | None = None
 
 
 class FrontendDetectionBox(BaseModel):
@@ -382,6 +412,7 @@ class FrontendReport(BaseModel):
     objectCount: int
     status: str          # 已生成 / 生成中
     summary: str
+    reportUrl: str = ""  # 可打开的 HTML 报告预览地址（GET /api/v1/reports/{id}/preview）
 
 
 class FrontendReportListResponse(BaseModel):
@@ -402,6 +433,33 @@ class CreateBatchReportRequest(BaseModel):
     format: str = "html"
 
 
+class ReportSolution(BaseModel):
+    priority: str
+    action: str
+    owner: str
+    deadline: str
+    validation: str
+
+
+class ReportAnalysisResponse(BaseModel):
+    id: int
+    report_id: int
+    status: str
+    summary: str
+    risk_level: str
+    key_findings: list[str]
+    possible_causes: list[str]
+    solutions: list[ReportSolution]
+    follow_up_monitoring: list[str]
+    evidence: list[dict]
+    model_name: str | None = None
+    created_at: str
+
+
+class DocumentAnalysisResponse(ReportAnalysisResponse):
+    doc_id: int
+
+
 # ============ 前端 SPA 对话契约（api.ts streamChat） ============
 class SpaChatMessage(BaseModel):
     """前端发送的单条消息"""
@@ -415,3 +473,5 @@ class SpaChatRequest(BaseModel):
     stream: bool = True
     session_id: Optional[str] = None
     message: Optional[str] = None  # 旧格式兼容
+    report_id: Optional[int] = Field(default=None, ge=1, description="当前追问绑定的系统质量报告 ID")
+    document_id: Optional[int] = Field(default=None, ge=1, description="当前追问绑定的导入知识库文档 ID")

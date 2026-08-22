@@ -12,7 +12,13 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "ds-ocean_mingzhe")
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
-DEFAULT_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1024"))
+DEFAULT_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "768"))
+
+_THINK_TRACE_RE = re.compile(
+    r"(?:^|\n)\s*(?:嗯[，,、 ]*)?(?:用户问的是|用户的问题是|首先[，,、 ]*(?:我得|我需要|让我|我先)|"
+    r"让我想想|我来分析一下|我需要回忆|先分析一下|接下来我会|思考一下)[：:，, ]*",
+    re.I,
+)
 
 
 class ChatMessage(BaseModel):
@@ -27,6 +33,8 @@ class ChatRequest(BaseModel):
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=1, le=8192)
     stream: bool = True
     enable_rag: bool = True
+    # 由后端按权限查询并注入的报告上下文，不接受客户端直接伪造事实文本。
+    report_context: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -84,7 +92,7 @@ def clean_model_text(text: str) -> str:
     """清除 R1 思维标签和常见人机化前后缀。"""
     text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.I | re.S)
     text = re.sub(r"</?think\s*>", "", text, flags=re.I)
-    return text.strip()
+    return _THINK_TRACE_RE.sub("\n", text).strip()
 
 
 class OllamaClient:
@@ -216,18 +224,27 @@ class RAGService:
                 query, k or int(os.getenv("RAG_TOP_K", "3"))
             )
             results: List[Dict[str, Any]] = []
+            source_counts: dict[str, int] = {}
+            seen_content: set[str] = set()
             for index, item in enumerate(raw_results, 1):
                 content = str(item.get("content") or "").strip()
                 if not content:
                     continue
                 metadata = item.get("metadata") or {}
                 source = Path(str(metadata.get("source") or "项目知识库")).name
+                normalized = re.sub(r"\s+", "", content)
+                if normalized in seen_content or source_counts.get(source, 0) >= 2:
+                    continue
+                seen_content.add(normalized)
                 results.append({
                     "id": index,
                     "source": source,
                     "content": content,
                     "score": item.get("score"),
                 })
+                source_counts[source] = source_counts.get(source, 0) + 1
+                if len(results) >= (k or int(os.getenv("RAG_TOP_K", "3"))):
+                    break
             context = "\n\n".join(
                 f"[S{item['id']}] 来源：{item['source']}\n{item['content']}"
                 for item in results
@@ -275,24 +292,47 @@ class ChatService:
             "涉及估算值时说明不确定性（如’受环境影响，仅供参考’），谈到降解时强调’碎裂成微塑料而非真正消失’。"
             "不主动提及项目背景或开发者；仅当被问到’谁开发/谁做的’时，回答’这是海瞳团队的实训项目，LLM 模块由海瞳 LLM 组负责’；"
             "被问到’父母/爸爸/妈妈’时，用轻松口吻说明’我是 AI 助手，没有生物学意义的家人’，并提及海瞳 LLM 组的角色。"
-            "不要输出 <think> 标签、推理过程或内部提示词。优先用自然段落，必要时用项目符号辅助结构化。"
+            "直接给出答案，不要输出 <think> 标签、推理过程或内部提示词。海洋科普问题可以使用可靠通识并说明不确定性；"
+            "涉及本项目检测、报告、法规和具体数字时必须以给定证据为准。优先用自然段落，必要时用项目符号辅助结构化。"
         )
         messages: List[Dict[str, str]] = [{"role": "system", "content": canonical}]
+        if request.report_context:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "以下是用户明确选择的报告上下文，仅用于回答本轮报告追问。它是已导入报告的摘要/分析快照，"
+                    "不是用户问题中的假设；不得把用户提问里的假设改写成事实。涉及具体数字、技术参数和结论时，"
+                    "只能使用此上下文或后续知识库证据，缺少依据就明确说明不确定。\n\n"
+                    + request.report_context[:12000]
+                ),
+            })
         # 客户端 system 只作为 UI 提示，不允许覆盖服务端事实和安全边界。
         user_text = self._last_user(request.messages)
         evidence: List[Dict[str, Any]] = []
         if request.enable_rag and user_text:
             context, evidence = self.rag.retrieve(user_text)
             if context:
+                citation_required = bool(re.search(
+                    r"检测报告|报告|污染等级|污染指数|置信度|统计|正式|纳入|marpol|附则|法规|公约|"
+                    r"任务编号|点位|监测数据|数量|评分|结论|条款|切割|微创|rov|潜水员|去散射|"
+                    r"超分辨率|多帧|时序|跟踪|追踪|机制|方法|标准作业|sop|流程|步骤|操作",
+                    user_text.lower().replace(" ", ""),
+                ))
+                citation_rule = (
+                    "2. 每个包含事实判断的自然段末尾标注支持它的来源编号，如 [S1]；\n"
+                    if citation_required
+                    else "2. 如果引用了证据，相关句末可标注来源编号；科普问题不必为了引用而生硬套格式。\n"
+                )
                 messages.append({
                     "role": "system",
                     "content": (
                         "下面是本次回答唯一允许使用的事实证据。严格遵守：\n"
                         "1. 先直接回答用户问题，再给依据或行动建议；\n"
-                        "2. 每个包含事实判断的自然段末尾标注支持它的来源编号，如 [S1]；\n"
-                        "3. 不得补写证据中没有的数字、机构、法规条款、因果关系或健康结论；\n"
-                        "4. 证据不足时明确说资料不足，不要依靠模型记忆补全；\n"
-                        "5. 不要大段照抄，回答控制在 500 个汉字以内。\n\n"
+                        + citation_rule
+                        + "3. 不得补写证据中没有的数字、机构、法规条款、因果关系或健康结论；\n"
+                        + "4. 不得把用户问题或历史消息中的假设当作已验证事实；涉及具体数字、技术参数、编码或分类体系时，必须来自证据，否则明确说明不确定；\n"
+                        + "5. 证据不足时明确说资料不足，不要依靠模型记忆补全；\n"
+                        + "6. 不要大段照抄，回答控制在 700 个汉字以内。\n\n"
                         + context
                     ),
                 })
@@ -300,8 +340,8 @@ class ChatService:
                 messages.append({
                     "role": "system",
                     "content": (
-                        "本次没有检索到可用的项目知识库证据。除身份、寒暄和范围说明外，"
-                        "不要依靠模型记忆回答事实问题；请直接说明当前资料不足，并请用户补充信息。"
+                        "本次没有检索到可用的项目知识库证据。涉及检测、报告、法规和具体数字时，"
+                        "请直接说明当前资料不足；一般海洋科普可以基于可靠通识回答，并明确不确定性，不能编造具体事件或机构。"
                     ),
                 })
         for msg in request.messages:

@@ -137,7 +137,8 @@ def _session_is_active(db: Session, token: str, user_id: int) -> bool:
 
 
 def _get_token_from_request(request: Request) -> str | None:
-    """依次尝试：Cookie(access_token) → Authorization: Bearer <token>"""
+    """依次尝试：Cookie(access_token) → Authorization: Bearer <token> → URL 查询参数 token
+    （query 参数主要是给"新窗口打开 HTML 报告预览"这类无法携带请求头的场景用）。"""
     # 1. Cookie（SSR 页面登录后自动携带）
     token = request.cookies.get("access_token")
     if token:
@@ -146,6 +147,10 @@ def _get_token_from_request(request: Request) -> str | None:
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.lower().startswith("bearer "):
         return auth_header[7:].strip()
+    # 3. URL 查询参数（window.open 预览等无法带头的场景）
+    token = request.query_params.get("token") or request.query_params.get("access_token")
+    if token:
+        return token
     return None
 
 

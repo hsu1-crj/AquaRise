@@ -57,7 +57,7 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "ds-ocean_mingzhe")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
-LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1024"))
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "768"))
 LLM_KEEP_ALIVE = os.getenv("LLM_KEEP_ALIVE", "10m")
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 LLM_REQUIRE_CITATIONS = _env_bool("LLM_REQUIRE_CITATIONS", True)
@@ -84,3 +84,11 @@ DH_SDK_INTEGRITY = os.getenv(
 YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", str(PROJECT_ROOT / "src" / "vision" / "best.pt"))
 YOLO_CONF = float(os.getenv("YOLO_CONF", "0.25"))
 YOLO_DEVICE = os.getenv("YOLO_DEVICE") or None
+
+# 人脸识别：InsightFace（FaceAnalysis）一条链路完成 检测+对齐+512维嵌入。
+# 权重包（buffalo_l）由 insightface 自动下载到本地模型目录；离线环境可预先下载。
+# 匹配用欧氏距离，越小越相似；FACE_EMBEDDING_THRESHOLD 为判定“同一人”的距离上限（调严）。
+FACE_EMBEDDING_THRESHOLD = float(os.getenv("FACE_EMBEDDING_THRESHOLD", "0.5"))
+FACE_MODEL_PACK = os.getenv("FACE_MODEL_PACK", "buffalo_l")
+# 一个账号最多录入的人脸数
+MAX_FACES_PER_USER = int(os.getenv("MAX_FACES_PER_USER", "3"))
