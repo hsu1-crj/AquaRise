@@ -107,14 +107,24 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     };
   }, []);
 
-  // 隐藏SDK原生字幕(初始化后DOM是异步注入的, 用观察器持续压住)
+  // 隐藏SDK原生字幕 + 强制画布居中(初始化后DOM异步注入且SDK会反复写内联样式,
+  // 均用观察器+定时器持续压住)
   useEffect(() => {
     const container = document.getElementById(containerIdRef.current);
     if (!container) return;
-    const observer = new MutationObserver(() => hideSdkSubtitles(container));
+    const centerCanvas = () => {
+      const canvas = container.querySelector<HTMLCanvasElement>(':scope > canvas');
+      if (!canvas) return;
+      canvas.style.setProperty('position', 'absolute', 'important');
+      canvas.style.setProperty('left', '50%', 'important');
+      canvas.style.setProperty('top', '50%', 'important');
+      canvas.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+    };
+    const observer = new MutationObserver(() => { hideSdkSubtitles(container); centerCanvas(); });
     observer.observe(container, { childList: true, subtree: true, attributes: true });
-    const timer = window.setInterval(() => hideSdkSubtitles(container), 600);
+    const timer = window.setInterval(() => { hideSdkSubtitles(container); centerCanvas(); }, 600);
     hideSdkSubtitles(container);
+    centerCanvas();
     return () => {
       window.clearInterval(timer);
       observer.disconnect();
