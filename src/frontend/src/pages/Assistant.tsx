@@ -15,10 +15,13 @@ import {
   FileJson,
   FileText,
   FileUp,
-  HelpCircle,
   LoaderCircle,
+  MessagesSquare,
   Mic,
+  Recycle,
   RotateCcw,
+  Scale,
+  ScanSearch,
   Send,
   Sparkles,
   Square,
@@ -239,7 +242,10 @@ function ParticleField() {
 
 function AquaCoreStage({ status, isSpeaking }: { status: DigitalHumanStatus; isSpeaking: boolean }) {
   return (
-    <div className="og-aquacore-stage">
+    <div className={`og-aquacore-stage status-${status}`} role="img" aria-label={`数字人状态：${STATUS_LABELS[status]}`}>
+      {/* 轨道粒子装饰 */}
+      <div className="og-core-orbit" aria-hidden="true"><i /><i /><i /></div>
+
       <div className={`og-aquacore-sphere ${status === 'thinking' ? 'thinking' : ''} ${isSpeaking ? 'speaking' : ''}`}>
         <div className="og-core-ring ring-1" />
         <div className="og-core-ring ring-2" />
@@ -248,7 +254,7 @@ function AquaCoreStage({ status, isSpeaking }: { status: DigitalHumanStatus; isS
           <DigitalHumanIcon className="og-core-icon" size={40} />
         </div>
         {/* 声呐音频能量波动 */}
-        <div className="og-wave-bars">
+        <div className="og-wave-bars" aria-hidden="true">
           <span />
           <span />
           <span />
@@ -264,7 +270,11 @@ function AquaCoreStage({ status, isSpeaking }: { status: DigitalHumanStatus; isS
         </div>
         <div className="og-telem-chip">
           <Sparkles size={11} />
-          <span>RAG 知识向量库就绪</span>
+          <span>RAG 知识库就绪</span>
+        </div>
+        <div className={`og-telem-chip og-mode-chip mode-${status}`}>
+          <Waves size={11} />
+          <span>{STATUS_LABELS[status]}</span>
         </div>
       </div>
     </div>
@@ -711,19 +721,73 @@ function FollowUpSuggestions({
   );
 }
 
+// ---------- 空态欢迎 Hero（能力卡片即点即问） ----------
+
+const HERO_CAPABILITIES = [
+  { icon: ScanSearch, accent: 'cyan', title: '检测结果研判', desc: '置信度复核 · 目标解读', q: QUICK_QUESTIONS[1].q },
+  { icon: FileBarChart, accent: 'green', title: '质量报告解读', desc: '风险等级 · 处置建议', q: QUICK_QUESTIONS[6].q },
+  { icon: Scale, accent: 'violet', title: '法规公约问答', desc: 'MARPOL · 环保法规', q: QUICK_QUESTIONS[3].q },
+  { icon: Recycle, accent: 'amber', title: '治理方案咨询', desc: '清理优先级 · 打捞回收', q: QUICK_QUESTIONS[7].q },
+];
+
+function WelcomeHero({ userName, busy, onAsk }: { userName: string; busy: boolean; onAsk: (q: string) => void }) {
+  const hour = new Date().getHours();
+  const greeting = hour < 6 ? '夜深了' : hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好';
+  return (
+    <div className="og-hero" aria-live="polite">
+      <div className="og-hero-orb" aria-hidden="true">
+        <span className="og-hero-orb-ring r1" />
+        <span className="og-hero-orb-ring r2" />
+        <DigitalHumanIcon size={44} />
+      </div>
+      <p className="og-hero-kicker">OCEAN GUARDIAN · AI ASSISTANT</p>
+      <h3 className="og-hero-title">{greeting}，{userName}</h3>
+      <p className="og-hero-sub">
+        我是海洋守护者，已挂载 <b>海洋知识库</b> 与 <b>TrashCan 研判体系</b>。选择一个能力开始，或直接在下方输入问题。
+      </p>
+      <div className="og-hero-cards">
+        {HERO_CAPABILITIES.map(({ icon: Icon, accent, title, desc, q }) => (
+          <button
+            key={title}
+            type="button"
+            className={`og-hero-card accent-${accent}`}
+            disabled={busy}
+            onClick={() => onAsk(q)}
+            title={q}
+          >
+            <span className="og-hero-card-icon"><Icon size={17} /></span>
+            <span className="og-hero-card-text">
+              <b>{title}</b>
+              <small>{desc}</small>
+            </span>
+            <ChevronRight size={13} className="og-hero-card-go" />
+          </button>
+        ))}
+      </div>
+        <div className="og-hero-quick">
+          {QUICK_QUESTIONS.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className="og-quick-chip"
+              disabled={busy}
+              onClick={() => onAsk(item.q)}
+              title={item.q}
+            >
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+    </div>
+  );
+}
+
 // ---------- 主页面组件 ----------
 
 export function AssistantPage({ user }: { user: UserInfo | null }) {
   // --- 对话状态 ---
   const [sessionId, setSessionId] = useState<string>(() => getOrCreateSessionId());
-  const [messages, setMessages] = useState<UiMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: WELCOME_MD,
-      timestamp: formatCurrentTime(),
-    },
-  ]);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -796,18 +860,22 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     }
   }, []);
 
-  // 自动回到底部
-  const scrollToBottom = useCallback((smooth = true) => {
+  // 智能吸底滚动：用户上滚阅读时不再被流式输出拽回底部
+  const stickToBottomRef = useRef(true);
+
+  const scrollToBottom = useCallback((smooth = true, force = false) => {
+    if (!force && !stickToBottomRef.current) return;
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
     }
   }, []);
 
-  // 监听滚动位置，判断是否显示回底按钮
+  // 监听滚动位置：距底部较近视为"吸附"，显示回底按钮
   const handleScroll = useCallback(() => {
     const el = chatScrollRef.current;
     if (!el) return;
     const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceToBottom < 120;
     setShowScrollBottom(distanceToBottom > 120);
   }, []);
 
@@ -832,6 +900,34 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       }
     };
   }, [stopSubtitleQueue]);
+
+  // 导出菜单：点击外部或 Esc 关闭
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('.og-export-wrap')) setExportOpen(false);
+    };
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setExportOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [exportOpen]);
+
+  // 导入报告弹窗：Esc 关闭（导入进行中不可关，避免中断上传）
+  useEffect(() => {
+    if (!importOpen) return;
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape' && !importBusy) setImportOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [importOpen, importBusy]);
 
   // 加载持久化对话历史
   useEffect(() => {
@@ -1015,6 +1111,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       setBusy(true);
       setError('');
       setDhSubtitle('');
+      stickToBottomRef.current = true;
 
       const currentTime = formatCurrentTime();
       const userMessage: UiMessage = {
@@ -1092,14 +1189,23 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           setDhStatus(dhOn && dhReady ? 'idle' : 'offline');
         }
       } catch (reason) {
+        // A stopped request can finish after a newer request has started. Do not
+        // let the stale request overwrite the active request's UI state.
+        if (controller.current !== abortController) return;
         if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
           setError(reason instanceof Error ? reason.message : '对话生成中断或服务响应超时');
         }
         setDhStatus(dhOn && dhReady ? 'idle' : 'offline');
         setDhSubtitle('');
       } finally {
+        // streamChat resolves normally after the SSE [DONE]/reader completion.
+        // Always release the busy lock, while preserving a newer request's lock.
+        if (controller.current !== abortController) return;
         setBusy(false);
         controller.current = null;
+        // 回答完成后归还焦点，方便连续追问（不打断用户主动聚焦的其他控件）
+        const ae = document.activeElement;
+        if (!ae || ae === document.body) textareaRef.current?.focus();
       }
     },
     [busy, messages, dhOn, dhReady, dhMuted, sessionId, activeReportContext, startSubtitleQueue],
@@ -1307,14 +1413,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     const fresh = uuid();
     window.sessionStorage.setItem(SESSION_KEY, fresh);
     setSessionId(fresh);
-    setMessages([
-      {
-        id: 'welcome',
-        role: 'assistant',
-        content: WELCOME_MD,
-        timestamp: formatCurrentTime(),
-      },
-    ]);
+    setMessages([]);
     setError('');
     setDhSubtitle('');
   };
@@ -1441,7 +1540,12 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             className="og-awrap"
             ref={sdkContainerRef}
             id="og-sdk-container"
-            style={{ display: dhReady && dhOn ? 'block' : 'none' }}
+            // XmovAvatar.init() 需要读取容器尺寸；display:none 会让 SDK 在初始化阶段拿到 0x0。
+            // 保留布局尺寸，仅在就绪前隐藏渲染，避免初始化失败后误降级到拟态模式。
+            style={{
+              display: dhOn ? 'block' : 'none',
+              visibility: dhReady ? 'visible' : 'hidden',
+            }}
           />
 
           {/* 当数字人未加载/未配置/离线时，展示 AquaCore 全息拟态球 */}
@@ -1449,8 +1553,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             <AquaCoreStage status={dhStatus} isSpeaking={dhStatus === 'speaking'} />
           )}
 
-          {/* 数字人加载进度 HUD */}
-          {!dhReady && dhOn && (
+          {/* 数字人加载进度 HUD（仅在真实加载中显示；离线降级由光核模式芯片表达） */}
+          {!dhReady && dhOn && dhStatus !== 'offline' && (
             <div className="og-stage-loading-hud" role="status" aria-live="polite">
               <LoaderCircle className="spin" size={16} />
               <span>{dhLoadingText}</span>
@@ -1465,7 +1569,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           <ThinkingOverlay visible={showThinking} />
 
           {/* 流式字幕 HUD */}
-          <div className={`og-subtitle-hud ${showSubtitle ? 'visible' : ''}`}>
+          <div className={`og-subtitle-hud ${showSubtitle ? 'visible' : ''}`} role="status" aria-live="polite">
             <span className="og-subtitle-hud-text">{dhSubtitle}</span>
             {dhStatus === 'thinking' && <i className="og-subtitle-hud-caret" aria-hidden="true" />}
           </div>
@@ -1473,9 +1577,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
         {/* 舞台底部状态与参数条 */}
         <div className="og-stage-footer">
-          <div className="og-status-pill">
-            <span className={`og-status-dot dot-${dhStatus}`} />
+          <div className="og-status-pill" role="status" aria-live="polite" data-status={dhStatus}>
+            <span className={`og-status-dot dot-${dhStatus}`} aria-hidden="true" />
             <span className="og-status-text">{STATUS_LABELS[dhStatus]}</span>
+            <span className="og-status-pulse" aria-hidden="true" />
           </div>
           <div className="og-tech-badge">
             <Bot size={12} />
@@ -1511,7 +1616,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               onClick={toggleDigitalHuman}
               title={dhOn ? '切换为纯文本大屏' : '切换为数字人协同'}
             >
-              {dhOn ? '◧ 纯文本' : '◲ 数字人'}
+              {dhOn ? (<><MessagesSquare size={13} /><span>纯文本</span></>) : (<><Bot size={13} /><span>数字人</span></>)}
             </button>
 
             <div className="og-export-wrap">
@@ -1546,40 +1651,29 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           </div>
         </header>
 
-        {/* 快捷问题探索栏（保留 8 个原版问题） */}
-        <div className="og-quick-explore-bar">
-          <div className="og-quick-caption">
-            <HelpCircle size={13} />
-            <span>快捷研判咨询：</span>
-          </div>
-          <div className="og-quick-scroll-track">
-            {QUICK_QUESTIONS.map((item) => (
-              <button
-                key={item.label}
-                className="og-quick-chip"
-                disabled={busy}
-                onClick={() => ask(item.q)}
-                title={item.q}
-              >
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* 消息滚动容器 */}
         <div
           className="og-messages-viewport"
           ref={chatScrollRef}
           onScroll={handleScroll}
         >
-          {messages.length === 0 && (
-            <div className="og-empty-state">
-              <div className="og-empty-orb">
-                <Waves size={32} />
-              </div>
-              <h3>开启新的海洋环保对话</h3>
-              <p>选择上方快捷问题或在下方输入检测分析、法规制度与治理方案。</p>
+          {messages.length === 0 && <WelcomeHero userName={userName} busy={busy} onAsk={(q) => void ask(q)} />}
+
+          {messages.length > 0 && activeReportContext && (
+            <div className="og-context-banner" role="status">
+              <span className="og-context-icon"><FileBarChart size={14} /></span>
+              <span className="og-context-text">
+                已绑定 <b>{activeReportContext.title}</b>，回答将结合该报告内容
+              </span>
+              <button
+                type="button"
+                className="og-context-unbind"
+                onClick={() => setActiveReportContext(null)}
+                aria-label="解除报告绑定"
+                title="解除报告绑定"
+              >
+                <X size={12} />
+              </button>
             </div>
           )}
 
@@ -1639,7 +1733,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         {showScrollBottom && (
           <button
             className="og-scroll-bottom-btn"
-            onClick={() => scrollToBottom(true)}
+            onClick={() => { stickToBottomRef.current = true; scrollToBottom(true, true); }}
             title="回到底部"
           >
             <ArrowDown size={14} />
@@ -1688,7 +1782,6 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
                 onKeyDown={handleKeyDown}
                 rows={1}
                 placeholder="向海洋守护者提问（例如：珊瑚附近发现废弃渔网应如何处置？）..."
-                disabled={busy}
               />
 
               <div className="og-composer-toolbar">

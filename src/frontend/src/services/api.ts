@@ -118,7 +118,7 @@ export const api = {
         sdk_mode: 'realtime',
         gateway_server: 'https://nebula-agent.xingyun3d.com/user/v1/ttsa/session',
         sdk_url: 'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js',
-        sdk_integrity: 'sha384-x6JED2qbmbCu3552Jzvj9Egb2FvDrnE2hoPUxupzkFphjuoGadVjKQupOjL3sWtu',
+        sdk_integrity: 'sha384-krYu4ZHwmSNtXwXO81hJ8Ec0SEHTHXqM4Ypzvs7rv8cahg7+oCMcMSYwyxuTaqDA',
         message: '演示模式使用全息拟态。',
       };
     }

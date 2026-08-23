@@ -58,7 +58,7 @@ export interface DigitalHumanConfig {
 export const DEFAULT_XMOV_SDK_URL =
   'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js';
 export const DEFAULT_XMOV_SDK_INTEGRITY =
-  'sha384-x6JED2qbmbCu3552Jzvj9Egb2FvDrnE2hoPUxupzkFphjuoGadVjKQupOjL3sWtu';
+  'sha384-krYu4ZHwmSNtXwXO81hJ8Ec0SEHTHXqM4Ypzvs7rv8cahg7+oCMcMSYwyxuTaqDA';
 
 /** 动态加载魔珐星云 SDK 脚本 */
 export function loadXmovSDK(

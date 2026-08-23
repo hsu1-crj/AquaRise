@@ -34,6 +34,18 @@ function cleanMarkdown(text: string): string {
   return text.replace(/[*#`_~[\]()]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+/** 按句边界截断到 maxChars 以内, 避免 slice 拦腰截断句子 */
+function clipBySentence(text: string, maxChars = 300): string {
+  if (text.length <= maxChars) return text;
+  const sentences = text.split(/(?<=[。！？；!?;])/);
+  let out = '';
+  for (const s of sentences) {
+    if (out.length + s.length > maxChars) break;
+    out += s;
+  }
+  return out || text.slice(0, maxChars);
+}
+
 /** 隐藏 SDK 注入的原生字幕元素(它默认吸在容器底部, 与本坞字幕条重复) */
 function hideSdkSubtitles(container: HTMLElement): void {
   const allDivs = container.querySelectorAll('div');
@@ -124,7 +136,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     const clean = cleanMarkdown(text);
     if (!clean) return;
     if (dhMode === 'ready' && dhRef.current) {
-      dhRef.current.speak(clean.slice(0, 300), { isStart: true, isEnd: true });
+      dhRef.current.speak(clipBySentence(clean), { isStart: true, isEnd: true });
       setSpeaking(true);
     } else {
       speakQueued(clean);
@@ -188,10 +200,16 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
   return (
     <section className="ocean3d-guide glass" aria-label="数字人导游">
       <header>
-        <span className={`ocean3d-guide-orb ${speaking ? 'speaking' : ''} ${dhMode !== 'boot' ? `mode-${dhMode}` : ''}`} />
+        <span
+          className={`ocean3d-guide-orb ${speaking ? 'speaking' : ''} ${dhMode !== 'boot' ? `mode-${dhMode}` : ''}`}
+          role="img"
+          aria-label={dhMode === 'ready' ? (speaking ? '数字人正在讲解' : '数字人在线') : '语音导游模式'}
+        />
         <div className="ocean3d-guide-title">
           <b>数字人导游 · 海瞳</b>
-          <em>{dhMode === 'boot' ? '正在上线…' : dhMode === 'ready' ? (speaking ? '正在讲解' : '在线') : '语音模式'}</em>
+          <em data-mode={dhMode} aria-live="polite">
+            {dhMode === 'boot' ? '正在上线…' : dhMode === 'ready' ? (speaking ? '正在讲解' : '在线') : '语音模式'}
+          </em>
         </div>
         <button className="ocean3d-close" aria-label="关闭导游" onClick={onClose}><X size={15} /></button>
       </header>
@@ -202,7 +220,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
       </div>
 
       {/* 播报字幕条(投放提示/回答摘要都在这里, 不再弹浮动卡) */}
-      {caption && <p className="ocean3d-guide-caption">{caption}</p>}
+      {caption && <p className="ocean3d-guide-caption" role="status" aria-live="polite">{caption}</p>}
 
       <div className="ocean3d-guide-log">
         {messages.map((m, i) => (
