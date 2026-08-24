@@ -1436,9 +1436,55 @@
  transition-duration: 0.01ms !important;
  }
  }
+ /* ===== 启动屏（bootSplash）===== */
+ #bootSplash{position:fixed;inset:0;z-index:400;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 38%,rgba(27,231,255,.07),transparent 42%),radial-gradient(circle at 78% 82%,rgba(56,248,212,.05),transparent 40%),#01050c;transition:opacity .65s ease}
+ #bootSplash.done{opacity:0;pointer-events:none}
+ #bootSplash.gone{display:none}
+ .boot-core{position:relative;width:92px;height:92px;display:grid;place-items:center;color:var(--cyan);font-size:30px;font-weight:700;letter-spacing:.12em;text-shadow:0 0 22px var(--cyan-glow)}
+ .boot-ring{position:absolute;inset:0;border-radius:50%;border:1px solid rgba(56,248,212,.35)}
+ .boot-ring.r1{animation:bootRing 3s ease-out infinite}
+ .boot-ring.r2{animation:bootRing 3s ease-out 1.5s infinite}
+ @keyframes bootRing{0%{transform:scale(.72);opacity:.85}100%{transform:scale(1.42);opacity:0}}
+ .boot-kicker{margin:20px 0 6px;font-size:10px;letter-spacing:.34em;color:rgba(56,248,212,.75)}
+ .boot-title{margin:0;font-size:19px;font-weight:600;color:var(--ink);letter-spacing:.06em}
+ .boot-bar{margin-top:22px;width:220px;height:2px;border-radius:999px;overflow:hidden;background:rgba(56,248,212,.12)}
+ .boot-bar i{display:block;height:100%;width:42%;border-radius:inherit;background:linear-gradient(90deg,transparent,var(--cyan),#1be7ff,transparent);animation:bootSlide 1.5s ease-in-out infinite}
+ @keyframes bootSlide{0%{transform:translateX(-110%)}100%{transform:translateX(360%)}}
+ @media (prefers-reduced-motion: reduce){.boot-ring,.boot-bar i{animation:none}}
+
+ /* ===== 新手引导卡（coachMarks）===== */
+ #coachMarks{position:fixed;inset:0;z-index:390;display:none;align-items:center;justify-content:center;background:rgba(1,5,12,.55);backdrop-filter:blur(6px);opacity:0;transition:opacity .4s ease}
+ #coachMarks.show{display:flex}
+ #coachMarks.visible{opacity:1}
+ .coach-panel{width:min(430px,88vw);border-radius:20px;padding:26px 28px 22px;background:var(--glass-bg);border:1px solid var(--glass-border);backdrop-filter:blur(24px);box-shadow:0 30px 80px rgba(0,0,0,.5),inset 0 1px rgba(255,255,255,.06);text-align:center;transform:translateY(10px);transition:transform .4s cubic-bezier(.22,.8,.36,1)}
+ #coachMarks.visible .coach-panel{transform:none}
+ .coach-kicker{display:block;font-size:9px;letter-spacing:.32em;color:var(--cyan);margin-bottom:8px}
+ .coach-panel h2{margin:0 0 16px;font-size:17px;color:var(--ink);font-weight:600;letter-spacing:.02em}
+ .coach-steps{list-style:none;margin:0 0 18px;padding:0;display:flex;flex-direction:column;gap:9px;text-align:left}
+ .coach-steps li{display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:12px;background:rgba(3,14,25,.55);border:1px solid rgba(135,222,255,.12)}
+ .coach-steps li i{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:700;color:#032028;background:linear-gradient(135deg,var(--cyan),#1be7ff)}
+ .coach-steps li b{flex:none;font-size:12px;color:var(--ink)}
+ .coach-steps li span{font-size:10.5px;color:var(--ink-dim)}
+ .coach-actions{display:flex;gap:10px;justify-content:center}
+ .coach-actions .pill-btn.primary{background:linear-gradient(135deg,rgba(56,248,212,.2),rgba(27,231,255,.16));border-color:rgba(56,248,212,.5);color:var(--ink)}
+ .coach-actions .pill-btn.primary:hover{background:linear-gradient(135deg,rgba(56,248,212,.32),rgba(27,231,255,.26));box-shadow:0 0 18px rgba(56,248,212,.25)}
+ @media (prefers-reduced-motion: reduce){#coachMarks,.coach-panel{transition:none}}
+
  </style>
 </head>
+</head>
 <body>
+
+ <!-- 启动屏：脚本加载/引擎初始化期间的品牌过场（纯 CSS 动画，不依赖 JS） -->
+ <div id="bootSplash" role="status" aria-live="polite" aria-label="海瞳生命图谱正在加载">
+  <div class="boot-core">
+   <span class="boot-ring r1"></span><span class="boot-ring r2"></span>
+   <b>海瞳</b>
+  </div>
+  <p class="boot-kicker">HAITONG · BIOLUMINESCENT ATLAS</p>
+  <h1 class="boot-title">生命图谱 · 守护蓝色星球</h1>
+  <div class="boot-bar"><i></i></div>
+ </div>
 
  <!-- 深海氛围背景 -->
  <div id="deepSeaVignette"></div>
@@ -1446,7 +1492,7 @@
  <div id="atmosphereGlow" aria-hidden="true"></div>
 
  <!-- WebGL 粒子舞台 -->
- <canvas id="stage"></canvas>
+ <canvas id="stage" role="img" aria-label="交互式深海粒子地球：拖拽旋转，滚轮下潜探索濒危海洋物种"></canvas>
  <div id="introMark" aria-hidden="true">
  <span class="intro-kicker">BIOLUMINESCENT ATLAS · BLUE PLANET</span>
  <span class="intro-title" id="introTitle">海瞳 · 守护蓝色星球</span>
@@ -1652,7 +1698,7 @@
   </div>
 
   <!-- 吐司提示 -->
-  <div id="toast"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
 
    <!-- 手势图鉴模态窗口 -->
   <div id="gestureGuide" aria-hidden="true">
@@ -1949,6 +1995,23 @@
   </div>
 
   <audio id="bgm" loop preload="auto"><source src="assets/audio/yue.mp3" type="audio/mpeg"></audio>
+
+ <!-- 新手引导（首次进入显示；localStorage 记忆不再打扰） -->
+ <div id="coachMarks" aria-hidden="true">
+  <div class="coach-panel" role="dialog" aria-modal="true" aria-labelledby="coachTitle">
+   <span class="coach-kicker">FIRST DIVE GUIDE</span>
+   <h2 id="coachTitle">三步开启你的深海首潜</h2>
+   <ol class="coach-steps">
+    <li><i>1</i><b>拖拽</b><span>旋转地球，寻找发光的物种栖息地</span></li>
+    <li><i>2</i><b>滚轮 / 点击物种</b><span>下潜抵近，打开物种档案与声纹独白</span></li>
+    <li><i>3</i><b>手势（可选）</b><span>开启摄像头：手掌开档案 · 握拳回地球</span></li>
+   </ol>
+   <div class="coach-actions">
+    <button class="pill-btn primary" id="coachStartGesture">开启手势互动</button>
+    <button class="pill-btn" id="coachSkip">先自己逛逛</button>
+   </div>
+  </div>
+ </div>
 
 <script type="module">
 import * as THREE from "./assets/vendor/three.module.min.js";
@@ -5562,7 +5625,7 @@ window.addEventListener("keydown", e => {
  if (e.key === "ArrowRight") { stopDemo("检测到键盘操作"); switchSpecies(1); }
  if (e.key === "ArrowLeft") { stopDemo("检测到键盘操作"); switchSpecies(-1); }
  if (e.key === "Escape") {
-    if (guide.classList.contains("open") || $("#speciesSpotlight")?.classList.contains("open") || $("#shareModal")?.classList.contains("open")) {
+    if (guide.classList.contains("open") || $("#spotlightModal")?.classList.contains("open") || $("#shareModal")?.classList.contains("open")) {
       closeGestureGuide(); closeSpotlight(); closeShareModal();
     } else {
       if (window.parent && window.parent !== window) {
@@ -5909,6 +5972,10 @@ document.querySelectorAll("#soundTags [data-kind]").forEach(tag => {
 const video = $("#webcam"), canvasDet = $("#detCanvas"), ctxDet = canvasDet.getContext("2d");
 const gestureBtn = $("#gestureBtn"), hintGestureBtn = $("#hintGestureBtn");
 let gestureStream = null, gestureRunning = false, gestureTimer = null;
+let gestureManualChoice = false;
+// 手势不是视频检测：识别频率不需要追上渲染帧率。降低同步 WASM/GPU 调用频率，
+// 避免它和 2.6 万粒子地球争用主线程与显卡，摄像头预览仍由浏览器按原生帧率播放。
+const GESTURE_DETECT_INTERVAL_MS = 84;
 let lastGestureActionTime = 0;
 let handLandmarker = null, handLandmarkerError = "";
 
@@ -5940,6 +6007,7 @@ async function initHandLandmarker() {
 }
 
 async function toggleGesture() {
+ gestureManualChoice = true;
  if (gestureRunning) {
   stopGesture();
  } else {
@@ -5955,7 +6023,7 @@ async function toggleGesture() {
  return;
  }
  gestureStream = await navigator.mediaDevices.getUserMedia({
- video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
+ video: { width: { ideal: 640, max: 640 }, height: { ideal: 480, max: 480 }, frameRate: { ideal: 15, max: 20 }, facingMode: "user" }
  });
  video.srcObject = gestureStream;
  await video.play();
@@ -6055,7 +6123,7 @@ function startLandmarkLoop() {
  } catch (err) {
  // 单帧跟踪失败忽略
  }
- if (gestureRunning) gestureTimer = setTimeout(loop, 33); // ~30fps
+ if (gestureRunning) gestureTimer = setTimeout(loop, GESTURE_DETECT_INTERVAL_MS);
  }
  loop();
 }
@@ -6588,28 +6656,51 @@ function tryAutoPlayBgm() {
  }).catch(() => {});
 }
 
-async function autoStartGesture() {
+/* ================= 启动屏揭幕 / 就绪通知 / 新手引导（摄像头显式 opt-in） ================= */
+function notifyReady() {
+ // 揭幕启动屏，并通知 React 宿主页面图谱已就绪。
+ // 注意：后台/遮挡标签页的 rAF 会被浏览器节流甚至停发，
+ // 因此除双 rAF 外再用 setTimeout 兜底，ready 消息也立即发送，不依赖帧回调。
+ const splash = $("#bootSplash");
+ const reveal = () => {
+  if (!splash || splash.classList.contains("done")) return;
+  splash.classList.add("done");
+  setTimeout(() => splash.classList.add("gone"), 700);
+ };
+ requestAnimationFrame(() => requestAnimationFrame(reveal));
+ setTimeout(reveal, 2500);
  try {
- if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
- const ready = await initHandLandmarker();
- if (!ready) return;
- gestureStream = await navigator.mediaDevices.getUserMedia({
- video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
- });
- video.srcObject = gestureStream;
- await video.play();
- gestureRunning = true;
- soundscape.unlock();
- updateGestureUi(true);
- $("#preview").classList.add("show");
- $("#statusTxt").textContent = "MediaPipe 手势感知中...";
- startLandmarkLoop();
- toast("AI 视觉手势已自动启动 · 张开手掌打开物种档案，握拳返回地球");
- } catch (e) {
- console.log("Auto-start gesture prompt/fallback:", e);
- }
+  if (window.parent && window.parent !== window) window.parent.postMessage("haitong-ready", "*");
+ } catch (e) { /* 宿主不存在时忽略 */ }
 }
 
+const COACH_SEEN_KEY = "haitong-coach-seen-v1";
+function dismissCoach() {
+ const coach = $("#coachMarks");
+ if (!coach || !coach.classList.contains("show")) return;
+ coach.classList.remove("visible");
+ setTimeout(() => {
+  coach.classList.remove("show");
+  coach.setAttribute("aria-hidden", "true");
+ }, 350);
+ try { localStorage.setItem(COACH_SEEN_KEY, "1"); } catch (e) { /* 隐私模式等场景忽略 */ }
+}
+
+function maybeShowCoach() {
+ let seen = false;
+ try { seen = localStorage.getItem(COACH_SEEN_KEY) === "1"; } catch (e) { /* 忽略 */ }
+ const coach = $("#coachMarks");
+ if (seen || !coach) return;
+ $("#coachStartGesture")?.addEventListener("click", () => { dismissCoach(); void toggleGesture(); });
+ $("#coachSkip")?.addEventListener("click", dismissCoach);
+ // 等 intro 签名动画开场后再浮现，12 秒无操作自动收起
+ setTimeout(() => {
+  coach.classList.add("show");
+  coach.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => coach.classList.add("visible"));
+  setTimeout(dismissCoach, 12000);
+ }, 2600);
+}
 /* ================= 初始化启动 ================= */
 initParticleRenderer();
 buildEarthHomes();
@@ -6633,10 +6724,12 @@ Promise.all(SPECIES.map((_, i) => buildImgHomes(i))).then(() => {
 applySpecies(true);
 requestAnimationFrame(frame);
 tryAutoPlayBgm();
-// 进入生命图谱即请求摄像头权限；拒绝时仍可点击顶部按钮重试。
-autoStartGesture();
+// 摄像头改为显式 opt-in：由新手引导卡或顶部「手势」按钮开启，不再静默请求权限；
+// 首帧渲染稳定后揭幕启动屏并通知宿主页面（MarineAtlas）图谱已就绪。
 window.addEventListener("resize", () => { resize(); applySpecies(true); });
-toast("海瞳 · 守护蓝色星球已就绪 · 拖拽旋转地球，滚轮/手势下潜探索物种");
+toast("海瞳 · 守护蓝色星球已就绪 · 拖拽旋转地球，滚轮下潜探索物种");
+notifyReady();
+maybeShowCoach();
 
 </script>
 </body>

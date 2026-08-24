@@ -412,6 +412,7 @@ class FrontendReport(BaseModel):
     objectCount: int
     status: str          # 已生成 / 生成中
     summary: str
+    reportUrl: str = ""  # 可打开的 HTML 报告预览地址（GET /api/v1/reports/{id}/preview）
 
 
 class FrontendReportListResponse(BaseModel):
@@ -432,6 +433,33 @@ class CreateBatchReportRequest(BaseModel):
     format: str = "html"
 
 
+class ReportSolution(BaseModel):
+    priority: str
+    action: str
+    owner: str
+    deadline: str
+    validation: str
+
+
+class ReportAnalysisResponse(BaseModel):
+    id: int
+    report_id: int
+    status: str
+    summary: str
+    risk_level: str
+    key_findings: list[str]
+    possible_causes: list[str]
+    solutions: list[ReportSolution]
+    follow_up_monitoring: list[str]
+    evidence: list[dict]
+    model_name: str | None = None
+    created_at: str
+
+
+class DocumentAnalysisResponse(ReportAnalysisResponse):
+    doc_id: int
+
+
 # ============ 前端 SPA 对话契约（api.ts streamChat） ============
 class SpaChatMessage(BaseModel):
     """前端发送的单条消息"""
@@ -445,3 +473,5 @@ class SpaChatRequest(BaseModel):
     stream: bool = True
     session_id: Optional[str] = None
     message: Optional[str] = None  # 旧格式兼容
+    report_id: Optional[int] = Field(default=None, ge=1, description="当前追问绑定的系统质量报告 ID")
+    document_id: Optional[int] = Field(default=None, ge=1, description="当前追问绑定的导入知识库文档 ID")

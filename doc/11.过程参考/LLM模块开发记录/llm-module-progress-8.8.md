@@ -323,8 +323,8 @@ test/src/vision/    →  src/vision/     （完整替换）
 **修复**:
 1. 在 `src/frontend/.env` 中填入实际值:
    ```
-   VITE_DH_APP_ID=***REMOVED***
-   VITE_DH_APP_SECRET=***REMOVED***
+   VITE_DH_APP_ID=<从魔珐星云控制台获取>
+   VITE_DH_APP_SECRET=<仅保存在本地 .env，不提交>
    ```
 2. 代码中 `appId: ''` / `appSecret: ''` 硬编码改为读取 `import.meta.env.VITE_DH_*`
 

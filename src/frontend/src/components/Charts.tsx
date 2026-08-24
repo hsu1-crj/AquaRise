@@ -74,11 +74,13 @@ export function MaterialChart({ breakdown, total }: { breakdown?: Record<string,
 /** 高频垃圾类型条形图：接收后端聚合的类别排名；不传时用静态演示数据兜底 */
 export function RankingChart({ ranking }: { ranking?: ClassRankItem[] }) {
   const items = ranking ?? [{ name: '易清除垃圾', count: 128 }, { name: '纠缠垃圾', count: 96 }, { name: '沉重垃圾', count: 82 }];
+  // 数字标签贴在条尾右侧，若条过长会被面板裁剪；预留右侧空间并把条顶限制到 ~85% 以内
+  const maxVal = Math.max(...items.map((item) => item.count), 1);
   const option: EChartsOption = {
-    grid: { left: 8, right: 18, top: 6, bottom: 6, containLabel: true },
-    xAxis: { type: 'value', show: false },
+    grid: { left: 8, right: 46, top: 6, bottom: 6, containLabel: true },
+    xAxis: { type: 'value', show: false, max: maxVal * 1.18 },
     yAxis: { type: 'category', inverse: true, data: items.map((item) => item.name), axisLabel: { ...axisLabel, color: 'rgba(230,248,255,.75)' }, axisLine: { show: false }, axisTick: { show: false } },
-    series: [{ type: 'bar', data: items.map((item) => item.count), barWidth: 8, showBackground: true, backgroundStyle: { color: 'rgba(94,214,255,.07)', borderRadius: 8 }, itemStyle: { borderRadius: 8, color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: '#1677ff' }, { offset: 1, color: '#42e8ff' }]) }, label: { show: true, position: 'right', color: '#bfefff', fontSize: 11 } }],
+    series: [{ type: 'bar', data: items.map((item) => item.count), barWidth: 8, showBackground: true, backgroundStyle: { color: 'rgba(94,214,255,.07)', borderRadius: 8 }, itemStyle: { borderRadius: 8, color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: '#1677ff' }, { offset: 1, color: '#42e8ff' }]) }, label: { show: true, position: 'right', color: '#bfefff', fontSize: 11, formatter: (p: { value: unknown }) => Number(p.value).toLocaleString('zh-CN') } }],
   };
   return <OceanChart option={option} className="ranking-chart" />;
 }

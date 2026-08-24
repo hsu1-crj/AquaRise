@@ -1,5 +1,5 @@
 /**
- * api.js — AQUARISE 移动端 API 客户端
+ * api.js — 海瞳移动端 API 客户端
  * ============================================================
  * 封装全部后端 /api/v1/* 接口调用：
  *   - API 基址可配置（手机端需指向主机局域网 IP，非 localhost）
@@ -154,6 +154,52 @@ async function request(path, init, opts = {}) {
   }
 }
 
+/**
+ * 带鉴权的上传请求。XMLHttpRequest 用于提供真实上传进度；服务端处理阶段由调用方单独展示。
+ */
+function upload(path, form, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${getApiBase()}${path}`);
+    xhr.timeout = opts.timeout ?? 120000;
+    const token = getToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && opts.onProgress) {
+        opts.onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    });
+    xhr.addEventListener('load', () => {
+      let payload = null;
+      try { payload = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { /* 非 JSON 响应 */ }
+      if (xhr.status === 401) {
+        setToken(null);
+        reject(new AuthError('登录已过期，请重新登录'));
+      } else if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(payload);
+      } else {
+        reject(new ApiError(payload?.detail || payload?.message || `上传失败（${xhr.status}）`, xhr.status));
+      }
+    });
+    xhr.addEventListener('error', () => reject(new ApiError('上传中断，请检查网络连接')));
+    xhr.addEventListener('timeout', () => reject(new ApiError('上传超时，请稍后重试')));
+    xhr.addEventListener('abort', () => reject(new DOMException('上传已取消', 'AbortError')));
+
+    if (opts.signal?.aborted) {
+      reject(new DOMException('上传已取消', 'AbortError'));
+      return;
+    }
+    opts.signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(form);
+  });
+}
+
+function numericId(value) {
+  const match = String(value ?? '').match(/(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
 // ============ 自定义错误 ============
 export class ApiError extends Error {
   constructor(message, status) {
@@ -173,11 +219,11 @@ export class AuthError extends ApiError {
 // ============ 业务接口 ============
 export const api = {
   // ---- 认证 ----
-  async login(username, password) {
+  async login(username, password, rememberMe = false) {
     const data = await request('/api/v1/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, platform: 'mobile' }),
+      body: JSON.stringify({ username, password, platform: 'mobile', remember_me: rememberMe }),
     }, { skipAuth: true });
     setToken(data.access_token);
     return data;
@@ -235,25 +281,53 @@ export const api = {
     }));
   },
 
-  // ---- 检测任务 ----
-  async getDetections(page = 1, pageSize = 50, opts = {}) {
-    return request(`/api/v1/detections?page=${page}&page_size=${pageSize}`, {}, opts);
+  async getAnalysis() {
+    return request('/api/v1/stats/analysis');
   },
 
-  /** 图片检测：上传 → 同步推理 → 返回结果 */
-  async detectImage(file) {
+  async getSeaAreas() {
+    return request('/api/v1/stats/sea-areas');
+  },
+
+  async getSites(days = 30) {
+    return request(`/api/v1/stats/sites?days=${encodeURIComponent(days)}`);
+  },
+
+  // ---- 检测任务 ----
+  async getDetections(page = 1, pageSize = 50, opts = {}) {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (opts.query) params.set('query', opts.query);
+    if (opts.level) params.set('level', opts.level);
+    return request(`/api/v1/detections?${params}`, {}, opts);
+  },
+
+  /** 图片检测：上传 → 同步推理 → 返回结果。 */
+  async detectImage(file, siteId = null, opts = {}) {
     const form = new FormData();
     form.append('file', file);
     form.append('width', '1280');
     form.append('height', '720');
-    return request('/api/v1/detect/image', { method: 'POST', body: form }, { timeout: 60000 });
+    if (siteId) form.append('site_id', String(siteId));
+    return upload('/api/v1/detect/image', form, opts);
   },
 
-  /** 提交视频检测：立即返回 task_id，后台处理 */
-  async detectVideo(file) {
+  /** 多图批量识别；每张图独立生成任务。 */
+  async detectImages(files, siteId = null, opts = {}) {
+    const form = new FormData();
+    for (const file of files) form.append('files', file);
+    if (siteId) form.append('site_id', String(siteId));
+    return upload('/api/v1/detect/images', form, opts);
+  },
+
+  /** 提交视频检测：上传完成后立即返回 task_id，服务端后台处理。 */
+  async detectVideo(file, siteId = null, opts = {}) {
     const form = new FormData();
     form.append('file', file);
-    return request('/api/v1/detect/video', { method: 'POST', body: form });
+    if (siteId) form.append('site_id', String(siteId));
+    return upload('/api/v1/detect/video', form, opts);
   },
 
   /** 查询任务进度（实时监控核心接口） */
@@ -277,6 +351,83 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task_id: Number(taskId), format: 'html' }),
     });
+  },
+
+  async getReportPreview(reportId, opts = {}) {
+    const id = numericId(reportId);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeout ?? DEFAULT_TIMEOUT);
+    if (opts.signal) {
+      if (opts.signal.aborted) controller.abort();
+      else opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    try {
+      const res = await fetch(`${getApiBase()}/api/v1/reports/${id}/preview`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        let payload = null;
+        try { payload = await res.json(); } catch { /* HTML 或空错误体 */ }
+        throw new ApiError(payload?.detail || `报告打开失败（${res.status}）`, res.status);
+      }
+      return res.text();
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
+  async deleteReport(reportId) {
+    const id = numericId(reportId);
+    return request(`/api/v1/reports/${id}`, { method: 'DELETE' });
+  },
+
+  async getChatHistory(sessionId, opts = {}) {
+    const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+    return request(`/api/v1/chat/history${query}`, {}, opts);
+  },
+
+  async streamChat(messages, opts = {}) {
+    const res = await fetch(`${getApiBase()}/api/v1/chat`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${getToken()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages,
+        stream: true,
+        session_id: opts.sessionId,
+        report_id: opts.reportId || undefined,
+      }),
+      signal: opts.signal,
+    });
+    if (!res.ok || !res.body) {
+      let payload = null;
+      try { payload = await res.json(); } catch { /* 非 JSON 错误体 */ }
+      throw new ApiError(payload?.detail || `守护者请求失败（${res.status}）`, res.status);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || '';
+      for (const event of events) {
+        const line = event.split('\n').find((item) => item.startsWith('data:'));
+        if (!line) continue;
+        const payload = line.slice(5).trim();
+        if (payload === '[DONE]') return;
+        let data;
+        try { data = JSON.parse(payload); } catch { continue; }
+        if (data.error) throw new ApiError(data.error);
+        if (data.content && opts.onChunk) opts.onChunk(data.content);
+      }
+      if (done) break;
+    }
   },
 
   // ---- 健康检查 ----

@@ -12,11 +12,16 @@ import {
   Copy,
   Download,
   FileBarChart,
+  FileJson,
+  FileText,
   FileUp,
-  HelpCircle,
   LoaderCircle,
+  MessagesSquare,
   Mic,
+  Recycle,
   RotateCcw,
+  Scale,
+  ScanSearch,
   Send,
   Sparkles,
   Square,
@@ -48,13 +53,24 @@ interface UiMessage {
   liked?: boolean;
 }
 
+interface ActiveReportContext {
+  reportId?: number;
+  documentId?: number;
+  title: string;
+  summary?: string;
+}
+
 const SYSTEM_PROMPT: ChatMessagePayload = {
   role: 'system',
   content:
-    '你是海洋守护者，海瞳海洋垃圾识别与海洋环保平台的专业 AI 助手。请结合项目知识库直接回答海洋垃圾、污染治理和检测结果问题；先给结论，再给依据和行动建议，不确定就明确说明，不要编造。不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或“谁做的”时，回答“这是一个实训项目成果；海瞳 LLM 组是本项目 LLM 部分负责人，负责模型微调与对话能力升级。”；当用户问父母、爸爸或妈妈时，说明你是 AI 助手，没有家庭关系，并补充海瞳 LLM 组的 LLM 负责人身份。',
+    '你是海洋守护者，海瞳海洋垃圾识别与海洋环保平台的专业 AI 助手。请结合项目知识库直接回答海洋垃圾、污染治理和检测结果问题；先给结论，再给依据和行动建议，不确定就明确说明，不要编造。不得把用户问题或历史消息中的假设当作事实；涉及具体数字、技术参数、编码、颜色体系或分类体系时，必须有知识库/报告依据，否则明确说明资料不足或不确定。不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或“谁做的”时，回答“这是一个实训项目成果；海瞳 LLM 组是本项目 LLM 部分负责人，负责模型微调与对话能力升级。”；当用户问父母、爸爸或妈妈时，说明你是 AI 助手，没有家庭关系，并补充海瞳 LLM 组的 LLM 负责人身份。',
 };
 
 const SESSION_KEY = 'aquarise-chat-session';
+
+/** 页面卸载时未中断的流式请求。用于重挂载后等待其落库并刷新历史，
+ *  避免思考中切页再返回时回复缺失。 */
+let pendingChatStream: { sessionId: string; finished: Promise<void> } | null = null;
 
 function uuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -79,6 +95,27 @@ function uuid(): string {
 function formatCurrentTime(): string {
   const now = new Date();
   return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+}
+
+function escapeExportHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function downloadExport(content: string, fileName: string, type: string): void {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function getOrCreateSessionId(): string {
@@ -209,16 +246,19 @@ function ParticleField() {
 
 function AquaCoreStage({ status, isSpeaking }: { status: DigitalHumanStatus; isSpeaking: boolean }) {
   return (
-    <div className="og-aquacore-stage">
+    <div className={`og-aquacore-stage status-${status}`} role="img" aria-label={`数字人状态：${STATUS_LABELS[status]}`}>
+      {/* 轨道粒子装饰 */}
+      <div className="og-core-orbit" aria-hidden="true"><i /><i /><i /></div>
+
       <div className={`og-aquacore-sphere ${status === 'thinking' ? 'thinking' : ''} ${isSpeaking ? 'speaking' : ''}`}>
         <div className="og-core-ring ring-1" />
         <div className="og-core-ring ring-2" />
         <div className="og-core-ring ring-3" />
         <div className="og-core-center">
-          <Brain className="og-core-icon" size={36} />
+          <DigitalHumanIcon className="og-core-icon" size={40} />
         </div>
         {/* 声呐音频能量波动 */}
-        <div className="og-wave-bars">
+        <div className="og-wave-bars" aria-hidden="true">
           <span />
           <span />
           <span />
@@ -234,7 +274,11 @@ function AquaCoreStage({ status, isSpeaking }: { status: DigitalHumanStatus; isS
         </div>
         <div className="og-telem-chip">
           <Sparkles size={11} />
-          <span>RAG 知识向量库就绪</span>
+          <span>RAG 知识库就绪</span>
+        </div>
+        <div className={`og-telem-chip og-mode-chip mode-${status}`}>
+          <Waves size={11} />
+          <span>{STATUS_LABELS[status]}</span>
         </div>
       </div>
     </div>
@@ -300,7 +344,11 @@ function MessageBubble({
   const formattedHtml = useMemo(() => {
     if (!message.content) return '';
     try {
-      const raw = marked.parse(message.content, { async: false }) as string;
+      // 后端已过滤思考痕迹；这里再做一次轻量兜底，避免异常模型输出进入 Markdown。
+      const visible = message.content
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/(^|\n)\s*(?:嗯[，,、 ]*)?(?:用户问的是|用户的问题是|首先[，,、 ]*(?:我得|我需要|让我|我先)|让我想想|我来分析一下|我需要回忆|先分析一下)[：:，, ]*/gi, '$1');
+      const raw = marked.parse(visible, { async: false }) as string;
       return DOMPurify.sanitize(raw);
     } catch {
       return message.content;
@@ -344,7 +392,7 @@ function MessageBubble({
   return (
     <article className={`og-msg ${message.role}`}>
       <div className={`og-mav ${isAssistant ? 'og-mav-ai' : 'og-mav-user'}`}>
-        {isAssistant ? <Waves size={16} /> : userInitial}
+        {isAssistant ? <DigitalHumanIcon size={18} /> : <span className="og-profile-avatar">{userInitial}<i /></span>}
       </div>
 
       <div className="og-mbub-wrap">
@@ -677,24 +725,79 @@ function FollowUpSuggestions({
   );
 }
 
+// ---------- 空态欢迎 Hero（能力卡片即点即问） ----------
+
+const HERO_CAPABILITIES = [
+  { icon: ScanSearch, accent: 'cyan', title: '检测结果研判', desc: '置信度复核 · 目标解读', q: QUICK_QUESTIONS[1].q },
+  { icon: FileBarChart, accent: 'green', title: '质量报告解读', desc: '风险等级 · 处置建议', q: QUICK_QUESTIONS[6].q },
+  { icon: Scale, accent: 'violet', title: '法规公约问答', desc: 'MARPOL · 环保法规', q: QUICK_QUESTIONS[3].q },
+  { icon: Recycle, accent: 'amber', title: '治理方案咨询', desc: '清理优先级 · 打捞回收', q: QUICK_QUESTIONS[7].q },
+];
+
+function WelcomeHero({ userName, busy, onAsk }: { userName: string; busy: boolean; onAsk: (q: string) => void }) {
+  const hour = new Date().getHours();
+  const greeting = hour < 6 ? '夜深了' : hour < 12 ? '早上好' : hour < 18 ? '下午好' : '晚上好';
+  return (
+    <div className="og-hero" aria-live="polite">
+      <div className="og-hero-orb" aria-hidden="true">
+        <span className="og-hero-orb-ring r1" />
+        <span className="og-hero-orb-ring r2" />
+        <DigitalHumanIcon size={44} />
+      </div>
+      <p className="og-hero-kicker">OCEAN GUARDIAN · AI ASSISTANT</p>
+      <h3 className="og-hero-title">{greeting}，{userName}</h3>
+      <p className="og-hero-sub">
+        我是海洋守护者，已挂载 <b>海洋知识库</b> 与 <b>TrashCan 研判体系</b>。选择一个能力开始，或直接在下方输入问题。
+      </p>
+      <div className="og-hero-cards">
+        {HERO_CAPABILITIES.map(({ icon: Icon, accent, title, desc, q }) => (
+          <button
+            key={title}
+            type="button"
+            className={`og-hero-card accent-${accent}`}
+            disabled={busy}
+            onClick={() => onAsk(q)}
+            title={q}
+          >
+            <span className="og-hero-card-icon"><Icon size={17} /></span>
+            <span className="og-hero-card-text">
+              <b>{title}</b>
+              <small>{desc}</small>
+            </span>
+            <ChevronRight size={13} className="og-hero-card-go" />
+          </button>
+        ))}
+      </div>
+        <div className="og-hero-quick">
+          {QUICK_QUESTIONS.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className="og-quick-chip"
+              disabled={busy}
+              onClick={() => onAsk(item.q)}
+              title={item.q}
+            >
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+    </div>
+  );
+}
+
 // ---------- 主页面组件 ----------
 
 export function AssistantPage({ user }: { user: UserInfo | null }) {
   // --- 对话状态 ---
   const [sessionId, setSessionId] = useState<string>(() => getOrCreateSessionId());
-  const [messages, setMessages] = useState<UiMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: WELCOME_MD,
-      timestamp: formatCurrentTime(),
-    },
-  ]);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [lastQuestion, setLastQuestion] = useState('');
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   // --- 语音识别输入（Web Speech API，Chrome/Edge） ---
   const [listening, setListening] = useState(false);
@@ -708,9 +811,12 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState('');
   const [importedDocs, setImportedDocs] = useState<KnowledgeDocInfo[]>([]);
+  const [activeReportContext, setActiveReportContext] = useState<ActiveReportContext | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const controller = useRef<AbortController | null>(null);
+  // 同步 busy 标志给 ref，供挂载后的历史刷新判断是否已有新的在途提问。
+  const busyRef = useRef(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -760,18 +866,22 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     }
   }, []);
 
-  // 自动回到底部
-  const scrollToBottom = useCallback((smooth = true) => {
+  // 智能吸底滚动：用户上滚阅读时不再被流式输出拽回底部
+  const stickToBottomRef = useRef(true);
+
+  const scrollToBottom = useCallback((smooth = true, force = false) => {
+    if (!force && !stickToBottomRef.current) return;
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
     }
   }, []);
 
-  // 监听滚动位置，判断是否显示回底按钮
+  // 监听滚动位置：距底部较近视为"吸附"，显示回底按钮
   const handleScroll = useCallback(() => {
     const el = chatScrollRef.current;
     if (!el) return;
     const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceToBottom < 120;
     setShowScrollBottom(distanceToBottom > 120);
   }, []);
 
@@ -779,10 +889,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     scrollToBottom(true);
   }, [messages, scrollToBottom]);
 
-  // 组件卸载时释放资源
+  // 组件卸载时释放资源。注意：不中断进行中的对话流——让请求在后台跑完，
+  // 后端才会把回答落库；否则“思考中切页再返回”会在历史里只剩提问没有回答。
   useEffect(() => {
     return () => {
-      controller.current?.abort();
       stopSubtitleQueue();
       dhRef.current?.destroy();
       // 停止语音识别（内联实现，避免依赖后定义的 stopListening）
@@ -797,27 +907,76 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     };
   }, [stopSubtitleQueue]);
 
+  // 导出菜单：点击外部或 Esc 关闭
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('.og-export-wrap')) setExportOpen(false);
+    };
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setExportOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [exportOpen]);
+
+  // 导入报告弹窗：Esc 关闭（导入进行中不可关，避免中断上传）
+  useEffect(() => {
+    if (!importOpen) return;
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape' && !importBusy) setImportOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [importOpen, importBusy]);
+
   // 加载持久化对话历史
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const toUiMessages = (history: ChatMessagePayload[]): UiMessage[] =>
+      history.map((m) => ({
+        id: uuid(),
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content,
+        timestamp: formatCurrentTime(),
+      }));
+    const load = async () => {
       try {
         const history = await getChatHistory(sessionId);
         if (cancelled) return;
-        if (history.length > 0) {
-          setMessages(
-            history.map((m) => ({
-              id: uuid(),
-              role: m.role === 'user' ? 'user' : 'assistant',
-              content: m.content,
-              timestamp: formatCurrentTime(),
-            })),
-          );
-        }
+        if (history.length > 0) setMessages(toUiMessages(history));
       } catch {
         // 保留初始欢迎语
       }
-    })();
+      // 上一个聊天实例的流式请求可能仍在后台生成（切页时未中断）。
+      // 等它完成落库后再拉一次历史，避免“思考中切页再返回”时只有提问没有回答。
+      const pending = pendingChatStream;
+      if (pending && pending.sessionId === sessionId) {
+        // 等待期间用户可能已发出新提问（正在流式）。此时若用历史快照整体覆盖，
+        // 会冲掉当前正在流式的回答气泡，导致界面一直停留在旧回答上；直接放弃刷新，
+        // 让新提问自行完成并落库。
+        if (busyRef.current) return;
+        try {
+          await pending.finished;
+        } catch {
+          /* 等待失败不影响已恢复的内容 */
+        }
+        if (cancelled || busyRef.current) return;
+        try {
+          const updated = await getChatHistory(sessionId);
+          if (cancelled || busyRef.current) return;
+          if (updated.length > 0) setMessages(toUiMessages(updated));
+        } catch {
+          /* 保留已恢复的内容 */
+        }
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };
@@ -968,7 +1127,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
   // --- 发送提问逻辑 ---
   const ask = useCallback(
-    async (question: string) => {
+    async (question: string, reportContextOverride?: ActiveReportContext | null) => {
       const text = question.trim();
       if (!text || busy) return;
       setInput('');
@@ -977,8 +1136,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       }
       setLastQuestion(text);
       setBusy(true);
+      busyRef.current = true;
       setError('');
       setDhSubtitle('');
+      stickToBottomRef.current = true;
 
       const currentTime = formatCurrentTime();
       const userMessage: UiMessage = {
@@ -996,6 +1157,11 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
       const abortController = new AbortController();
       controller.current = abortController;
+
+      // 登记在途请求：切页卸载不再中止，返回后据此等它完成并刷新历史。
+      let markFinished = () => {};
+      const finished = new Promise<void>((resolve) => { markFinished = resolve; });
+      pendingChatStream = { sessionId, finished };
 
       if (dhOn && dhReady && dhRef.current) {
         setDhStatus('thinking');
@@ -1035,6 +1201,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             }
           },
           abortController.signal,
+          {
+            reportId: (reportContextOverride ?? activeReportContext)?.reportId ?? null,
+            documentId: (reportContextOverride ?? activeReportContext)?.documentId ?? null,
+          },
         );
 
         // 生成结束播报
@@ -1052,17 +1222,29 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           setDhStatus(dhOn && dhReady ? 'idle' : 'offline');
         }
       } catch (reason) {
+        // A stopped request can finish after a newer request has started. Do not
+        // let the stale request overwrite the active request's UI state.
+        if (controller.current !== abortController) return;
         if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
           setError(reason instanceof Error ? reason.message : '对话生成中断或服务响应超时');
         }
         setDhStatus(dhOn && dhReady ? 'idle' : 'offline');
         setDhSubtitle('');
       } finally {
+        // streamChat resolves normally after the SSE [DONE]/reader completion.
+        // Always release the busy lock, while preserving a newer request's lock.
+        markFinished();
+        if (pendingChatStream?.sessionId === sessionId) pendingChatStream = null;
+        if (controller.current !== abortController) return;
+        busyRef.current = false;
         setBusy(false);
         controller.current = null;
+        // 回答完成后归还焦点，方便连续追问（不打断用户主动聚焦的其他控件）
+        const ae = document.activeElement;
+        if (!ae || ae === document.body) textareaRef.current?.focus();
       }
     },
-    [busy, messages, dhOn, dhReady, dhMuted, sessionId, startSubtitleQueue],
+    [busy, messages, dhOn, dhReady, dhMuted, sessionId, activeReportContext, startSubtitleQueue],
   );
 
   const submit = (event: FormEvent) => {
@@ -1160,22 +1342,39 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     }
   }, [systemReports.length]);
 
-  const doImport = useCallback(async (file: File) => {
+  const doImport = useCallback(async (file: File, contextOverrides?: Partial<ActiveReportContext>): Promise<KnowledgeDocInfo | null> => {
     setImportBusy(true);
     setImportError('');
     try {
       const doc = await api.uploadKnowledgeDoc(file);
       setImportedDocs((prev) => [doc, ...prev.filter((d) => d.file_name !== doc.file_name)]);
       setImportOpen(false);
+      const context: ActiveReportContext = {
+        documentId: doc.id,
+        title: file.name,
+        ...contextOverrides,
+      };
+      setActiveReportContext(context);
+      await ask(
+        `我已导入质量分析报告《${file.name}》，请帮我分析这份报告。请先概括报告中的风险等级、关键发现、可能来源和处置建议，并严格依据报告原文回答。`,
+        context,
+      );
+      return doc;
     } catch (reason) {
       setImportError(reason instanceof Error ? reason.message : '报告导入失败');
+      return null;
     } finally {
       setImportBusy(false);
     }
-  }, []);
+  }, [ask]);
 
   const importSystemReport = useCallback(
     (report: Report) => {
+      const reportId = Number(report.id.replace(/^RPT-/i, ''));
+      if (!Number.isInteger(reportId) || reportId < 1) {
+        setImportError('报告编号无效，无法绑定对话上下文');
+        return;
+      }
       const md = [
         `# 质量分析报告 ${report.id}`,
         `- 报告标题：${report.title}`,
@@ -1191,7 +1390,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         report.summary,
       ].join('\n');
       const file = new File([md], `质量报告_${report.id}.md`, { type: 'text/markdown' });
-      void doImport(file);
+      void doImport(file, { reportId, title: report.title, summary: report.summary });
     },
     [doImport],
   );
@@ -1208,6 +1407,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const stop = () => {
     controller.current?.abort();
     stopSubtitleQueue();
+    busyRef.current = false;
     setBusy(false);
     setDhSubtitle('');
     if (dhRef.current) {
@@ -1250,32 +1450,62 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     const fresh = uuid();
     window.sessionStorage.setItem(SESSION_KEY, fresh);
     setSessionId(fresh);
-    setMessages([
-      {
-        id: 'welcome',
-        role: 'assistant',
-        content: WELCOME_MD,
-        timestamp: formatCurrentTime(),
-      },
-    ]);
+    setMessages([]);
     setError('');
     setDhSubtitle('');
   };
 
-  const exportChat = () => {
+  const exportChatMarkdown = () => {
     const lines = messages.map((m) => {
       const author = m.role === 'assistant' ? '海洋守护者 AI' : userName;
       const time = m.timestamp ? ` [${m.timestamp}]` : '';
       return `### ${author}${time}\n\n${m.content}\n`;
     });
     const header = `# 海瞳 · 海洋守护者对话记录\n生成时间：${new Date().toLocaleString()}\n\n---\n\n`;
-    const blob = new Blob([header + lines.join('\n---\n\n')], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `海洋守护者对话记录_${new Date().toISOString().slice(0, 10)}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadExport(header + lines.join('\n---\n\n'), `海洋守护者对话记录_${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown;charset=utf-8');
+    setExportOpen(false);
+  };
+
+  const exportChatJson = () => {
+    const payload = {
+      schema: 'haitong.chat-export.v1',
+      title: '海瞳 · 海洋守护者对话记录',
+      exportedAt: new Date().toISOString(),
+      sessionId,
+      model: 'ds-ocean_mingzhe',
+      user: userName,
+      messageCount: messages.length,
+      messages: messages.map(({ id, role, content, timestamp, liked }) => ({ id, role, content, timestamp, liked: Boolean(liked) })),
+    };
+    downloadExport(JSON.stringify(payload, null, 2), `海洋守护者对话记录_${new Date().toISOString().slice(0, 10)}.json`, 'application/json;charset=utf-8');
+    setExportOpen(false);
+  };
+
+  const exportChatHtml = () => {
+    const exportedAt = new Date();
+    const dateLabel = exportedAt.toLocaleString('zh-CN', { hour12: false });
+    const dateKey = exportedAt.toISOString().slice(0, 10);
+    const userMessages = messages.filter((message) => message.role === 'user').length;
+    const assistantMessages = messages.filter((message) => message.role === 'assistant').length;
+    const citationCount = messages.reduce((total, message) => total + (message.content.match(/\[S\d+\]/gi)?.length ?? 0), 0);
+    const transcript = messages.map((message, index) => {
+      const roleLabel = message.role === 'assistant' ? '海洋守护者 AI' : userName;
+      const roleClass = message.role === 'assistant' ? 'assistant' : 'user';
+      const rendered = DOMPurify.sanitize(String(marked.parse(message.content, { breaks: true })), {
+        USE_PROFILES: { html: true },
+      });
+      return `<article class="message ${roleClass}">
+        <div class="message-meta"><span class="avatar">${message.role === 'assistant' ? 'AI' : escapeExportHtml(userName.slice(0, 1).toUpperCase())}</span><div><strong>${escapeExportHtml(roleLabel)}</strong><time>${escapeExportHtml(message.timestamp ?? `消息 ${index + 1}`)}</time></div></div>
+        <div class="message-body">${rendered}</div>
+      </article>`;
+    }).join('');
+    const html = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>海瞳 · 海洋守护者对话记录</title>
+<style>
+:root{color-scheme:dark;--ink:#dceff3;--muted:#8ba9b4;--line:rgba(125,224,238,.18);--cyan:#59e6ef;--deep:#071723;--panel:rgba(12,35,49,.82);--accent:#8af0bf}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0%,#123b4a 0,#071723 38%,#041019 100%);color:var(--ink);font:15px/1.75 Inter,"Microsoft YaHei",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:56px 28px 72px}.hero{border:1px solid var(--line);background:linear-gradient(135deg,rgba(23,74,89,.72),rgba(7,27,40,.76));border-radius:22px;padding:34px 38px;box-shadow:0 24px 80px rgba(0,0,0,.22)}.kicker{color:var(--cyan);font-size:11px;letter-spacing:.18em;text-transform:uppercase}.hero h1{margin:10px 0 4px;font-size:32px;letter-spacing:.01em}.hero p{margin:0;color:var(--muted)}.meta{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:24px;color:#b9d3d9;font-size:12px}.meta span{padding-right:20px;border-right:1px solid var(--line)}.meta span:last-child{border:0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 30px}.stat{padding:17px 18px;border:1px solid var(--line);border-radius:14px;background:rgba(8,29,42,.7)}.stat b{display:block;color:#fff;font-size:24px}.stat span{color:var(--muted);font-size:12px}.section-title{display:flex;justify-content:space-between;align-items:center;margin:30px 0 12px;color:#bfe9ed;font-size:13px;letter-spacing:.08em}.section-title span{color:var(--muted);font-size:11px;letter-spacing:0}.message{margin:13px 0;padding:20px 22px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}.message.user{border-left:3px solid #75a8ff}.message.assistant{border-left:3px solid var(--accent)}.message-meta{display:flex;align-items:center;gap:10px;margin-bottom:12px}.avatar{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:rgba(89,230,239,.15);color:var(--cyan);font-size:10px;font-weight:700}.user .avatar{background:rgba(117,168,255,.16);color:#a8c5ff}.message-meta strong{display:block;font-size:13px}.message-meta time{display:block;color:var(--muted);font-size:11px}.message-body{color:#d7e7ea}.message-body p{margin:7px 0}.message-body h1,.message-body h2,.message-body h3{color:#fff;line-height:1.3}.message-body code{padding:2px 5px;border-radius:5px;background:rgba(0,0,0,.3);color:#b7f6db}.message-body pre{padding:14px;overflow:auto;background:#041018;border-radius:10px}.message-body blockquote{margin:10px 0;padding-left:14px;border-left:2px solid var(--cyan);color:#b4d1d6}.message-body a{color:var(--cyan)}.footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;display:flex;justify-content:space-between;gap:15px}@media(max-width:640px){.wrap{padding:24px 14px 40px}.hero{padding:25px 22px;border-radius:16px}.hero h1{font-size:25px}.stats{grid-template-columns:repeat(2,1fr)}.meta span{border:0}.message{padding:16px}.footer{display:block}.footer span{display:block;margin-top:5px}}
+ </style></head><body><main class="wrap"><header class="hero"><div class="kicker">HAITONG · OCEAN GUARDIAN</div><h1>海洋守护者对话记录</h1><p>面向海洋垃圾识别、污染分析与治理研判的可追溯聊天流水</p><div class="meta"><span>导出时间：${escapeExportHtml(dateLabel)}</span><span>会话：${escapeExportHtml(sessionId.slice(0, 18))}</span><span>模型：ds-ocean_mingzhe</span></div></header><section class="stats"><div class="stat"><b>${messages.length}</b><span>消息总数</span></div><div class="stat"><b>${userMessages}</b><span>提问</span></div><div class="stat"><b>${assistantMessages}</b><span>回答</span></div><div class="stat"><b>${citationCount}</b><span>证据标记</span></div></section><div class="section-title"><span>聊天记录</span><span>按时间顺序整理 · 原文安全渲染</span></div><section>${transcript}</section><footer class="footer"><span>海瞳智慧海洋环境治理平台</span><span>本记录由海洋守护者对话模块生成 · ${escapeExportHtml(dateLabel)}</span></footer></main></body></html>`;
+    downloadExport(html, `海洋守护者对话记录_${dateKey}.html`, 'text/html;charset=utf-8');
+    setExportOpen(false);
   };
 
   const toggleLike = (id: string) => {
@@ -1347,7 +1577,12 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             className="og-awrap"
             ref={sdkContainerRef}
             id="og-sdk-container"
-            style={{ display: dhReady && dhOn ? 'block' : 'none' }}
+            // XmovAvatar.init() 需要读取容器尺寸；display:none 会让 SDK 在初始化阶段拿到 0x0。
+            // 保留布局尺寸，仅在就绪前隐藏渲染，避免初始化失败后误降级到拟态模式。
+            style={{
+              display: dhOn ? 'block' : 'none',
+              visibility: dhReady ? 'visible' : 'hidden',
+            }}
           />
 
           {/* 当数字人未加载/未配置/离线时，展示 AquaCore 全息拟态球 */}
@@ -1355,8 +1590,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             <AquaCoreStage status={dhStatus} isSpeaking={dhStatus === 'speaking'} />
           )}
 
-          {/* 数字人加载进度 HUD */}
-          {!dhReady && dhOn && (
+          {/* 数字人加载进度 HUD（仅在真实加载中显示；离线降级由光核模式芯片表达） */}
+          {!dhReady && dhOn && dhStatus !== 'offline' && (
             <div className="og-stage-loading-hud" role="status" aria-live="polite">
               <LoaderCircle className="spin" size={16} />
               <span>{dhLoadingText}</span>
@@ -1371,7 +1606,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           <ThinkingOverlay visible={showThinking} />
 
           {/* 流式字幕 HUD */}
-          <div className={`og-subtitle-hud ${showSubtitle ? 'visible' : ''}`}>
+          <div className={`og-subtitle-hud ${showSubtitle ? 'visible' : ''}`} role="status" aria-live="polite">
             <span className="og-subtitle-hud-text">{dhSubtitle}</span>
             {dhStatus === 'thinking' && <i className="og-subtitle-hud-caret" aria-hidden="true" />}
           </div>
@@ -1379,9 +1614,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
         {/* 舞台底部状态与参数条 */}
         <div className="og-stage-footer">
-          <div className="og-status-pill">
-            <span className={`og-status-dot dot-${dhStatus}`} />
+          <div className="og-status-pill" role="status" aria-live="polite" data-status={dhStatus}>
+            <span className={`og-status-dot dot-${dhStatus}`} aria-hidden="true" />
             <span className="og-status-text">{STATUS_LABELS[dhStatus]}</span>
+            <span className="og-status-pulse" aria-hidden="true" />
           </div>
           <div className="og-tech-badge">
             <Bot size={12} />
@@ -1399,6 +1635,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               <Waves size={18} />
             </div>
             <div>
+              <span className="og-topbar-kicker">海域研判工作台 / 02</span>
               <div className="og-topbar-title-row">
                 <h2>海洋守护者</h2>
                 <span className="og-model-chip">ds-ocean_mingzhe</span>
@@ -1416,17 +1653,29 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               onClick={toggleDigitalHuman}
               title={dhOn ? '切换为纯文本大屏' : '切换为数字人协同'}
             >
-              {dhOn ? '◧ 纯文本' : '◲ 数字人'}
+              {dhOn ? (<><MessagesSquare size={13} /><span>纯文本</span></>) : (<><Bot size={13} /><span>数字人</span></>)}
             </button>
 
-            <button
-              className="og-topbar-btn"
-              onClick={exportChat}
-              title="导出当前 Markdown 对话记录"
-            >
-              <Download size={13} />
-              <span>导出记录</span>
-            </button>
+            <div className="og-export-wrap">
+              <button
+                className={`og-topbar-btn ${exportOpen ? 'active' : ''}`}
+                onClick={() => setExportOpen((open) => !open)}
+                title="选择对话记录导出格式"
+                aria-haspopup="menu"
+                aria-expanded={exportOpen}
+              >
+                <Download size={13} />
+                <span>导出记录</span>
+                <ChevronRight className={`og-export-chevron ${exportOpen ? 'open' : ''}`} size={12} />
+              </button>
+              {exportOpen && (
+                <div className="og-export-menu" role="menu">
+                  <button onClick={exportChatHtml} role="menuitem"><FileBarChart size={14} /><span><strong>HTML 对话记录</strong><small>适合答辩展示与归档</small></span></button>
+                  <button onClick={exportChatMarkdown} role="menuitem"><FileText size={14} /><span><strong>Markdown 对话记录</strong><small>便于继续编辑</small></span></button>
+                  <button onClick={exportChatJson} role="menuitem"><FileJson size={14} /><span><strong>JSON 对话数据</strong><small>保留结构化聊天流水</small></span></button>
+                </div>
+              )}
+            </div>
 
             <button
               className="og-topbar-btn danger"
@@ -1439,40 +1688,29 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           </div>
         </header>
 
-        {/* 快捷问题探索栏（保留 8 个原版问题） */}
-        <div className="og-quick-explore-bar">
-          <div className="og-quick-caption">
-            <HelpCircle size={13} />
-            <span>快捷研判咨询：</span>
-          </div>
-          <div className="og-quick-scroll-track">
-            {QUICK_QUESTIONS.map((item) => (
-              <button
-                key={item.label}
-                className="og-quick-chip"
-                disabled={busy}
-                onClick={() => ask(item.q)}
-                title={item.q}
-              >
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* 消息滚动容器 */}
         <div
           className="og-messages-viewport"
           ref={chatScrollRef}
           onScroll={handleScroll}
         >
-          {messages.length === 0 && (
-            <div className="og-empty-state">
-              <div className="og-empty-orb">
-                <Waves size={32} />
-              </div>
-              <h3>开启新的海洋环保对话</h3>
-              <p>选择上方快捷问题或在下方输入检测分析、法规制度与治理方案。</p>
+          {messages.length === 0 && <WelcomeHero userName={userName} busy={busy} onAsk={(q) => void ask(q)} />}
+
+          {messages.length > 0 && activeReportContext && (
+            <div className="og-context-banner" role="status">
+              <span className="og-context-icon"><FileBarChart size={14} /></span>
+              <span className="og-context-text">
+                已绑定 <b>{activeReportContext.title}</b>，回答将结合该报告内容
+              </span>
+              <button
+                type="button"
+                className="og-context-unbind"
+                onClick={() => setActiveReportContext(null)}
+                aria-label="解除报告绑定"
+                title="解除报告绑定"
+              >
+                <X size={12} />
+              </button>
             </div>
           )}
 
@@ -1532,7 +1770,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         {showScrollBottom && (
           <button
             className="og-scroll-bottom-btn"
-            onClick={() => scrollToBottom(true)}
+            onClick={() => { stickToBottomRef.current = true; scrollToBottom(true, true); }}
             title="回到底部"
           >
             <ArrowDown size={14} />
@@ -1581,7 +1819,6 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
                 onKeyDown={handleKeyDown}
                 rows={1}
                 placeholder="向海洋守护者提问（例如：珊瑚附近发现废弃渔网应如何处置？）..."
-                disabled={busy}
               />
 
               <div className="og-composer-toolbar">

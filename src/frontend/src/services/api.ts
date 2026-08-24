@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, ReportAnalysis, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -118,7 +118,7 @@ export const api = {
         sdk_mode: 'realtime',
         gateway_server: 'https://nebula-agent.xingyun3d.com/user/v1/ttsa/session',
         sdk_url: 'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js',
-        sdk_integrity: 'sha384-x6JED2qbmbCu3552Jzvj9Egb2FvDrnE2hoPUxupzkFphjuoGadVjKQupOjL3sWtu',
+        sdk_integrity: 'sha384-krYu4ZHwmSNtXwXO81hJ8Ec0SEHTHXqM4Ypzvs7rv8cahg7+oCMcMSYwyxuTaqDA',
         message: '演示模式使用全息拟态。',
       };
     }
@@ -216,6 +216,37 @@ export const api = {
     if (isMockMode()) { await wait(); return mockReports; }
     const payload = await request<{ items: Report[] }>('/api/v1/reports/?page=1&page_size=50');
     return payload.items;
+  },
+  async deleteReport(reportId: string): Promise<void> {
+    if (isMockMode()) { await wait(); return; }
+    // reportId 形如 RPT-<id>，转为纯数字路径参数
+    const numId = reportId.replace(/^RPT-/i, '');
+    await request(`/api/v1/reports/${numId}`, { method: 'DELETE' });
+  },
+  async analyzeReport(reportId: string | number): Promise<ReportAnalysis> {
+    const id = String(reportId).replace(/^RPT-/, '');
+    return request<ReportAnalysis>(`/api/v1/reports/${encodeURIComponent(id)}/analyze`, { method: 'POST' });
+  },
+  async getReportAnalysis(reportId: string | number): Promise<ReportAnalysis> {
+    const id = String(reportId).replace(/^RPT-/, '');
+    return request<ReportAnalysis>(`/api/v1/reports/${encodeURIComponent(id)}/analysis`);
+  },
+  /** 拉取报告的完整 HTML 内容（对应报告 preview 接口，用于下载成 .html 文件） */
+  async getReportHtml(reportId: string): Promise<string> {
+    if (isMockMode()) { return ''; }
+    const numId = reportId.replace(/^RPT-/i, '');
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`/api/v1/reports/${numId}/preview`, { headers: authHeaders(), signal: controller.signal });
+      if (!response.ok) {
+        handleUnauthorized(response);
+        throw new Error(`报告内容获取失败（${response.status}）`);
+      }
+      return await response.text();
+    } finally {
+      window.clearTimeout(timeout);
+    }
   },
   async detectImage(file: File, width: number, height: number, siteId?: number): Promise<DetectionResult> {
     if (isMockMode()) { await wait(1300); return createMockDetection(width, height); }
@@ -401,6 +432,9 @@ export const api = {
   async deleteKnowledgeDoc(docId: number): Promise<{ message: string }> {
     return request<{ message: string }>(`/api/v1/knowledge/${docId}`, { method: 'DELETE' });
   },
+  async analyzeKnowledgeDoc(docId: number): Promise<ReportAnalysis> {
+    return request<ReportAnalysis>(`/api/v1/knowledge/${docId}/analyze`, { method: 'POST' });
+  },
 };
 
 export interface ChatMessagePayload { role: 'system' | 'user' | 'assistant'; content: string }
@@ -419,6 +453,7 @@ export async function streamChat(
   sessionId: string,
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  context?: { reportId?: number | null; documentId?: number | null },
 ): Promise<void> {
   if (isMockMode()) {
     const reply = '从监测数据看，建议优先处理废弃渔网与大型塑料制品：它们会造成持续缠绕风险，并进一步碎化为微塑料。可先由 ROV 标记坐标和深度，再制定分区打捞路线；作业后复测垃圾密度，并将前后数据纳入质量报告。';
@@ -433,7 +468,13 @@ export async function streamChat(
   const response = await fetch('/api/v1/chat', {
     method: 'POST',
     headers: authHeaders({ headers: { 'Content-Type': 'application/json' } }),
-    body: JSON.stringify({ messages, stream: true, session_id: sessionId }),
+    body: JSON.stringify({
+      messages,
+      stream: true,
+      session_id: sessionId,
+      report_id: context?.reportId ?? undefined,
+      document_id: context?.documentId ?? undefined,
+    }),
     signal,
   });
   if (!response.ok || !response.body) {

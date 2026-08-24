@@ -181,6 +181,31 @@ export interface Report {
   objectCount: number;
   status: '已生成' | '生成中';
   summary: string;
+  reportUrl?: string; // HTML 报告预览地址（GET /api/v1/reports/{id}/preview）
+}
+
+export interface ReportSolution {
+  priority: string;
+  action: string;
+  owner: string;
+  deadline: string;
+  validation: string;
+}
+
+export interface ReportAnalysis {
+  id: number;
+  report_id: number;
+  status: string;
+  summary: string;
+  risk_level: string;
+  key_findings: string[];
+  possible_causes: string[];
+  solutions: ReportSolution[];
+  follow_up_monitoring: string[];
+  evidence: Array<{ id: string; class_name: string; confidence: number; material: string; source: string }>;
+  model_name?: string | null;
+  created_at: string;
+  doc_id?: number;
 }
 
 /** RAG 知识库文档（后端 /api/v1/knowledge 返回形状） */

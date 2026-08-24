@@ -332,3 +332,25 @@ class Report(Base):
 
     def __repr__(self):
         return f"<Report id={self.id} type={self.report_type.value}>"
+
+
+# ============ 8. 报告结构化分析表 ============
+class ReportAnalysis(Base):
+    """报告分析快照：事实统计由后端计算，result_json 保存可追溯的分析与方案。"""
+
+    __tablename__ = "report_analyses"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_id = Column(Integer, ForeignKey("reports.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="completed")
+    result_json = Column(Text, nullable=False)
+    model_name = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    report = relationship("Report")
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<ReportAnalysis id={self.id} report={self.report_id} status={self.status}>"
