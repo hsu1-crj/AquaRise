@@ -18,7 +18,7 @@ const LEVEL_SCORE = { '优': 95, '良': 80, '中': 68, '差': 50, '严重': 30 }
 const LEVEL_COLORS = { '优': 'green', '良': 'cyan', '中': 'amber', '差': 'orange', '严重': 'red' };
 
 export function renderDetail(container, ctx) {
-  const { navigate, id } = ctx;
+  const { navigate, id, state } = ctx;
   let isMounted = true;
   let abortController = new AbortController();
 
@@ -69,7 +69,7 @@ export function renderDetail(container, ctx) {
       if (!isMounted) return;
 
       if (result.status !== 'fulfilled') throw result.reason;
-      renderDetailContent(content, result.value, statusInfo.status === 'fulfilled' ? statusInfo.value : null, navigate);
+      renderDetailContent(content, result.value, statusInfo.status === 'fulfilled' ? statusInfo.value : null, navigate, state);
     } catch (err) {
       if (!isMounted) return;
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -88,7 +88,7 @@ export function renderDetail(container, ctx) {
   };
 }
 
-function renderDetailContent(content, data, statusInfo, navigate) {
+function renderDetailContent(content, data, statusInfo, navigate, state) {
   clear(content);
 
   const isFinished = data.status === 'completed';
@@ -188,25 +188,46 @@ function renderDetailContent(content, data, statusInfo, navigate) {
   }
   content.append(objSection);
 
-  // ---- 生成报告按钮 ----
+  // ---- 底部核心操作 ----
   if (data.status === 'completed' || statusZh(data.status) === '已完成') {
-    content.append(el('button', {
-      className: 'btn-primary btn-full detail-report-btn',
-      onClick: async (e) => {
-        const btn = e.currentTarget;
-        btn.disabled = true;
-        btn.replaceChildren(el('span', { className: 'spinner-mini' }), '生成中…');
+    const actions = el('div', { className: 'detail-actions' });
+    const reportBtn = el('button', {
+      className: 'btn-primary',
+      onClick: async () => {
+        const popup = window.open('about:blank', '_blank');
+        reportBtn.disabled = true;
+        reportBtn.replaceChildren(el('span', { className: 'spinner-mini' }), '生成中…');
         try {
-          await api.createReport(data.task_id);
-          toast('报告已生成，可在主机端查看', 'success');
+          const report = await api.createReport(data.task_id);
+          toast('报告已生成，正在打开', 'success');
+          const html = await api.getReportPreview(report.id);
+          const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+          if (popup) popup.location.href = url;
+          else window.location.href = url;
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
         } catch (err) {
           toast(err.message || '报告生成失败', 'error');
+          popup?.close();
         } finally {
-          btn.disabled = false;
-          btn.replaceChildren(icon('fileChart', 18), '生成检测报告');
+          reportBtn.disabled = false;
+          reportBtn.replaceChildren(icon('fileChart', 18), '生成报告');
         }
       },
-    }, [icon('fileChart', 18), '生成检测报告']));
+    }, [icon('fileChart', 18), '生成报告']);
+    const consultBtn = el('button', {
+      className: 'btn-ghost',
+      onClick: () => {
+        state.guardianContext = {
+          type: 'task',
+          id: data.task_id,
+          label: data.file_name,
+          summary: `污染等级${level || '未评估'}，质量分${score ?? '未知'}，识别目标${data.total_objects ?? 0}个`,
+        };
+        navigate('guardian');
+      },
+    }, [icon('message', 18), '咨询守护者']);
+    actions.append(reportBtn, consultBtn);
+    content.append(actions);
   }
 }
 

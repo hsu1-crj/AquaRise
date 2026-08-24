@@ -20,25 +20,23 @@ export function renderLogin(container, ctx) {
   // ---- 海洋背景 ----
   const ocean = el('div', { className: 'login-ocean-bg', 'aria-hidden': 'true' }, [
     el('div', { className: 'login-ray ray-a' }),
-    el('div', { className: 'login-ray ray-b' }),
-    el('i'), el('i'), el('i'),
   ]);
 
   // ---- 品牌区 ----
   const brand = el('div', { className: 'login-brand-area' }, [
     el('div', { className: 'login-logo-ring' }, [icon('waves', 32)]),
-    el('h1', { textContent: 'AQUARISE' }),
-    el('p', { textContent: '海洋智守平台 · 移动端' }),
+    el('h1', { textContent: '海瞳 HAITONG' }),
+    el('p', { textContent: '海洋全域智守平台 · 移动端' }),
   ]);
 
   // ---- 表单字段 ----
   const usernameInput = el('input', {
-    type: 'text', placeholder: '用户名',
+    type: 'text', placeholder: '用户名', 'aria-label': '用户名',
     autocomplete: 'username', autocapitalize: 'none', spellcheck: false,
   });
 
   const passwordInput = el('input', {
-    type: 'password', placeholder: '登录密码',
+    type: 'password', placeholder: '登录密码', 'aria-label': '登录密码',
     autocomplete: 'current-password',
   });
 
@@ -63,6 +61,12 @@ export function renderLogin(container, ctx) {
     usernameInput,
   ]);
 
+  const rememberInput = el('input', { type: 'checkbox', checked: true });
+  const rememberRow = el('label', { className: 'remember-row' }, [
+    rememberInput,
+    el('span', { textContent: '保持登录 30 天' }),
+  ]);
+
   const errorBox = el('div', { className: 'login-error-msg', style: { display: 'none' } });
 
   const submitBtn = el('button', {
@@ -73,7 +77,7 @@ export function renderLogin(container, ctx) {
   ]);
 
   const form = el('form', { className: 'login-form', autocomplete: 'on' }, [
-    usernameWrap, passwordWrap, errorBox, submitBtn,
+    usernameWrap, passwordWrap, rememberRow, errorBox, submitBtn,
   ]);
 
   // ---- 服务器配置 ----
@@ -100,9 +104,9 @@ export function renderLogin(container, ctx) {
       const ok = await pingBase(url);
       if (ok) {
         setApiBase(url);
-        toast('连接成功！已识别为 AQUARISE 后端', 'success');
+        toast('连接成功，已识别为海瞳后端', 'success');
       } else {
-        toast('无法连接或非 AQUARISE 后端，请检查地址', 'error');
+        toast('无法连接或服务身份不匹配，请检查地址', 'error');
       }
     } catch (err) {
       toast(err.message || '地址格式不正确', 'error');
@@ -125,7 +129,7 @@ export function renderLogin(container, ctx) {
   const toggleArrow = el('span', { className: 'server-toggle-arrow' }, [icon('chevronRight', 16)]);
   const serverToggle = el('button', { type: 'button', className: 'server-toggle' }, [
     el('span', { className: 'server-toggle-icon' }, [icon('server', 16)]),
-    el('span', { textContent: '服务器连接设置' }),
+    el('span', { textContent: '高级连接设置' }),
     toggleArrow,
   ]);
   serverToggle.addEventListener('click', () => {
@@ -137,9 +141,9 @@ export function renderLogin(container, ctx) {
   // ---- 组装 ----
   const card = el('div', { className: 'login-card glass-strong' }, [
     el('div', { className: 'login-card-header' }, [
-      el('span', { className: 'login-eyebrow', textContent: 'SECURE ACCESS' }),
+      el('span', { className: 'login-eyebrow', textContent: 'SECURE MOBILE ACCESS' }),
       el('h2', { textContent: '欢迎回来' }),
-      el('p', { textContent: '登录后进入海洋污染监测工作台' }),
+      el('p', { textContent: '登录后进入随身监测与快速处置终端' }),
     ]),
     form,
     serverToggle,
@@ -173,7 +177,7 @@ export function renderLogin(container, ctx) {
       }
 
       submitBtn.querySelector('.btn-text').textContent = '正在登录…';
-      await api.login(usernameInput.value.trim(), passwordInput.value);
+      await api.login(usernameInput.value.trim(), passwordInput.value, rememberInput.checked);
       toast('登录成功', 'success');
       try { if (state) state.user = await api.getMe(); } catch { /* 忽略 */ }
       navigate('dashboard');
