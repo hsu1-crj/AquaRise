@@ -68,6 +68,10 @@ const SYSTEM_PROMPT: ChatMessagePayload = {
 
 const SESSION_KEY = 'aquarise-chat-session';
 
+/** 页面卸载时未中断的流式请求。用于重挂载后等待其落库并刷新历史，
+ *  避免思考中切页再返回时回复缺失。 */
+let pendingChatStream: { sessionId: string; finished: Promise<void> } | null = null;
+
 function uuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -811,6 +815,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const controller = useRef<AbortController | null>(null);
+  // 同步 busy 标志给 ref，供挂载后的历史刷新判断是否已有新的在途提问。
+  const busyRef = useRef(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -883,10 +889,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     scrollToBottom(true);
   }, [messages, scrollToBottom]);
 
-  // 组件卸载时释放资源
+  // 组件卸载时释放资源。注意：不中断进行中的对话流——让请求在后台跑完，
+  // 后端才会把回答落库；否则“思考中切页再返回”会在历史里只剩提问没有回答。
   useEffect(() => {
     return () => {
-      controller.current?.abort();
       stopSubtitleQueue();
       dhRef.current?.destroy();
       // 停止语音识别（内联实现，避免依赖后定义的 stopListening）
@@ -932,24 +938,45 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   // 加载持久化对话历史
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const toUiMessages = (history: ChatMessagePayload[]): UiMessage[] =>
+      history.map((m) => ({
+        id: uuid(),
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content,
+        timestamp: formatCurrentTime(),
+      }));
+    const load = async () => {
       try {
         const history = await getChatHistory(sessionId);
         if (cancelled) return;
-        if (history.length > 0) {
-          setMessages(
-            history.map((m) => ({
-              id: uuid(),
-              role: m.role === 'user' ? 'user' : 'assistant',
-              content: m.content,
-              timestamp: formatCurrentTime(),
-            })),
-          );
-        }
+        if (history.length > 0) setMessages(toUiMessages(history));
       } catch {
         // 保留初始欢迎语
       }
-    })();
+      // 上一个聊天实例的流式请求可能仍在后台生成（切页时未中断）。
+      // 等它完成落库后再拉一次历史，避免“思考中切页再返回”时只有提问没有回答。
+      const pending = pendingChatStream;
+      if (pending && pending.sessionId === sessionId) {
+        // 等待期间用户可能已发出新提问（正在流式）。此时若用历史快照整体覆盖，
+        // 会冲掉当前正在流式的回答气泡，导致界面一直停留在旧回答上；直接放弃刷新，
+        // 让新提问自行完成并落库。
+        if (busyRef.current) return;
+        try {
+          await pending.finished;
+        } catch {
+          /* 等待失败不影响已恢复的内容 */
+        }
+        if (cancelled || busyRef.current) return;
+        try {
+          const updated = await getChatHistory(sessionId);
+          if (cancelled || busyRef.current) return;
+          if (updated.length > 0) setMessages(toUiMessages(updated));
+        } catch {
+          /* 保留已恢复的内容 */
+        }
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };
@@ -1109,6 +1136,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       }
       setLastQuestion(text);
       setBusy(true);
+      busyRef.current = true;
       setError('');
       setDhSubtitle('');
       stickToBottomRef.current = true;
@@ -1129,6 +1157,11 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
       const abortController = new AbortController();
       controller.current = abortController;
+
+      // 登记在途请求：切页卸载不再中止，返回后据此等它完成并刷新历史。
+      let markFinished = () => {};
+      const finished = new Promise<void>((resolve) => { markFinished = resolve; });
+      pendingChatStream = { sessionId, finished };
 
       if (dhOn && dhReady && dhRef.current) {
         setDhStatus('thinking');
@@ -1200,7 +1233,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       } finally {
         // streamChat resolves normally after the SSE [DONE]/reader completion.
         // Always release the busy lock, while preserving a newer request's lock.
+        markFinished();
+        if (pendingChatStream?.sessionId === sessionId) pendingChatStream = null;
         if (controller.current !== abortController) return;
+        busyRef.current = false;
         setBusy(false);
         controller.current = null;
         // 回答完成后归还焦点，方便连续追问（不打断用户主动聚焦的其他控件）
@@ -1371,6 +1407,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const stop = () => {
     controller.current?.abort();
     stopSubtitleQueue();
+    busyRef.current = false;
     setBusy(false);
     setDhSubtitle('');
     if (dhRef.current) {
