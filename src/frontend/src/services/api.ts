@@ -497,9 +497,12 @@ export async function streamChat(
         const data = line.slice(5).trim();
         if (!data || data === '[DONE]') continue;
         try {
-          const parsed = JSON.parse(data) as { content?: string; delta?: { content?: string } };
+          const parsed = JSON.parse(data) as { content?: string; delta?: { content?: string }; error?: string };
+          // 后端在模型故障时发送 {"error": ...} 事件，必须显式失败而不是静默输出空回复。
+          if (parsed.error) throw new Error(parsed.error);
           onChunk(parsed.content ?? parsed.delta?.content ?? '');
-        } catch {
+        } catch (parseError) {
+          if (parseError instanceof Error && parseError.message && !(parseError instanceof SyntaxError)) throw parseError;
           onChunk(data);
         }
       }

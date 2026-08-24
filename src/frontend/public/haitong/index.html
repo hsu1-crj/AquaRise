@@ -5515,12 +5515,6 @@ posterLightbox.addEventListener("click", (e) => {
     closePosterLightbox();
   }
 });
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    if (posterLightbox.classList.contains("open")) closePosterLightbox();
-    else if (shareModal.classList.contains("open")) closeShareModal();
-  }
-});
 
 // ================= 分组式海报样式选项卡切换 (Segmented Category Tabs) =================
 document.querySelectorAll(".style-tab-btn").forEach(tab => {
@@ -5623,9 +5617,10 @@ window.addEventListener("keydown", e => {
  }
  if (typing) return;
  if (e.key === "ArrowRight") { stopDemo("检测到键盘操作"); switchSpecies(1); }
- if (e.key === "ArrowLeft") { stopDemo("检测到键盘操作"); switchSpecies(-1); }
  if (e.key === "Escape") {
-    if (guide.classList.contains("open") || $("#spotlightModal")?.classList.contains("open") || $("#shareModal")?.classList.contains("open")) {
+    if (posterLightbox.classList.contains("open")) {
+      closePosterLightbox();
+    } else if (guide.classList.contains("open") || $("#spotlightModal")?.classList.contains("open") || $("#shareModal")?.classList.contains("open")) {
       closeGestureGuide(); closeSpotlight(); closeShareModal();
     } else {
       if (window.parent && window.parent !== window) {

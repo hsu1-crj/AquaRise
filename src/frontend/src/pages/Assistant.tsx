@@ -1024,6 +1024,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     if (!container) return;
 
     async function boot() {
+      let dh: OceanDigitalHuman | null = null;
       try {
         const publicConfig = await api.getDigitalHumanConfig().catch(() => null);
         setDhLoadingText('正在加载数字人引擎…');
@@ -1041,7 +1042,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           }
           return;
         }
-        const dh = new OceanDigitalHuman({
+        dh = new OceanDigitalHuman({
           appId,
           appSecret,
           containerId: container!.id || 'og-sdk-container',
@@ -1081,7 +1082,18 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           }
         });
 
-        await dh.init();
+        // 网关挂起时 init 可能永不返回，必须限时降级到全息 AI 模式，避免 HUD 永久卡在加载。
+        let initTimer = 0;
+        try {
+          await Promise.race([
+            dh.init(),
+            new Promise<never>((_, reject) => {
+              initTimer = window.setTimeout(() => reject(new Error('数字人服务连接超时')), 15000);
+            }),
+          ]);
+        } finally {
+          window.clearTimeout(initTimer);
+        }
         if (cancelled) dh.destroy();
         else dhRef.current = dh;
       } catch {
@@ -1090,6 +1102,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           setDhReady(false);
           setDhLoadingText('数字人服务离线，已激活全息 AI 模式');
         }
+        try { dh?.destroy(); } catch { /* 半初始化实例释放失败可忽略 */ }
       }
     }
 
