@@ -1,7 +1,7 @@
 # 7B 模型云端训练与生产部署指南
 
 > 本指南覆盖从云 GPU 实例创建到 Ollama 模型上线的完整流程。
-> 本地 0.5B 实验已完成（详见 `.claude/llm-module-progress-8.6.md`），
+> 本地 0.5B 实验已完成（详见 `doc/11.过程参考/LLM模块开发记录/2026-08-06-LLM模块工作记录.md`），
 > 生产环境推荐使用 Qwen2-7B-Instruct 在 AutoDL / 阿里云 PAI 上训练。
 
 ---
