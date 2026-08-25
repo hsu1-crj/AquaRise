@@ -83,7 +83,7 @@ function buildInsight(a: StatsAnalysis) {
   return { title, description, recommendations: recs };
 }
 
-/** 海域污染对比（F0 真数据版）：分站点污染指数 + 任务/目标数提示。
+/** 海域环境质量对比（F0 真数据版）：分站点质量评分(1-10, 越高越好) + 任务/目标数提示。
  * 无任何站点任务时展示空态引导（上传时选择监测点），不再回退静态假数据。 */
 function SiteComparisonChart({ sites, loading }: { sites: SiteStat[]; loading: boolean }) {
   const withData = sites.filter((s) => s.taskCount > 0);
@@ -95,7 +95,7 @@ function SiteComparisonChart({ sites, loading }: { sites: SiteStat[]; loading: b
         const list = params as { dataIndex: number }[];
         const s = withData[list[0]?.dataIndex];
         if (!s) return '';
-        return `<b>${s.code} ${s.name}</b><br/>污染指数：${s.pollutionIndex ?? '—'} / 10<br/>任务数：${s.taskCount} · 检出目标：${s.totalObjects}<br/>最近任务：${s.lastTaskAt ?? '—'}`;
+        return `<b>${s.code} ${s.name}</b><br/>环境质量评分：${s.qualityScore ?? '未检测'} / 10<br/>任务数：${s.taskCount} · 检出目标：${s.totalObjects}<br/>最近任务：${s.lastTaskAt ?? '—'}`;
       },
     },
     grid: { left: 12, right: 12, top: 22, bottom: 8, containLabel: true },
@@ -103,15 +103,15 @@ function SiteComparisonChart({ sites, loading }: { sites: SiteStat[]; loading: b
     yAxis: { type: 'value', max: 10, axisLabel: { color: 'rgba(207,232,244,.56)' }, splitLine: { lineStyle: { color: 'rgba(94,214,255,.08)' } } },
     series: [{
       type: 'bar',
-      data: withData.map((s) => ({ value: s.pollutionIndex ?? 0,
-        // 按污染指数着色：低=青绿 → 高=红，视觉即风险等级
-        itemStyle: { borderRadius: [6, 6, 0, 0], color: (s.pollutionIndex ?? 0) >= 7 ? '#ff5f6e' : (s.pollutionIndex ?? 0) >= 5 ? '#ffbd66' : '#27dafa' } })),
+      data: withData.map((s) => ({ value: s.qualityScore ?? 0,
+        // 按质量评分着色：高=青绿(好) → 低=红(差)，视觉即健康等级
+        itemStyle: { borderRadius: [6, 6, 0, 0], color: s.qualityScore == null ? '#2a7f9e' : s.qualityScore >= 7 ? '#54f1a9' : s.qualityScore >= 4 ? '#ffbd66' : '#ff5f6e' } })),
       barWidth: 22,
     }],
   };
   if (loading) return <div className="chart-loading"><i className="loader-orbit" />数据计算中…</div>;
   if (withData.length === 0) {
-    return <div className="chart-empty">暂无分站点数据<br /><small>在「检测识别」上传时选择监测点，此处即展示各站点污染对比</small></div>;
+    return <div className="chart-empty">暂无分站点数据<br /><small>在「检测识别」上传时选择监测点，此处即展示各站点环境质量对比</small></div>;
   }
   return <OceanChart option={option} className="comparison-chart" />;
 }

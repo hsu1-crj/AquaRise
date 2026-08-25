@@ -40,7 +40,7 @@ export interface SeaArea {
   code?: string | null;
 }
 
-/** 监测站点分维度统计（后端 /stats/sites；无任务的站点 taskCount=0、pollutionIndex=null） */
+/** 监测站点分维度统计（后端 /stats/sites；无任务的站点 taskCount=0、qualityScore=null） */
 export interface SiteStat {
   id: number;
   code: string;
@@ -50,15 +50,21 @@ export interface SiteStat {
   seaAreaId?: number | null;
   taskCount: number;
   totalObjects: number;
-  pollutionIndex: number | null;
+  /** 环境质量评分 1-10 整数（越高越好）；未检测过为 null（显示"未检测"） */
+  qualityScore: number | null;
   lastTaskAt: string | null;
   evidence?: SiteEvidence[];
 }
 
-/** 站点检测证据（标注图/预览帧, 3D场景浮窗用） */
+/** 站点检测证据（标注图/标注视频, 3D场景浮窗"检测历史"用） */
 export interface SiteEvidence {
   taskId: number;
+  /** 封面: 标注图或视频预览帧 */
   mediaUrl: string | null;
+  /** 媒体类型: 图片任务 / 视频任务 */
+  mediaKind?: 'image' | 'video';
+  /** 识别后的标注视频(可回放), 无标注视频时为 null */
+  videoUrl?: string | null;
   className: string | null;
   objectCount: number;
   level: string | null;

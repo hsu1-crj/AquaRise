@@ -43,6 +43,9 @@ export class EarthGlobe {
   private autoSpin = true;
   private spinVelocity = 0.035;
   private spinResumeTimer = 0;
+  private tmpDir = new THREE.Vector3();
+  private tmpNormal = new THREE.Vector3();
+  private tmpPole = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, stations: GlobeStation[], onSelect: (s: GlobeStation) => void) {
     this.onSelect = onSelect;
@@ -238,11 +241,11 @@ export class EarthGlobe {
     this.clouds.rotation.y -= dt * 0.008;
     this.rim.rotation.y += dt * 0.004;
 
-    const cameraDirection = camera.position.clone().normalize();
+    const cameraDirection = this.tmpDir.copy(camera.position).normalize();
     for (const marker of this.markers) {
       const pulse = 0.65 + Math.sin(t * 2.5 + marker.station.id) * 0.2;
       (marker.glow.material as THREE.SpriteMaterial).opacity = pulse;
-      const normal = marker.latLng.clone().normalize().applyQuaternion(this.group.quaternion);
+      const normal = this.tmpNormal.copy(marker.latLng).normalize().applyQuaternion(this.group.quaternion);
       const front = normal.dot(cameraDirection) > 0.04;
       marker.sprite.visible = front;
       marker.glow.visible = front;
@@ -293,12 +296,16 @@ export class EarthGlobe {
     const rotationY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), dx * 0.004);
     const rotationX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), dy * 0.004);
     this.group.quaternion.premultiply(rotationY).premultiply(rotationX);
+    // 俯仰钳制: 倾角不超过±85°, 拖过头时回退本次X旋转(防止地极翻转)
+    const pole = this.tmpPole.set(0, 1, 0).applyQuaternion(this.group.quaternion);
+    if (pole.y < Math.cos(THREE.MathUtils.degToRad(85))) {
+      this.group.quaternion.premultiply(rotationX.invert());
+    }
     window.clearTimeout(this.spinResumeTimer);
     this.spinResumeTimer = window.setTimeout(() => {
       this.autoSpin = true;
     }, 1800);
   }
-
   private latLngToVec3(lat: number, lng: number, radius: number): THREE.Vector3 {
     const phi = THREE.MathUtils.degToRad(90 - lat);
     const theta = THREE.MathUtils.degToRad(lng);
@@ -427,8 +434,13 @@ export class EarthGlobe {
       const mesh = object as THREE.Mesh;
       mesh.geometry?.dispose();
       const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
-      if (Array.isArray(material)) material.forEach((item) => item.dispose());
-      else material?.dispose();
+      // 地球/云层/站点标签的 CanvasTexture 与外部贴图需显式释放
+      const each = (m: THREE.Material & { map?: THREE.Texture | null }) => {
+        m.map?.dispose?.();
+        m.dispose();
+      };
+      if (Array.isArray(material)) material.forEach(each);
+      else if (material) each(material);
     });
     this.group.removeFromParent();
   }

@@ -334,7 +334,9 @@ class SiteItem(BaseModel):
 class SiteEvidence(BaseModel):
     """单条检测证据(3D场景浮窗用)"""
     taskId: int
-    mediaUrl: str | None = None    # 标注图(/uploads/image_detail/..)或标注视频
+    mediaUrl: str | None = None    # 封面: 标注图(/uploads/image_detail/..)或视频预览帧
+    mediaKind: str = "image"       # image | video
+    videoUrl: str | None = None    # 视频任务专属: 标注视频回放地址(逐帧画框后的 MP4)
     className: str | None = None   # 主要垃圾类别
     objectCount: int = 0
     level: str | None = None       # 优/良/中/差/严重
@@ -351,9 +353,9 @@ class SiteStatItem(BaseModel):
     seaAreaId: int | None = None  # 所属海域 id（前端据此按海域过滤站点）
     taskCount: int = 0
     totalObjects: int = 0
-    pollutionIndex: float | None = None  # 无任务时为 null（前端显示空态）
+    qualityScore: int | None = None  # 水质评分 1-10 整数, 越高水质越好; 未检测过为 null(前端显示"未检测")
     lastTaskAt: str | None = None
-    evidence: list[SiteEvidence] = []  # 站点最近检测证据(标注图URL+摘要), 3D场景展示
+    evidence: list[SiteEvidence] = []  # 站点最近检测证据(标注图/视频+摘要), 3D场景展示
 
 
 class SeaAreaItem(BaseModel):

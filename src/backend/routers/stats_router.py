@@ -5,6 +5,7 @@ GET /api/v1/stats/summary   统计概览（任务数/垃圾总数/污染分布/�
 GET /api/v1/stats/trend     趋势数据（?period=week|month|year）
 """
 
+import os as _os
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
@@ -277,7 +278,7 @@ async def stats_sites(
             + _level_weight(level) * int(cnt)
         )
 
-    # 每海域最近3个已完成任务 → 标注图URL+摘要(3D场景浮窗"检测证据")
+    # 每海域最近6个已完成任务 → 标注图/标注视频+摘要(3D场景浮窗"检测证据")
     from schemas import pollution_level_zh
     recent = (
         db.query(DetectionTask)
@@ -287,7 +288,7 @@ async def stats_sites(
             DetectionTask.created_at >= since,
         )
         .order_by(DetectionTask.id.desc())
-        .limit(60)
+        .limit(120)
         .all()
     )
     evidence_by_sea_area: dict[int, list[SiteEvidence]] = {}
@@ -301,10 +302,16 @@ async def stats_sites(
             .all()
         )
         media = None
+        video_url = None
+        media_kind = "image"
         if t.task_type.value == "image":
             media = detector_svc._annotated_image_url(t.id, t.file_path, rows)
         else:
-            import os as _os
+            media_kind = "video"
+            # 标注视频(可回放)优先; 缺失时回退预览帧封面
+            ann = _os.path.join("uploads", "video_annotated", str(t.id), "annotated.mp4")
+            if _os.path.isfile(ann) and _os.path.getsize(ann) > 0:
+                video_url = f"/uploads/video_annotated/{t.id}/annotated.mp4"
             pv_dir = _os.path.join("uploads", "video_preview", str(t.id))
             if _os.path.isdir(pv_dir):
                 frames = sorted(f for f in _os.listdir(pv_dir) if f.endswith(".jpg"))
@@ -313,6 +320,8 @@ async def stats_sites(
         ev = SiteEvidence(
             taskId=t.id,
             mediaUrl=media,
+            mediaKind=media_kind,
+            videoUrl=video_url,
             className=rows[0].class_name if rows else None,
             objectCount=t.total_objects or 0,
             level=pollution_level_zh(t.pollution_level),
@@ -320,7 +329,7 @@ async def stats_sites(
         )
         lst = evidence_by_sea_area.setdefault(int(t.sea_area_id), [])
         lst.insert(0, ev)
-        evidence_by_sea_area[int(t.sea_area_id)] = lst[:3]
+        evidence_by_sea_area[int(t.sea_area_id)] = lst[:6]
 
     items: list[SiteStatItem] = []
     for site in db.query(MonitoringSite).order_by(MonitoringSite.code).all():
@@ -330,11 +339,13 @@ async def stats_sites(
             # 与 _pollution_index 同口径: 等级基底 + 平均每任务检出数量密度项(封顶+2.0)
             avg_objects = int(r[2]) / task_count
             index = round(min(10.0, weight_sum.get(site.sea_area_id, 0.0) / task_count * 2 + min(2.0, avg_objects / 12.0)), 1) if task_count else None
+            # 污染指数(越高越脏) → 环境质量评分 1-10 整数(越高越好); 未检测过为 None
+            quality = max(1, min(10, 11 - round(index))) if index is not None else None
             items.append(SiteStatItem(
                 id=site.id, code=site.code, name=site.name, lat=site.lat, lng=site.lng,
                 seaAreaId=site.sea_area_id,
                 taskCount=task_count, totalObjects=int(r[2]),
-                pollutionIndex=index,
+                qualityScore=quality,
                 lastTaskAt=f"{r[3]:%Y-%m-%d %H:%M}" if r[3] else None,
                 evidence=evidence_by_sea_area.get(site.sea_area_id, []),
             ))

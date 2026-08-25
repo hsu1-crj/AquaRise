@@ -13,6 +13,8 @@ aiohttp==3.14.3
 # YOLO 目标检测（视觉模型推理）
 ultralytics==8.4.117
 opencv-python==5.0.0
+# 标注视频回放编码(逐帧画框后输出 H.264 MP4; 缺失时视频任务仍完成但无回放视频)
+imageio-ffmpeg>=0.5
 # 人脸识别（InsightFace，512维嵌入；CPU推断）
 insightface==1.0.1
 onnxruntime>=1.18

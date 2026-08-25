@@ -184,8 +184,8 @@ export const api = {
     if (isMockMode()) { await wait(400); return []; }
     return request<SiteStat[]>('/api/v1/stats/sites');
   },
-  /** 真实海况（Open-Meteo 抓取 + 后端缓存, 外网失败返回旧缓存 stale=true） */
-  async getMarine(): Promise<MarineInfo> {
+  /** 真实海况（Open-Meteo 抓取 + 后端缓存, 外网失败返回旧缓存 stale=true）; 带坐标按站点取数 */
+  async getMarine(lat?: number, lng?: number): Promise<MarineInfo> {
     if (isMockMode()) {
       await wait(350);
       return {
@@ -195,12 +195,13 @@ export const api = {
         seaTempC: 26.8, windSpeedMs: 5.6, windDirectionDeg: 128, stale: false,
       };
     }
+    const qs = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : '';
     const r = await request<{
       fetched_at: string; observed_time: string | null;
       wave_height: number | null; wave_direction: number | null;
       wave_period: number | null; sea_surface_temperature: number | null;
       wind_speed: number | null; wind_direction: number | null; stale: boolean;
-    }>('/api/v1/stats/marine');
+    }>(`/api/v1/stats/marine${qs}`);
     return {
       fetchedAt: r.fetched_at,
       observedAt: r.observed_time,
@@ -299,7 +300,7 @@ export const api = {
       preview_url?: string | null; preview_urls?: string[] | null;
       annotated_video_url?: string | null;
       processed_frames?: number | null; total_frames?: number | null;
-    }>(`/api/v1/detect/status/${taskId}`);
+    }>(`/api/v1/detect/status/${taskId}`, { timeoutMs: 60000 });
     return {
       taskId: response.task_id,
       status: response.status as VideoTaskStatus['status'],
@@ -330,7 +331,7 @@ export const api = {
         bbox_x1?: number | null; bbox_y1?: number | null; bbox_x2?: number | null; bbox_y2?: number | null;
         material_type?: string | null; crop_url?: string | null;
       }[];
-    }>(`/api/v1/detect/result/${taskId}`);
+    }>(`/api/v1/detect/result/${taskId}`, { timeoutMs: 60000 });
     return {
       taskId: response.task_id,
       taskType: response.task_type,

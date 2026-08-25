@@ -34,6 +34,7 @@ export interface LiveFrameBox {
 }
 
 const MARKER_MAX = 48;
+const QUEUE_MAX = 120; // 排队上限: 超出丢弃并计入溢出, 防止mock模式无界堆积
 const SCREEN_W = 640;
 const SCREEN_H = 360;
 
@@ -90,6 +91,8 @@ export class LiveTaskOverlay {
   private markerQueue: LiveTargetItem[] = [];
   private markerItems: Array<{ sprite: THREE.Sprite; born: number; baseY: number; seed: number }> = [];
   private spawnClock = 0;
+  private finishedAt: number | null = null;
+  private queueOverflow = 0;
   private progress: LiveProgress = { progress: 0, totalObjects: 0 };
   private img: HTMLImageElement | null = null;
   private imgReady = false;
@@ -107,7 +110,7 @@ export class LiveTaskOverlay {
     this.siteCenter.copy(sitePos);
     const [cx, cz] = [sitePos.x, sitePos.z];
     this.floorY = Math.min(getHeightAt(cx, cz) ?? -8, -1.2);
-    // 巡航深度: 海床上方 3.5m 与 -3.5m 之间取较浅者(保证可见)
+    // 巡航深度: 海床上方3.5m, 但不高于 -4.5m(浅水时压低保证不露出水面)
     this.patrolDepth = Math.max(this.floorY + 3.5, -4.5);
 
     // ---------- 任务ROV(紧凑型AUV: 发光浮体 + 探照灯) ----------
@@ -193,10 +196,12 @@ export class LiveTaskOverlay {
 
   /** 喂入检出目标(内部排队, 每0.22s弹出一个制造"逐个标定"节奏) */
   feedTargets(items: LiveTargetItem[]): void {
-    for (const it of items) this.markerQueue.push(it);
+    for (const it of items) {
+      if (this.markerQueue.length >= QUEUE_MAX) { this.queueOverflow++; continue; }
+      this.markerQueue.push(it);
+    }
   }
 
-  /** 任务完成: 屏幕显示总结, 标记与ROV保留展示 */
   finish(summary: string): void {
     this.finished = true;
     this.summaryText = summary;
@@ -236,7 +241,7 @@ export class LiveTaskOverlay {
     this.rov.rotation.y = -a + Math.PI;
 
     // 标记排队弹出
-    this.spawnClock += dt;
+    this.spawnClock = Math.min(this.spawnClock + dt, 0.22); // 钳制: 空窗积压后不突发弹出
     while (this.spawnClock > 0.22 && this.markerItems.length < MARKER_MAX && this.markerQueue.length > 0) {
       const item = this.markerQueue.shift();
       if (item) this.spawnMarker(item, t);
@@ -250,13 +255,18 @@ export class LiveTaskOverlay {
       m.sprite.scale.set(w, w * 0.375, 1);
       m.sprite.position.y = m.baseY + Math.sin(t * 1.4 + m.seed) * 0.22;
     }
-
-    // 扫描环周期扩散(完成后停止)
     if (this.scanRing.visible) {
-      const f = (t % 4) / 4;
-      this.scanRing.scale.setScalar(1 + f * 26);
-      (this.scanRing.material as THREE.MeshBasicMaterial).opacity = 0.45 * (1 - f);
-      if (this.finished && f < 0.02) this.scanRing.visible = false;
+      const mat = this.scanRing.material as THREE.MeshBasicMaterial;
+      if (this.finished) {
+        this.finishedAt ??= t; // 与动画时钟同源
+        const k = THREE.MathUtils.clamp((t - this.finishedAt) / 1.2, 0, 1);
+        mat.opacity = 0.45 * (1 - k);
+        if (k >= 1) this.scanRing.visible = false;
+      } else {
+        const f = (t % 4) / 4;
+        this.scanRing.scale.setScalar(1 + f * 26);
+        mat.opacity = 0.45 * (1 - f);
+      }
     }
 
     // 检测屏始终面向相机
@@ -369,9 +379,14 @@ export class LiveTaskOverlay {
     ctx.fillText(this.finished ? this.summaryText.slice(0, 30) : frameText, 16, 348);
     ctx.textAlign = 'right';
     ctx.fillStyle = '#54f1a9';
-    ctx.fillText(`检出目标 ${this.progress.totalObjects}`, SCREEN_W - 16, 348);
+    ctx.fillText(`检出目标 ${this.progress.totalObjects}${this.queueOverflow > 0 ? ` (未标注 ${this.queueOverflow})` : ''}`, SCREEN_W - 16, 348);
 
     this.texture.needsUpdate = true;
+  }
+
+  /** 整体显隐(切地球视角时隐藏, 回海洋恢复) */
+  setVisible(v: boolean): void {
+    this.group.visible = v;
   }
 
   dispose(): void {
