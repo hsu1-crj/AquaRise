@@ -137,16 +137,18 @@ def _session_is_active(db: Session, token: str, user_id: int) -> bool:
 
 
 def _get_token_from_request(request: Request) -> str | None:
-    """依次尝试：Cookie(access_token) → Authorization: Bearer <token> → URL 查询参数 token
+    """依次尝试：Authorization: Bearer <token> → Cookie(access_token) → URL 查询参数 token
     （query 参数主要是给"新窗口打开 HTML 报告预览"这类无法携带请求头的场景用）。"""
-    # 1. Cookie（SSR 页面登录后自动携带）
-    token = request.cookies.get("access_token")
-    if token:
-        return token
-    # 2. Authorization 头（API 调用方）
+    # 1. Authorization 头（API 调用方）：必须最优先——Cookie 不按端口隔离，
+    #    浏览器可能残留其他端口/旧版本签发的过期 access_token，若 Cookie 优先
+    #    会遮蔽刚签发的有效 token，导致"登录成功即被踢回登录页"。
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.lower().startswith("bearer "):
         return auth_header[7:].strip()
+    # 2. Cookie（SSR 页面登录后自动携带）
+    token = request.cookies.get("access_token")
+    if token:
+        return token
     # 3. URL 查询参数（window.open 预览等无法带头的场景）
     token = request.query_params.get("token") or request.query_params.get("access_token")
     if token:
