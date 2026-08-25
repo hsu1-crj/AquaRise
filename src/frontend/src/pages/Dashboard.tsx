@@ -3,9 +3,46 @@ import { AlertTriangle, ArrowRight, Camera, ChevronRight, CircleGauge, FileDown,
 import { MaterialChart, RankingChart, TrendChart } from '../components/Charts';
 import { mockRecords } from '../data/mock';
 import { api } from '../services/api';
-import type { PageKey, StatsAnalysis, Summary, TrendPoint } from '../types';
+import type { PageKey, StatsAnalysis, Summary, TrendPoint, UserInfo } from '../types';
 
-export function Dashboard({ onNavigate }: { onNavigate: (page: PageKey) => void }) {
+const beijingClock = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  hourCycle: 'h23',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
+// 按北京时间(Asia/Shanghai)返回问候语与当前时刻,不受用户本机时区影响
+function beijingNow(date: Date) {
+  const parts = beijingClock.formatToParts(date);
+  const value = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+  const hour = Number(value('hour'));
+  const greeting = hour >= 5 && hour < 12 ? '早上好' : hour >= 12 && hour < 18 ? '下午好' : '晚上好';
+  return { greeting, time: `${value('hour')}:${value('minute')}:${value('second')}` };
+}
+
+// 每秒/定时再渲染只发生在时钟自身这个最小叶子组件上,避免整个 Dashboard 及图表跟随重绘导致闪烁
+function useBeijingNow(intervalMs: number) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return beijingNow(now);
+}
+
+function BeijingGreeting({ name = '林海' }: { name?: string }) {
+  const { greeting } = useBeijingNow(60_000);
+  return <>{greeting}，{name}。</>;
+}
+
+function SyncTime() {
+  const { time } = useBeijingNow(1000);
+  return <span className="sync-status"><i />实时同步 · {time}</span>;
+}
+
+export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) => void; user?: UserInfo | null }) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [analysis, setAnalysis] = useState<StatsAnalysis | null>(null);
@@ -32,7 +69,6 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: PageKey) => void 
   if (loading) return <PageState type="loading" />;
   if (error) return <PageState type="error" message={error} onRetry={load} />;
   if (!summary) return <PageState type="empty" />;
-
   const cards = [
     { label: '累计检测任务', value: summary.totalTasks.toLocaleString(), unit: '次', icon: ScanLine, color: 'cyan', detail: '较上月 +12.4%' },
     { label: '识别垃圾目标', value: summary.totalObjects.toLocaleString(), unit: '件', icon: Camera, color: 'violet', detail: `本月 +${summary.monthlyGrowth}%` },
@@ -43,8 +79,8 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: PageKey) => void 
   return (
     <div className="page-stack">
       <section className="page-heading">
-        <div><span className="eyebrow"><i /> OCEAN INTELLIGENCE</span><h1>海洋污染态势总览</h1><p>下午好，林海。渤海近岸 28 个监测点正在持续回传环境数据。</p></div>
-        <div className="heading-actions"><span className="sync-status"><i />实时同步 · 14:36:22</span><button className="secondary-button" onClick={load}><RefreshCw size={16} />刷新</button><button className="primary-button" onClick={() => onNavigate('detection')}><ScanLine size={17} />开始识别</button></div>
+        <div><span className="eyebrow"><i /> OCEAN INTELLIGENCE</span><h1>海洋污染态势总览</h1><p><BeijingGreeting name={user?.username} />渤海近岸 28 个监测点正在持续回传环境数据。</p></div>
+        <div className="heading-actions"><SyncTime /><button className="secondary-button" onClick={load}><RefreshCw size={16} />刷新</button><button className="primary-button" onClick={() => onNavigate('detection')}><ScanLine size={17} />开始识别</button></div>
       </section>
 
       <section className="metric-grid">

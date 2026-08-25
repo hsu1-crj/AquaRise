@@ -17,7 +17,6 @@ const HistoryPage = lazy(() => import('./pages/History').then((module) => ({ def
 const ReportsPage = lazy(() => import('./pages/Reports').then((module) => ({ default: module.ReportsPage })));
 const ProfilePage = lazy(() => import('./pages/UtilityPages').then((module) => ({ default: module.ProfilePage })));
 const MarineAtlasPage = lazy(() => import('./pages/MarineAtlas').then((module) => ({ default: module.MarineAtlasPage })));
-
 const validPages: Record<PageKey, true> = { dashboard: true, ocean3d: true, detection: true, history: true, analysis: true, screen: true, reports: true, assistant: true, atlas: true, profile: true };
 
 /** 启动时是否已有登录态：本次会话标记存在，或本地存有 token（保持登录） */
@@ -79,7 +78,7 @@ export default function App() {
 
   return <SeaAreaProvider><Shell page={page} onNavigate={navigate} onSearchJump={searchJump} onLogout={logout} user={user}>
     <Suspense fallback={<div className="page-state glass"><i className="loader-orbit" /><p>正在载入海洋工作台…</p></div>}>
-      {page === 'dashboard' && <Dashboard onNavigate={navigate} />}
+      {page === 'dashboard' && <Dashboard onNavigate={navigate} user={user} />}
       {page === 'ocean3d' && <Ocean3DPage />}
       {page === 'detection' && <Detection onNavigate={navigate} />}
       {page === 'history' && <HistoryPage initialQuery={searchFocus?.page === 'history' ? searchFocus.query : ''} />}
