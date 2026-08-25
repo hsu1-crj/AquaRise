@@ -408,10 +408,21 @@ export class SoundscapeManager {
       this.rampGain(track.gainNode, 0, fadeMs);
       window.setTimeout(() => {
         try { track.element.pause(); track.element.currentTime = 0; } catch (_) {}
+        this.releaseTrack(track);
       }, fadeMs + 40);
     });
     this.kindState[kind] = "paused";
     if (kind === "voice") this.setVoiceDucking(false, fadeMs);
+  }
+
+  releaseTrack(track) {
+    // 断开节点图并从 tracks 移除，避免反复切换物种/音效时 <audio> 与 Web Audio 节点无限累积。
+    try { track.gainNode?.disconnect(); } catch (_) {}
+    try { track.filterNode?.disconnect(); } catch (_) {}
+    try { track.panNode?.disconnect(); } catch (_) {}
+    try { track.reverbSend?.disconnect(); } catch (_) {}
+    try { track.element.removeAttribute("src"); track.element.load(); } catch (_) {}
+    this.tracks.delete(track.element);
   }
 
   setVoiceDucking(active, fadeMs = this.fadeMs) {

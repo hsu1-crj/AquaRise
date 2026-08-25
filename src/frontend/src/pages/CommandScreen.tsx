@@ -24,8 +24,26 @@ function timeOf(value: string) {
   return match ? `${match[1]}:${match[2]}` : value;
 }
 
-export function CommandScreen({ onExit }: { onExit: () => void }) {
+// 时钟独立成叶子组件：每秒更新只重渲染自己，避免整屏（含全局 ECharts）跟随重绘而闪烁
+function CommandClock() {
   const [time, setTime] = useState(new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setTime(new Date());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <time className="command-time-display">
+      <span className="time-date">{time.toLocaleDateString('zh-CN')}</span>
+      <span className="time-hour">
+        {time.toLocaleTimeString('zh-CN', { hour12: false })}
+      </span>
+    </time>
+  );
+}
+
+export function CommandScreen({ onExit }: { onExit: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -33,13 +51,6 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [analysis, setAnalysis] = useState<StatsAnalysis | null>(null);
   const [records, setRecords] = useState<DetectionRecord[]>([]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (!document.hidden) setTime(new Date());
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   const load = useCallback(async () => {
     setError('');
@@ -168,12 +179,7 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
 
           <div className="command-clock-card">
             <Clock3 size={15} />
-            <time className="command-time-display">
-              <span className="time-date">{time.toLocaleDateString('zh-CN')}</span>
-              <span className="time-hour">
-                {time.toLocaleTimeString('zh-CN', { hour12: false })}
-              </span>
-            </time>
+            <CommandClock />
           </div>
 
           <button

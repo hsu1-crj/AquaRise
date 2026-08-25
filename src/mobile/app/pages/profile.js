@@ -12,6 +12,7 @@
 
 import { api, isLoggedIn, setToken, getApiBase, setApiBase, resetApiBase, pingBase } from '../api.js';
 import { el, clear, icon, toast } from '../ui.js';
+import { clearMobileCache, getPreference, setPreference } from '../preferences.js';
 
 export function renderProfile(container, ctx) {
   const { navigate, state } = ctx;
@@ -204,6 +205,40 @@ export function renderProfile(container, ctx) {
   ]);
   page.append(serverCard);
 
+  // ---- 移动端偏好 ----
+  const dataSaver = el('input', { type: 'checkbox', checked: getPreference('dataSaver'), 'aria-label': '省流模式' });
+  const reducedMotion = el('input', { type: 'checkbox', checked: getPreference('reducedMotion'), 'aria-label': '减少动效' });
+  dataSaver.addEventListener('change', () => {
+    setPreference('dataSaver', dataSaver.checked);
+    toast(dataSaver.checked ? '已开启省流模式' : '已关闭省流模式', 'success');
+  });
+  reducedMotion.addEventListener('change', () => setPreference('reducedMotion', reducedMotion.checked));
+  const preferences = buildSection('移动设置', 'settings', [
+    preferenceRow('省流模式', '减少非必要媒体与视觉资源', dataSaver),
+    preferenceRow('减少动效', '关闭页面转场与进度动画', reducedMotion),
+    el('div', { className: 'profile-actions' }, [
+      el('button', {
+        className: 'btn-ghost btn-sm',
+        onClick: async () => {
+          if (!('Notification' in window)) {
+            toast('当前浏览器不支持系统通知', 'warning');
+            return;
+          }
+          const permission = await Notification.requestPermission();
+          toast(permission === 'granted' ? '任务完成通知已开启' : '未获得通知权限', permission === 'granted' ? 'success' : 'warning');
+        },
+      }, [icon('bell', 15), '任务通知']),
+      el('button', {
+        className: 'btn-ghost btn-sm',
+        onClick: () => {
+          clearMobileCache();
+          toast('移动端临时缓存已清理', 'success');
+        },
+      }, [icon('trash', 15), '清理缓存']),
+    ]),
+  ]);
+  page.append(preferences);
+
   // ---- 退出登录 ----
   let confirmLogout = false;
   const logoutBtn = el('button', {
@@ -230,7 +265,7 @@ export function renderProfile(container, ctx) {
   }, ['退出登录']);
   page.append(logoutBtn);
 
-  page.append(el('p', { className: 'profile-foot', textContent: `AQUARISE 海洋智守平台 · 移动端 v1.0` }));
+  page.append(el('p', { className: 'profile-foot', textContent: '海瞳 HAITONG · 移动端 v2.0' }));
 
   return {
     unmount() { isMounted = false; },
@@ -254,5 +289,12 @@ function buildSection(title, iconName, children) {
   return el('section', { className: 'section-block profile-section' }, [
     el('h3', { className: 'section-title' }, [icon(iconName, 16), title]),
     ...children,
+  ]);
+}
+
+function preferenceRow(title, subtitle, control) {
+  return el('label', { className: 'preference-row' }, [
+    el('span', {}, [el('strong', { textContent: title }), el('small', { textContent: subtitle })]),
+    el('span', { className: 'switch-control' }, [control, el('i')]),
   ]);
 }

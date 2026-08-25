@@ -92,6 +92,41 @@ tr:nth-child(even){background:#f7fbfd}
 .foot{background:#f4fafd;border-top:1px solid #d7eaf4;padding:14px 30px;font-size:11px;color:#8aa3b3;text-align:center}
 """
 
+# 移动端窄屏适配：收敛固定宽度/内边距，明细表改表内横向滚动，
+# 避免整页宽度溢出（360px 手机上 6 列明细表最小宽度约 460px，会撑破页面导致缩放异常）。
+_MOBILE_CSS = """
+/*mobile-adapt*/
+@media (max-width:600px){
+  body{padding:12px 4px}
+  .page{border-radius:10px;box-shadow:none}
+  .hero{padding:20px 16px}
+  .hero h1{font-size:20px}
+  .hero .sub{font-size:12px}
+  .body{padding:20px 14px}
+  .cards{grid-template-columns:repeat(auto-fit,minmax(106px,1fr));gap:10px}
+  .card{padding:14px 8px}
+  .card .num{font-size:22px}
+  section h2{font-size:15px}
+  .hbar-lbl{width:96px;font-size:12px}
+  .hbar-val{width:78px;font-size:11px}
+  th,td{padding:7px 6px;font-size:12px}
+  th{white-space:normal}
+  .conf{min-width:80px}
+  table{display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .foot{padding:12px 16px}
+}
+"""
+
+# 检测报告是否已内嵌移动端样式（注入时用，避免对同一份 HTML 重复插入）
+_MOBILE_MARKER = "/*mobile-adapt*/"
+
+
+def _with_mobile_override(content: str) -> str:
+    """旧报告文件落盘时不含窄屏适配样式，返回前补注入，保证手机端不整页横向溢出。"""
+    if _MOBILE_MARKER in content or "</head>" not in content:
+        return content
+    return content.replace("</head>", f"<style>{_MOBILE_CSS}</style></head>", 1)
+
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
@@ -218,7 +253,8 @@ def _build_report_html(task: DetectionTask, sea_area_name: str = "近岸监测�
 <html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>海域污染评估报告 - {html.escape(str(task.file_name or "未命名任务"))}</title>
-<style>{_PAGE_STYLE}</style></head><body>
+<style>{_PAGE_STYLE}
+{_MOBILE_CSS}</style></head><body>
 <div class="page">
 <div class="hero">
 <h1>🌊 海域污染评估报告</h1>
@@ -380,7 +416,7 @@ async def preview_report(
         raise HTTPException(status_code=404, detail="报告文件不存在")
     with open(html_path, "r", encoding="utf-8") as f:
         content = f.read()
-    return HTMLResponse(content=content)
+    return HTMLResponse(content=_with_mobile_override(content))
 
 
 @router.delete("/{report_id}")
@@ -613,7 +649,8 @@ def _build_batch_report_html(tasks: list[DetectionTask], sea_area_name: str = "�
 <html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>多图批量识别质量报告</title>
-<style>{_PAGE_STYLE}</style></head><body>
+<style>{_PAGE_STYLE}
+{_MOBILE_CSS}</style></head><body>
 <div class="page">
 <div class="hero">
 <h1>🌊 多图批量识别质量报告</h1>
