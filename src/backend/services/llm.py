@@ -5,9 +5,11 @@
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import os
 import re
+from difflib import SequenceMatcher
 from typing import Any, AsyncGenerator, Optional, Sequence
 
 IDENTITY = (
@@ -38,6 +40,7 @@ DOMAIN_TERMS = (
     "鲸鱼", "海豚", "鲨鱼", "洋流", "潮汐", "海平面", "气候变化", "生态", "珊瑚礁", "生物多样性",
     "样方", "样带", "声呐", "传感器", "无人艇", "usv", "rov", "rfid", "pops", "富集", "食物链",
     "碳汇", "监测方法", "监测", "微创", "切割", "指引", "清滩", "尼龙", "聚乙烯", "pe",
+    "pet", "hdpe", "聚合物", "材料", "紫外", "紫外老化", "光氧化", "水解", "耐候", "耐老化", "性能对比",
     "图像", "多帧", "时序", "跟踪", "追踪", "机制", "方法", "去散射", "超分辨率", "类别",
     "生命图谱", "指挥大屏", "污染分析", "检测历史", "报告页", "海洋守护者",
 )
@@ -63,6 +66,16 @@ _UNSUPPORTED_SCHEMA_RE = re.compile(
     r"(?:[红黄蓝绿黑白橙紫]色|[A-Z]\s*级|[A-Z]\s*类)\s*(?:代表|表示|对应|编码|标记)"
     r"|(?:颜色|编码|代码|分类体系|等级体系|标签体系)\s*(?:规定|分为|是|包括)"
 )
+_NAMED_DOCUMENT_RE = re.compile(r"《\s*([^》]{2,60})\s*》")
+_UNQUOTED_NAMED_DOCUMENT_RE = re.compile(
+    r"[\u4e00-\u9fffA-Za-z0-9·_-]{2,60}(?:国际公约|公约|协议|条例|法规|法案)",
+    re.I,
+)
+_NAMED_DOCUMENT_SUFFIX_RE = re.compile(r"(?:国际)?(?:公约|协议|条例|法规|法案|标准)$", re.I)
+_NAMED_DOCUMENT_LEADING_RE = re.compile(
+    r"^(?:(?:请问|请|帮我|麻烦|你知道|关于|依据|按照|介绍一下|介绍|概括一下|概括|"
+    r"说明一下|说明|查询|核实|了解一下|了解))+",
+)
 
 
 def is_domain_question(message: str) -> bool:
@@ -70,8 +83,37 @@ def is_domain_question(message: str) -> bool:
     return any(term.replace(" ", "") in q.replace(" ", "") for term in DOMAIN_TERMS)
 
 
+_COUNTERFACTUAL_RE = re.compile(
+    r"反事实|(?:如果|假如|假设|倘若).{0,32}(?:没有|不存在|消失|停止|不再).{0,48}"
+    r"(?:会|将).{0,24}(?:怎样|如何|什么|不同|变化|影响)",
+    re.I,
+)
+
+
+def is_counterfactual_question(message: str) -> bool:
+    """识别开放反事实推演，不把普通条件式处置问题纳入此门禁。"""
+    return bool(_COUNTERFACTUAL_RE.search((message or "").strip()))
+
+
 def _compact(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
+
+
+def is_near_duplicate_answer(answer: str, previous_answer: str, threshold: float = 0.88) -> bool:
+    """识别原样重发或仅改少量前后缀的上一轮答案。"""
+    current = re.sub(r"[^\w\u4e00-\u9fff]+", "", (answer or "").lower())
+    previous = re.sub(r"[^\w\u4e00-\u9fff]+", "", (previous_answer or "").lower())
+    if len(current) < 20 or len(previous) < 20:
+        return bool(current and current == previous)
+    return SequenceMatcher(None, current, previous).ratio() >= threshold
+
+
+def duplicate_follow_up_response(message: str) -> str:
+    """重复门禁后的确定性说明，避免把旧答案伪装成追问答案。"""
+    return (
+        "针对你补充的问题，当前知识库没有检索到比上一轮更细、可核验的新依据，"
+        "所以我不把上一段原样重复成新答案。你可以补充具体对象、海域或希望核对的条款，我再按这些条件回答。"
+    )
 
 
 def _strip_think(text: str) -> str:
@@ -98,6 +140,42 @@ def _evidence_text(evidence: Sequence[dict[str, Any]]) -> str:
     return "\n".join(str(item.get("content") or "") for item in evidence)
 
 
+def _named_document_entities(message: str) -> list[str]:
+    """提取书名号内或直接写出的法规、公约、协议和标准专名。"""
+    entities: list[str] = []
+    candidates = list(_NAMED_DOCUMENT_RE.findall(message or ""))
+    candidates.extend(_UNQUOTED_NAMED_DOCUMENT_RE.findall(message or ""))
+    for raw in candidates:
+        entity = _NAMED_DOCUMENT_LEADING_RE.sub("", raw.strip())
+        if _NAMED_DOCUMENT_SUFFIX_RE.search(entity) and entity not in entities:
+            entities.append(entity)
+    return entities
+
+
+def _unsupported_named_entities(
+    message: str, evidence: Sequence[dict[str, Any]]
+) -> list[str]:
+    """返回未被任何证据原文直接支持的文书专名。"""
+    evidence_compact = _compact(_evidence_text(evidence)).lower()
+    missing: list[str] = []
+    for entity in _named_document_entities(message):
+        normalized = _compact(entity).lower()
+        core = _NAMED_DOCUMENT_SUFFIX_RE.sub("", normalized)
+        if normalized not in evidence_compact and (len(core) < 4 or core not in evidence_compact):
+            missing.append(entity)
+    return missing
+
+
+def _missing_named_document_response(entities: Sequence[str]) -> str:
+    names = "、".join(f"《{entity}》" for entity in entities)
+    return (
+        f"项目知识库中没有查到{names}的记录，无法确认该文件是否真实存在，"
+        "也无法核实所谓修订版或主要条款，因此不能用其他资料替它作答。"
+        "当前知识库实际包含的相关主题有：MARPOL附则V、海洋环境保护法律法规、"
+        "海洋垃圾监测与清理评估、海洋塑料治理。若能提供正式发布机构或原文，我可以继续核对。"
+    )
+
+
 def _numbers(text: str) -> set[str]:
     cleaned = _CITATION_RE.sub("", text or "")
     cleaned = re.sub(r"(?m)^\s*\d+[.、)]\s*", "", cleaned)
@@ -122,6 +200,32 @@ def _has_unsupported_facts(answer: str, question: str, evidence: Sequence[dict[s
         if _compact(match.group(0)).lower() not in support_compact:
             return True
     return False
+
+
+def _has_material_microplastic_confusion(text: str) -> bool:
+    """材质可以形成微塑料，但材质名称本身不等于粒径类别。"""
+    material = r"(?:pet|hdpe|ldpe|pvc|pp|ps|聚对苯二甲酸乙二醇酯|高密度聚乙烯)"
+    equivalence = r"(?:就是|等同于|等于|是一种|属于)"
+    for sentence in re.split(r"[。！？!?；;\n]+", (text or "").lower()):
+        if not re.search(
+            rf"{material}.{{0,10}}{equivalence}.{{0,8}}微塑料|微塑料.{{0,10}}{equivalence}.{{0,8}}{material}",
+            sentence,
+            re.I,
+        ):
+            continue
+        if re.search(r"碎片|颗粒|纤维|粒径|小于\s*5\s*(?:毫米|mm)|尺寸", sentence, re.I):
+            continue
+        return True
+    return False
+
+
+def _has_counterfactual_uncertainty_structure(text: str) -> bool:
+    compact = _compact(text)
+    return (
+        bool(re.search(r"较确定|相对确定|可以确定", compact))
+        and bool(re.search(r"推测|可能|倾向", compact))
+        and bool(re.search(r"不确定|不能断定|取决于|仍需", compact))
+    )
 
 
 def _is_complete_answer(answer: str) -> bool:
@@ -211,6 +315,10 @@ def is_acceptable_model_answer(
     if _has_obvious_repetition(raw):
         return False
     if not _is_complete_answer(raw):
+        return False
+    if _has_material_microplastic_confusion(raw):
+        return False
+    if is_counterfactual_question(question) and not _has_counterfactual_uncertainty_structure(raw):
         return False
 
     # 只拦截严重的事实错误模板，放宽自然表达的空间
@@ -320,6 +428,7 @@ _QUERY_SIGNAL_TERMS = {
     "检测", "识别", "置信度", "报告", "污染", "清理", "打捞", "回收", "样方", "样带", "声呐",
     "传感器", "无人艇", "usv", "rov", "rfid", "pops", "富集", "食物链", "洋流", "潮汐", "碳汇",
     "巡航", "拦截", "监测", "复测", "降级", "风险标注", "作业", "切割", "微创", "网格", "抽检",
+    "pet", "hdpe", "聚合物", "材料", "紫外", "老化", "光氧化", "水解", "耐候", "性能", "对比",
 }
 _SPECIAL_TERM_ALIASES = {
     "usv": ("usv", "无人艇", "无人船"),
@@ -357,6 +466,8 @@ def _evidence_supports_requested_intent(
     message: str, evidence: Sequence[dict[str, Any]]
 ) -> bool:
     """证据必须覆盖问题要求的计算、机制、方法或操作内容。"""
+    if _unsupported_named_entities(message, evidence):
+        return False
     query = message or ""
     text = "\n".join(str(item.get("content") or "") for item in evidence or [])
 
@@ -500,9 +611,14 @@ def _knowledge_fallback(
 
             results = LocalKnowledgeRetriever().search(message, 3)
         except Exception:
-            return None
+            missing_entities = _named_document_entities(message)
+            return _missing_named_document_response(missing_entities) if missing_entities else None
+    missing_entities = _unsupported_named_entities(message, results)
+    if missing_entities:
+        return _missing_named_document_response(missing_entities)
     if not results:
-        return None
+        named_entities = _named_document_entities(message)
+        return _missing_named_document_response(named_entities) if named_entities else None
     # 有检索分数或引用编号仍不代表答到了问题；没有实质词重叠时禁止拼贴弱相关资料。
     if not _has_substantive_evidence_overlap(message, results):
         return None
@@ -566,6 +682,272 @@ def stream_text(text: str) -> AsyncGenerator[str, None]:
     return _stream()
 
 
+def _format_number(value: float) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.10g}"
+
+
+_CHINESE_DIGITS = {
+    "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3,
+    "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+}
+
+
+def _parse_chinese_number(text: str) -> Optional[float]:
+    """解析百分比中常见的 0–100 中文数字，不承担通用中文数词转换。"""
+    value = (text or "").strip().replace("两", "二")
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    if "点" in value:
+        integer_text, decimal_text = value.split("点", 1)
+        integer = _parse_chinese_number(integer_text or "零")
+        if integer is None or not decimal_text or any(char not in _CHINESE_DIGITS for char in decimal_text):
+            return None
+        decimal = "".join(str(_CHINESE_DIGITS[char]) for char in decimal_text)
+        return integer + float(f"0.{decimal}")
+    if value == "一百":
+        return 100.0
+    if "十" in value:
+        tens_text, ones_text = value.split("十", 1)
+        tens = 1 if not tens_text else _CHINESE_DIGITS.get(tens_text)
+        ones = 0 if not ones_text else _CHINESE_DIGITS.get(ones_text)
+        if tens is None or ones is None:
+            return None
+        return float(tens * 10 + ones)
+    if len(value) == 1 and value in _CHINESE_DIGITS:
+        return float(_CHINESE_DIGITS[value])
+    return None
+
+
+def _percentage_values(text: str) -> list[float]:
+    """按原句顺序提取 60%、六成、百分之六十等比例。"""
+    pattern = re.compile(
+        r"(?P<arabic>\d+(?:\.\d+)?)\s*%"
+        r"|百分之(?P<chinese>[零〇一二三四五六七八九十百两点\d.]+)"
+        r"|(?P<tenths>[零〇一二三四五六七八九十两点\d.]+)成"
+    )
+    values: list[float] = []
+    for match in pattern.finditer(text):
+        if match.group("arabic") is not None:
+            percent = float(match.group("arabic"))
+        elif match.group("chinese") is not None:
+            parsed = _parse_chinese_number(match.group("chinese"))
+            if parsed is None:
+                continue
+            percent = parsed
+        else:
+            parsed = _parse_chinese_number(match.group("tenths"))
+            if parsed is None:
+                continue
+            percent = parsed * 10
+        if 0 <= percent <= 100:
+            values.append(percent / 100)
+    return values
+
+
+def _deterministic_percentage_response(message: str) -> Optional[str]:
+    """求解“基础量 × 占比 × 占比”题；统计陈述没有求值意图时不抢答。"""
+    text = (message or "").strip().lower()
+    if not re.search(r"(?:重|重量|质量|数量|合计|一共|总共)?多少(?:吨|千克|公斤|克)?|(?:有)?几(?:吨|千克|公斤|克)|求(?:出|得)?|计算(?:出|一下)?|等于多少|是多少", text):
+        return None
+    base_match = re.search(r"(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>吨|千克|公斤|克)", text)
+    percentages = _percentage_values(text)
+    if not base_match or not percentages:
+        return None
+
+    base = float(base_match.group("value"))
+    result = base
+    for ratio in percentages:
+        result *= ratio
+    chain = "×".join(
+        [_format_number(base), *[f"{_format_number(ratio * 100)}%" for ratio in percentages]]
+    )
+    unit = base_match.group("unit")
+    return (
+        f"{chain} = {_format_number(result)}{unit}。"
+        "这是按题目给出的总量和占比逐级相乘得到的结果；这类确定性计算我可以直接完成，"
+        "更主要的专业范围仍是海洋垃圾与污染分析。"
+    )
+
+
+_UNIT_ALIASES = {
+    "海里": "海里",
+    "公里": "公里",
+    "千米": "公里",
+    "米": "米",
+    "节": "节",
+    "公里每小时": "公里/小时",
+    "千米每小时": "公里/小时",
+    "公里/小时": "公里/小时",
+    "千米/小时": "公里/小时",
+    "吨": "吨",
+    "千克": "千克",
+    "公斤": "千克",
+}
+_UNIT_FACTORS = {
+    ("海里", "公里"): 1.852,
+    ("海里", "米"): 1852.0,
+    ("公里", "海里"): 1 / 1.852,
+    ("米", "海里"): 1 / 1852.0,
+    ("节", "公里/小时"): 1.852,
+    ("公里/小时", "节"): 1 / 1.852,
+    ("吨", "千克"): 1000.0,
+    ("千克", "吨"): 1 / 1000.0,
+}
+
+
+def _marine_unit_conversion_response(message: str) -> Optional[str]:
+    """只处理平台常用的海洋距离、航速和质量换算。"""
+    text = re.sub(r"\s+", "", (message or "").strip().lower())
+    if not re.search(r"等于多少|相当于多少|换算(?:成|为)?|是多少", text):
+        return None
+    unit_pattern = "|".join(sorted((re.escape(unit) for unit in _UNIT_ALIASES), key=len, reverse=True))
+    match = re.search(
+        rf"(?P<value>\d+(?:\.\d+)?)(?P<source>{unit_pattern})"
+        rf"(?:等于|相当于|换算成|换算为|换算)(?:多少)?(?P<target>{unit_pattern})",
+        text,
+    )
+    if not match:
+        return None
+    source = _UNIT_ALIASES[match.group("source")]
+    target = _UNIT_ALIASES[match.group("target")]
+    factor = _UNIT_FACTORS.get((source, target))
+    if factor is None:
+        return None
+    value = float(match.group("value"))
+    result = value * factor
+    return (
+        f"{_format_number(value)}{source} = {_format_number(result)}{target}。"
+        "这是海洋作业中常用的固定单位换算；其他专业判断仍需结合具体海域和检测条件。"
+    )
+
+
+def _marine_safety_response(message: str) -> Optional[str]:
+    """覆盖少量高频海边险情，给出保守自救步骤而不替代现场救援。"""
+    q = (message or "").strip().lower()
+    if re.search(r"离岸流|裂流|rip\s*current", q, re.I):
+        return (
+            "遇到离岸流时先保持镇定、保存体力，不要逆流直接往岸上硬游。"
+            "能游动时沿着与海岸线平行的方向离开狭窄水流，再借助海浪斜向返回岸边；"
+            "如果暂时游不出，就漂浮或踩水并挥手、呼救。看到他人遇险时应先通知救生员并投递漂浮物，"
+            "不要在没有救生装备的情况下贸然下水。遇紧急情况立即呼叫当地专业救援。"
+        )
+    if re.search(r"涨潮|潮水", q) and re.search(r"被困|困住|回不去|礁石|岩石|洞穴", q):
+        return (
+            "涨潮受困时应立即离开低洼处，转移到稳固、不会被继续淹没的高处，不要冒险涉水、跳岩或盲目游回岸边。"
+            "尽快联系救生员、海警或当地应急部门，说明人数和所在位置（可见地标、手机定位），并保持通信和保暖；"
+            "若能看到救援人员，用醒目物品或灯光示意。遇紧急情况立即呼叫当地专业救援。"
+        )
+    if "水母" in q and re.search(r"蜇|蛰|刺|伤|怎么办|处理", q):
+        return (
+            "水母蜇伤后先安全离水，不要揉搓伤处；可戴手套或隔着塑料袋、毛巾，用钝边工具小心移除可见触手，"
+            "没有工具时可先用海水轻柔冲走残留物。随后用不烫伤皮肤、人体可耐受的热水浸泡伤处约20分钟或至疼痛缓解。"
+            "醋是否适用与水母种类和当地指引有关，不宜一概而论。若出现呼吸困难、意识异常、全身反应，"
+            "或蜇伤位于面颈部、致伤生物不明，属于紧急情况，应立即呼叫当地专业救援和急救服务。"
+        )
+    return None
+
+
+def _low_confidence_direct_response(message: str) -> Optional[str]:
+    """识别 0.6/60% 等低置信度表达，并把平台处置结论放在首句。"""
+    q = re.sub(r"\s+", "", (message or "").strip().lower())
+    if not re.search(r"置信度|可信度|把握", q) or not re.search(r"怎么处理|如何处理|怎么办|能否|是否|统计|上报|复核", q):
+        return None
+    match = re.search(
+        r"(?:置信度|可信度|把握)(?:只有|仅有|为|是|约|达到)?"
+        r"(?P<value>\d+(?:\.\d+)?)(?P<percent>%)?",
+        q,
+    )
+    if not match:
+        return None
+    raw_value = float(match.group("value"))
+    score = raw_value / 100 if match.group("percent") else raw_value
+    if not 0 <= score < 0.7:
+        return None
+    shown = f"{_format_number(raw_value)}%" if match.group("percent") else _format_number(raw_value)
+    return (
+        f"{shown}属于低置信度：建议人工复核，不作为正式统计依据。"
+        "它不能直接当成确定结论来统计；应先回看原始图像或视频，核对类别、目标框和图像质量，"
+        "必要时结合连续帧或补采样确认，并记录复核后的确认或驳回结果。"
+    )
+
+
+def _safe_arithmetic_value(expression: str) -> Optional[float]:
+    """只计算数字、括号和四则运算，拒绝名称、调用、幂等其他 AST 节点。"""
+    if not expression or len(expression) > 80:
+        return None
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except (SyntaxError, ValueError):
+        return None
+
+    def evaluate(node: ast.AST) -> float:
+        if isinstance(node, ast.Expression):
+            return evaluate(node.body)
+        if isinstance(node, ast.Constant) and type(node.value) in {int, float}:
+            return float(node.value)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            value = evaluate(node.operand)
+            return value if isinstance(node.op, ast.UAdd) else -value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
+            left, right = evaluate(node.left), evaluate(node.right)
+            if isinstance(node.op, ast.Add):
+                value = left + right
+            elif isinstance(node.op, ast.Sub):
+                value = left - right
+            elif isinstance(node.op, ast.Mult):
+                value = left * right
+            else:
+                value = left / right
+            if abs(value) > 1e15:
+                raise ValueError("结果过大")
+            return value
+        raise ValueError("不支持的表达式")
+
+    try:
+        return evaluate(tree)
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return None
+
+
+def _deterministic_math_response(message: str) -> Optional[str]:
+    """覆盖基础四则运算和标准鸡兔同笼题，不把任意文本交给 eval。"""
+    text = (message or "").strip().lower()
+    if "鸡兔同笼" in text:
+        heads_match = re.search(r"(?:共|有)?\s*(\d+)\s*(?:个|只)?头", text)
+        legs_match = re.search(r"(\d+)\s*(?:只|条|个)?(?:脚|腿)", text)
+        if heads_match and legs_match:
+            heads, legs = int(heads_match.group(1)), int(legs_match.group(1))
+            rabbits_twice = legs - 2 * heads
+            if rabbits_twice >= 0 and rabbits_twice % 2 == 0:
+                rabbits = rabbits_twice // 2
+                chickens = heads - rabbits
+                if chickens >= 0:
+                    return (
+                        f"鸡{chickens}只，兔{rabbits}只。设兔为 x，则 4x + 2×({heads}-x) = {legs}，"
+                        f"解得 x={rabbits}；再用总头数相减得到鸡{chickens}只。"
+                        "这类基础方程我可以直接计算；更主要的专业范围仍是海洋垃圾与污染分析。"
+                    )
+
+    expression = text.replace("×", "*").replace("÷", "/").replace("（", "(").replace("）", ")")
+    expression = re.sub(r"请问|帮我算(?:一下)?|计算(?:一下)?|等于多少|是多少|结果(?:是)?", "", expression)
+    expression = expression.strip(" =？?。！!，,")
+    if not re.fullmatch(r"[\d.()+\-*/\s]+", expression) or not re.search(r"[+\-*/]", expression):
+        return None
+    value = _safe_arithmetic_value(expression)
+    if value is None:
+        return None
+    return (
+        f"{expression.replace('*', '×').replace('/', '÷')} = {_format_number(value)}。"
+        "这类基础四则运算我可以直接计算；更主要的专业范围仍是海洋垃圾与污染分析。"
+    )
+
+
 def direct_response(message: str) -> Optional[str]:
     """为身份、证据边界和高风险海洋题提供稳定的确定性答案。
 
@@ -590,6 +972,21 @@ def direct_response(message: str) -> Optional[str]:
         return "再见！祝你今天顺利，之后想继续看海洋数据或报告，随时来找我。"
     if re.search(r"傻逼|他妈的|妈的|操你|草泥马|滚蛋|废物|蠢货|弱智", q):
         return "我的专业是海洋环保，骂人我不太擅长～有什么海洋问题尽管问。"
+    safety_response = _marine_safety_response(message)
+    if safety_response:
+        return safety_response
+    confidence_response = _low_confidence_direct_response(message)
+    if confidence_response:
+        return confidence_response
+    percentage_response = _deterministic_percentage_response(message)
+    if percentage_response:
+        return percentage_response
+    conversion_response = _marine_unit_conversion_response(message)
+    if conversion_response:
+        return conversion_response
+    math_response = _deterministic_math_response(message)
+    if math_response:
+        return math_response
     platform_lookup = not re.search(
         r"导入|上传|分析|解读|这份|《|》|请|帮我|概括|风险等级|关键发现|依据", q
     )
@@ -609,6 +1006,21 @@ def direct_response(message: str) -> Optional[str]:
         return SCOPE_RESPONSE
 
     # 以下是核心专业知识，需要保持权威性但可以更亲和
+    if re.search(r"(?:你|您).{0,4}(?:刚才|前面|上一轮).{0,8}3\s*年.{0,8}(?:降解|分解).{0,4}(?:完|掉)", q) and re.search(r"对吗|是不是|没错吧|正确吗", q):
+        return (
+            "不对，我需要纠正这个前提：如果你指的是上一轮的塑料饮料瓶，常见海洋垃圾科普估算约为450年，"
+            "不是3年。这个数值只是长期环境持留的数量级，并非适用于所有海域的精确寿命；"
+            "很多塑料还会先碎裂成微塑料，而不是真正完全消失。"
+        )
+    if re.search(r"a\s*/\s*b\s*/\s*c|abc", q, re.I) and re.search(r"网格|分区|清理优先", q):
+        return (
+            "这里的 A/B/C 应理解为项目作业中的清理优先级，不是通用法规规定的‘面积/距离/时间’三种网格。"
+            "可先把垃圾堆积密度、生态脆弱度和可安全作业的潮汐窗口叠加到同一空间网格，再分三级："
+            "A级为高优先级，适用于垃圾密集、存在缠绕或危险物，或生态敏感且错过潮汐窗口会扩大风险的区域，应在最近的安全窗口组织专业清理；"
+            "B级为中优先级，适用于密度或生态风险居中、短期内相对稳定的区域，可排入近期计划并复核；"
+            "C级为低优先级，适用于垃圾零散、生态扰动较低且暂不具备安全清理条件的区域，先持续监测、源头管控和定期巡检。"
+            "具体密度阈值、生态权重和响应时限必须用本海域调查数据、保护目标及作业能力校准，不能直接套固定数字。"
+        )
     if re.search(r"(置信度|把握|可信度).{0,12}(低|不足|不高)|(?:置信度|把握|可信度).{0,12}(?:\d{1,3}(?:\.\d+)?)%|能否.{0,8}(统计|上报)|能直接.{0,8}(统计|确认)", q) and not re.search(r"降级|风险标注|正式报告|多帧|跟踪|机制|方法", q):
         return (
             "低置信度的识别结果不能直接当成确定结论来统计。"
@@ -636,6 +1048,12 @@ def direct_response(message: str) -> Optional[str]:
             "塑料袋在海洋中的’降解时间’其实很难给出准确数字——受温度、光照、材质影响太大了。"
             "而且很多塑料并不是真的消失，只是碎裂成微塑料继续存在。"
             "所以比起纠结’多少年分解’，更重要的是源头减量、及时清理和回收利用。"
+        )
+    if re.search(r"塑料(?:饮料|水)?瓶|pet(?:饮料|水)?瓶", q) and re.search(r"多久|几年|降解|消失|分解", q):
+        return (
+            "常见海洋垃圾科普材料给塑料饮料瓶的估算是约450年。这个数字只能理解为长期环境持留的数量级，"
+            "不是所有海域都适用的精确寿命，也不表示到期后会完全矿化、变得无害。实际时间受材质配方、光照、"
+            "温度、海水深度和机械磨损影响；很多塑料瓶会先碎裂成微塑料，继续留在环境中。"
         )
     # 快捷咨询的技术追问需要一个可执行、但不虚构设备参数的基线答案。
     # 这些回答只描述通用流程，具体阈值和型号仍要求以现场方案/报告为准。
@@ -674,7 +1092,14 @@ def direct_response(message: str) -> Optional[str]:
             "把垃圾引导到收集舱，达到载荷或安全阈值后返航卸载。靠近人员、珊瑚区和航道时应限速并启用人工接管，"
             "每次任务记录航迹、拦截量、漏拦原因和影像，装置尺寸与吃水需按渤海现场试验确定。"
         )
-    if re.search(r"PET.*老化|力学老化|微粒碎裂模型", q):
+    if all(term in q for term in ("pet", "hdpe")) and re.search(r"紫外|uv|老化|耐候|更耐|对比|比较", q):
+        return (
+            "以下为通识判断：在都未使用耐候添加剂（尤其是紫外稳定剂）、厚度和加工条件相近时，PET 通常比 HDPE 更耐紫外线老化。"
+            "PET 主链中的芳香环让结构相对刚性、耐候性通常更好；HDPE 的碳氢链在紫外照射和氧气共同作用下更容易发生光氧化，"
+            "随后出现表面粉化、脆化和强度下降。不过这不是所有制品都适用的固定结论：添加剂、颜料、结晶度、厚度、"
+            "机械应力和海水温度都可能改变排序，工程选材应以相同条件下的加速老化和力学保持率试验为准。"
+        )
+    if re.search(r"pet.*老化|力学老化|微粒碎裂模型", q):
         return (
             "PET 在海水和紫外辐射下的老化模型可先做分层实验：设置海水浸泡、紫外照射、温度和时间等因素，"
             "定期测量质量、拉伸强度、断裂伸长率、表面裂纹和粒径分布；把紫外氧化与水解造成的强度衰减拟合成时间函数，"
@@ -701,6 +1126,13 @@ def direct_response(message: str) -> Optional[str]:
             "确认船名/航次、日期、位置和垃圾类别记录完整，塑料等禁止排放项没有虚假排放记录；"
             "核查交岸接收凭证、接收港口和数量是否与记录簿一致，证书是否在有效期内，船员是否按计划分类、暂存和交接。"
             "具体检查清单以船旗国、港口国和适用海域的现行要求为准，不能仅凭一页记录簿认定合规。"
+        )
+    if "微塑料" in q and re.search(r"进入人体|人体.{0,8}(?:途径|路径)|暴露途径|摄入途径|主要途径", q):
+        return (
+            "针对你补充问的暴露途径，目前较明确的主要是两类：一是摄入，例如通过食物、饮用水以及吞咽沉降到上呼吸道的颗粒；"
+            "二是吸入，例如室内外空气和尘埃中的微塑料纤维或颗粒。完整健康皮肤对较大颗粒有屏障作用，"
+            "日常环境下经皮吸收的证据仍有限，通常不列为主要途径。检出或暴露不等于已经造成具体疾病，"
+            "不同粒径和暴露剂量的健康影响仍需更多研究。"
         )
     if "微塑料" in q and re.search(r"危害|影响|人体|健康|是什么|定义|多大|疾病|5mm|5毫米", q):
         return (
@@ -741,6 +1173,14 @@ def direct_response(message: str) -> Optional[str]:
             "4. 核验与回收：ROV 或潜水员到达目标附近后，用 RFID 在近距离核对资产身份，再拍摄缠绕对象和海底栖息地，按风险分段解缠、回收或原位加固。\n"
             "5. 闭环复盘：回收后更新 RFID 状态、声呐设备状态、处置时间、坐标、影像和责任链，生成从布放到回收的时间线。\n"
             "需要特别注意：普通 RFID 不适合在海水中承担远距离实时定位，海水会明显衰减无线电信号；它更适合出水后或近距离核验。真正的水下长效追踪仍要依赖声呐应答器、接收机和定期巡检。具体频率、续航、通信距离和固定方式必须根据水深、盐度、海流、渔具类型及设备规格现场验证，项目知识库目前没有这些参数。"
+        )
+    if re.search(r"食物垃圾|厨余", q) and re.search(r"marpol|船舶|附则\s*v|入海|排放|处理", q):
+        return (
+            "针对你追问的食物垃圾，MARPOL 附则V不是一律允许排海，而是按处理方式和海域限制："
+            "在一般海域且船舶正在航行时，粉碎或研磨至可通过25毫米筛孔的食物垃圾，通常须在距最近陆地超过3海里后才可排放；"
+            "未粉碎的食物垃圾通常须超过12海里。特殊区域和极地水域要求更严，未粉碎食物垃圾通常禁止排放，"
+            "粉碎后的也通常须超过12海里并满足附加条件。最稳妥的做法仍是分类暂存并交岸接收；具体操作应以现行附则、"
+            "船旗国和港口国规定为准。"
         )
     if re.search(r"marpol|船舶.*垃圾|船.*塑料|附则\s*v|塑料垃圾.*(倒|排放).*(海|海里)", q):
         return (
@@ -817,15 +1257,38 @@ def _report_context_fallback(message: str, report_context: str) -> Optional[str]
     )
 
 
+def _counterfactual_fallback(message: str) -> Optional[str]:
+    """模型无法稳定完成开放推演时，只给方向性、可证伪的保守说明。"""
+    if not is_counterfactual_question(message):
+        return None
+    q = (message or "").lower()
+    if "月球" in q and "潮汐" in q and re.search(r"海滩|海岸|垃圾", q):
+        return (
+            "【较确定推论】月球是地球潮汐的主要驱动力，但不是唯一驱动力；即使去掉月球作用，"
+            "太阳引潮力、风浪、洋流和岸形仍会搬运海滩垃圾，因此潮汐不会简单地‘完全消失’。\n"
+            "【推测】月球潮引起的周期性淹没、退水和潮线搬运会减弱，原本反复在高潮线附近搁置的垃圾带可能变得不那么稳定；"
+            "局部分布可能更多受风向、波浪、暴雨径流和海岸地形控制。\n"
+            "【不确定性】这只是方向性推测。不同海岸的太阳潮响应、风浪、洋流、坡度和垃圾浮力差异很大，"
+            "不能断定垃圾一定更均匀、更多或更少；需要结合具体海岸的水动力模型和监测数据验证。"
+        )
+    return (
+        "【较确定推论】这是一个反事实情景，现实中无法直接观察题设条件，只能从已知机制做方向性判断。\n"
+        "【推测】相关结果可能随条件变化，但不应把一种可能写成必然结论。\n"
+        "【不确定性】当前问题缺少对象、时间尺度和环境变量，不能断定单一结果；"
+        "若补充具体海域或机制，我可以继续拆分哪些是较确定推论、哪些只是推测。"
+    )
+
+
 def _fallback_response(
     message: str,
     evidence: Optional[Sequence[dict[str, Any]]] = None,
     report_context: Optional[str] = None,
 ) -> str:
-    """兜底响应：绑定报告快照 → 确定性规则 → 知识库检索 → 友好提示。"""
+    """兜底响应：绑定报告快照 → 确定性规则 → 反事实保守说明 → 知识库检索。"""
     return (
         _report_context_fallback(message, report_context or "")
         or direct_response(message)
+        or _counterfactual_fallback(message)
         or _knowledge_fallback(message, evidence)
         or _friendly_unknown(message)
     )
