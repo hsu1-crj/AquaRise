@@ -4,6 +4,14 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
+
+import os
+
+# bge-small-zh-v1.5 权重已随项目缓存到本地；默认禁止 huggingface_hub 启动时联网校验，
+# 否则离线/弱网环境下每次首次检索都会在 async 请求路径里同步重试网络（单次可阻塞数分钟），
+# 拖死整个 FastAPI 事件循环。需要联网下载新模型时，显式设置 HF_HUB_OFFLINE=0 覆盖。
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader, PyPDFLoader

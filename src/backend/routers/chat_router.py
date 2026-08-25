@@ -204,16 +204,28 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
                             report_context=report_context,
                         )
                         prepared_messages, evidence = svc.prepare_messages(req)
+                        previous_assistant = next(
+                            (
+                                item.content
+                                for item in reversed(request_messages)
+                                if item.role == "assistant" and item.content.strip()
+                            ),
+                            "",
+                        )
                         # 强相关的报告/法规/检测事实直接使用已排序、带来源的证据，
                         # 避免让 1.5B 模型生成后再被引用门禁拦截，端到端控制在秒级。
                         grounded = None
                         if not report_context and llm_stub.is_strong_evidence_question(message, evidence):
                             grounded = llm_stub._knowledge_fallback(message, evidence)
+                        if grounded and llm_stub.is_near_duplicate_answer(grounded, previous_assistant):
+                            logger.info("强证据答案与上一轮高度重复，改走模型链路")
+                            grounded = None
                         if grounded:
                             full = grounded
                             async for chunk in llm_stub.stream_text(full):
                                 yield _sse(chunk)
                             used_ollama = True
+                        else:
                             # 先缓冲、再通过质量门禁。DeepSeek R1 1.5B 偶尔会复述问题或输出无依据套话；
                             # 此处不能把未验证的半句直接送到 UI。通过后按短句重新流式输出，阅读节奏仍自然。
                             for_event_errors = False
@@ -251,6 +263,9 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
                             candidate = llm_stub.finalize_model_answer(
                                 message, full, evidence, report_context=report_context
                             )
+                            if llm_stub.is_near_duplicate_answer(candidate, previous_assistant):
+                                logger.warning("模型答案与上一轮高度重复，使用追问说明")
+                                candidate = llm_stub.duplicate_follow_up_response(message)
                             if for_event_errors or candidate != llm_stub._strip_think(full):
                                 # 质量门禁拒绝的内容不会先泄漏到 UI；统一改用确定性回答或知识库兜底。
                                 if full:
@@ -270,6 +285,7 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
                         message, report_context=report_context
                     ):
                         full += chunk
+                        yield _sse(chunk)
         except Exception:
             # 不让异常静默中断 SSE：给出错误事件后再收尾，前端才能停止等待。
             logger.exception("对话流处理异常")
