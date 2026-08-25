@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, ArrowRight, Camera, ChevronRight, CircleGauge, FileDown, MapPin, Radio, RefreshCw, ScanLine, ShipWheel, Sparkles, TrendingUp, Waves } from 'lucide-react';
 import { MaterialChart, RankingChart, TrendChart } from '../components/Charts';
-import { mockRecords } from '../data/mock';
 import { api } from '../services/api';
-import type { PageKey, StatsAnalysis, Summary, TrendPoint, UserInfo } from '../types';
+import type { DetectionRecord, PageKey, StatsAnalysis, Summary, TrendPoint, UserInfo } from '../types';
 
 const beijingClock = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -48,15 +47,22 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
   const [analysis, setAnalysis] = useState<StatsAnalysis | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [records, setRecords] = useState<DetectionRecord[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [summaryData, trendData, analysisData] = await Promise.all([api.getSummary(), api.getTrend(), api.getAnalysis()]);
+      const [summaryData, trendData, analysisData, history] = await Promise.all([
+        api.getSummary(),
+        api.getTrend(),
+        api.getAnalysis(),
+        api.getHistory(1, 4),
+      ]);
       setSummary(summaryData);
       setTrend(trendData);
       setAnalysis(analysisData);
+      setRecords(history.items);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '数据加载失败');
     } finally {
@@ -117,7 +123,9 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
         <article className="panel glass records-panel">
           <PanelTitle icon={ShipWheel} title="最近检测" subtitle="最新完成任务" action="全部记录" onAction={() => onNavigate('history')} />
           <div className="record-list">
-            {mockRecords.slice(0, 4).map((record) => <button key={record.id} onClick={() => onNavigate('history')}><span className={`level-dot level-${record.level}`} /><div><strong>{record.location}</strong><small>{record.createdAt} · {record.type}</small></div><em>{record.objectCount} 件</em><ChevronRight size={15} /></button>)}
+            {records.length === 0
+              ? <div className="no-record">暂无检测记录</div>
+              : records.slice(0, 4).map((record) => <button key={record.id} onClick={() => onNavigate('history')}><span className={`level-dot level-${record.level}`} /><div><strong>{record.location}</strong><small>{record.createdAt} · {record.type}</small></div><em>{record.objectCount} 件</em><ChevronRight size={15} /></button>)}
           </div>
         </article>
       </section>
