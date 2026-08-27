@@ -2,11 +2,50 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildSpeciesStarterQuestion,
   buildContextualQuestion,
+  clearAtlasChatHistory,
+  createSpeciesStarterTracker,
   parseSseEvent,
   renderSafeMarkdown,
   streamAtlasChat,
 } from '../src/frontend/public/haitong/assets/js/atlas-chat.mjs';
+
+test('物种问答入口生成可直接发送的当前物种首问', () => {
+  const question = buildSpeciesStarterQuestion({ cn: '小头鼠海豚' });
+
+  assert.match(question, /小头鼠海豚/);
+  assert.match(question, /生存现状/);
+  assert.match(question, /主要威胁/);
+  assert.match(question, /保护/);
+  assert.match(question, /？$/);
+});
+
+test('清空问答会原地移除历史，避免旧上下文继续发给后端', () => {
+  const history = [{ role: 'user', content: '旧问题' }, { role: 'assistant', content: '旧回答' }];
+
+  clearAtlasChatHistory(history);
+
+  assert.deepEqual(history, []);
+});
+
+test('物种首问失败后可重试，成功后不重复，清空会重置所有物种', () => {
+  const tracker = createSpeciesStarterTracker();
+
+  assert.equal(tracker.begin('vaquita'), true);
+  assert.equal(tracker.begin('vaquita'), false);
+  tracker.fail('vaquita');
+  assert.equal(tracker.begin('vaquita'), true);
+  tracker.succeed('vaquita');
+  assert.equal(tracker.begin('vaquita'), false);
+  assert.equal(tracker.begin('blue-whale'), true);
+  tracker.succeed('blue-whale');
+
+  tracker.clear();
+
+  assert.equal(tracker.begin('vaquita'), true);
+  assert.equal(tracker.begin('blue-whale'), true);
+});
 
 test('安全 Markdown 转义脚本与事件属性，同时保留受支持标记', () => {
   const html = renderSafeMarkdown('**加粗** `<img>` [S1]\n<script>alert(1)</script><img src=x onerror=alert(2)>');

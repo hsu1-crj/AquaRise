@@ -272,3 +272,55 @@ def test_false_three_year_degradation_premise_is_corrected():
     assert answer.startswith("不对")
     assert "450年" in answer
     assert "碎裂成微塑料" in answer
+
+
+def test_atlas_species_starter_uses_current_archive_instead_of_generic_rag():
+    message = (
+        "【当前浏览物种】小头鼠海豚 / Vaquita / Phocoena sinus｜IUCN：CR·极危｜简介："
+        "生活在加利福尼亚湾北部，是世界上最稀有的小型鲸豚。非法石首鱼刺网的兼捕让整个物种在灭绝边缘徘徊，野生个体仅存个位数。\n"
+        "我的问题：请介绍小头鼠海豚目前的生存现状、主要威胁，以及普通人可以参与的保护行动？"
+    )
+
+    answer = llm.direct_response(message)
+
+    assert answer is not None
+    assert answer.startswith("小头鼠海豚目前处于 CR·极危")
+    assert "非法石首鱼刺网" in answer
+    assert "普通人" in answer
+    assert "珊瑚" not in answer and "trash_rope" not in answer
+    assert "检测数据" not in answer and "报告发我" not in answer
+
+
+def test_atlas_species_quick_question_stays_grounded_in_current_archive():
+    message = (
+        "【当前浏览物种】小头鼠海豚 / Vaquita / Phocoena sinus｜IUCN：CR·极危｜简介："
+        "生活在加利福尼亚湾北部，是世界上最稀有的小型鲸豚。非法石首鱼刺网的兼捕让整个物种在灭绝边缘徘徊。\n"
+        "我的问题：它为什么濒危？"
+    )
+
+    answer = llm.direct_response(message)
+
+    assert answer is not None
+    assert "非法石首鱼刺网" in answer and "兼捕" in answer
+    assert "当前档案" in answer
+
+
+def test_atlas_protection_actions_follow_each_species_archive_threat():
+    vaquita = (
+        "【当前浏览物种】小头鼠海豚 / Vaquita / Phocoena sinus｜IUCN：CR·极危｜简介："
+        "非法石首鱼刺网兼捕是当前核心威胁。\n我的问题：我能为保护它做什么？"
+    )
+    whale = (
+        "【当前浏览物种】北大西洋露脊鲸 / North Atlantic right whale / Eubalaena glacialis｜"
+        "IUCN：CR·极危｜简介：船舶撞击和渔具缠绕持续威胁现存种群。\n我的问题：我能为保护它做什么？"
+    )
+
+    vaquita_answer = llm.direct_response(vaquita)
+    whale_answer = llm.direct_response(whale)
+
+    assert vaquita_answer and "非法石首鱼刺网" in vaquita_answer
+    assert "可追溯" in vaquita_answer or "非法捕捞" in vaquita_answer
+    assert whale_answer and "船舶撞击" in whale_answer
+    assert "减速" in whale_answer and "安全距离" in whale_answer
+    for answer in (vaquita_answer, whale_answer):
+        assert "检测报告" not in answer and "知识库" not in answer

@@ -690,7 +690,7 @@
     #filterHub.planet-mode { top: 88px; }
   }
   .ask-assistant-link:hover { color: #fff; border-color: #8df8ff; background: linear-gradient(135deg, rgba(31, 128, 180, 0.58), rgba(56,248,212,0.26)); }
-  .ask-assistant-link:focus-visible, .atlas-chat-close:focus-visible, .chat-chip:focus-visible,
+  .ask-assistant-link:focus-visible, .atlas-chat-close:focus-visible, .atlas-chat-clear:focus-visible, .chat-chip:focus-visible,
   .chat-send:focus-visible, .chat-stop:focus-visible, .chat-regenerate:focus-visible, #atlasChatInput:focus-visible {
     outline: 2px solid #fff; outline-offset: 3px;
   }
@@ -712,6 +712,9 @@
   .atlas-chat-kicker { font: 700 10px/1 var(--font-mono); letter-spacing: 0.26em; color: var(--cyan); }
   .atlas-chat-title { margin: 8px 0 3px; font: 800 22px/1.25 var(--font-serif); color: #fff; }
   .atlas-chat-subtitle { font: 11px/1.5 var(--font-mono); color: var(--ink-dim); }
+  .atlas-chat-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .atlas-chat-clear { height: 34px; padding: 0 11px; border-radius: 999px; border: 1px solid rgba(135,222,255,0.22); background: rgba(6,28,48,0.58); color: #9fc7d8; font: 11px/1 var(--font-sans); cursor: pointer; }
+  .atlas-chat-clear:hover { color: #fff; border-color: rgba(255,175,189,0.65); background: rgba(255,71,105,0.10); }
   .atlas-chat-close { width: 36px; height: 36px; flex: 0 0 auto; border-radius: 50%; border: 1px solid rgba(135,222,255,0.25); background: rgba(6,28,48,0.68); color: #dffcff; font-size: 21px; cursor: pointer; }
   .atlas-chat-close:hover { color: #fff; border-color: var(--cyan); background: rgba(56,248,212,0.18); }
   .atlas-chat-chips { display: flex; gap: 7px; padding: 12px 24px; overflow-x: auto; scrollbar-width: none; }
@@ -1738,7 +1741,10 @@
         <h2 class="atlas-chat-title" id="atlasChatTitle">问问海瞳助手</h2>
         <div class="atlas-chat-subtitle" id="atlasChatSpecies">围绕当前物种继续探索</div>
       </div>
-      <button class="atlas-chat-close" id="closeAtlasChat" type="button" aria-label="关闭海瞳助手">×</button>
+      <div class="atlas-chat-actions">
+        <button class="atlas-chat-clear" id="clearAtlasChat" type="button" aria-label="清空当前对话">清空对话</button>
+        <button class="atlas-chat-close" id="closeAtlasChat" type="button" aria-label="关闭海瞳助手">×</button>
+      </div>
     </div>
     <div class="atlas-chat-chips" aria-label="快捷追问">
       <button class="chat-chip" type="button" data-question="它为什么濒危？">它为什么濒危？</button>
@@ -2147,7 +2153,7 @@ import { calculateFocalCoverCrop } from "./assets/js/poster-utils.mjs";
 import { createSoundscapeManager } from "./assets/js/soundscape-manager.mjs";
 import { FilesetResolver, HandLandmarker } from "./assets/vendor/mediapipe/vision_bundle.mjs";
 import { classifyHandGesture, HAND_RULES, HAND_LM } from "./assets/js/hand-gestures.mjs";
-import { AtlasChatError, buildContextualQuestion, renderSafeMarkdown, streamAtlasChat } from "./assets/js/atlas-chat.mjs";
+import { AtlasChatError, buildContextualQuestion, buildSpeciesStarterQuestion, clearAtlasChatHistory, createSpeciesStarterTracker, renderSafeMarkdown, streamAtlasChat } from "./assets/js/atlas-chat.mjs";
 import { createFpsFuse } from "./assets/js/bloom-policy.mjs";
 import { createGbifClient } from "./assets/js/gbif-client.mjs";
 
@@ -4829,9 +4835,9 @@ const atlasChatStatus = $("#atlasChatStatus");
 const sendAtlasChatBtn = $("#sendAtlasChat");
 const stopAtlasChatBtn = $("#stopAtlasChat");
 const chatHistory = [];
+const speciesStarterTracker = createSpeciesStarterTracker();
 let chatRequestController = null;
 let chatGeneration = 0;
-let chatContextSpecies = null;
 let chatSpeciesIndex = speciesIdx;
 let activeChatAnswer = null;
 let chatCooldownUntil = 0;
@@ -4856,6 +4862,10 @@ function getAtlasChatSessionId() {
  } catch (error) {
   return `atlas-${Date.now()}-${Math.random().toString(16).slice(2)}`;
  }
+}
+
+function resetAtlasChatSessionId() {
+ try { sessionStorage.removeItem(CHAT_SESSION_KEY); } catch (error) { /* 隐私模式下仍可清空当前页面 */ }
 }
 
 function setAtlasChatStatus(message, tone = "normal") {
@@ -4890,6 +4900,11 @@ function addAtlasChatMessage(role, content, options = {}) {
  atlasChatMessages.appendChild(article);
  scrollAtlasChatToEnd();
  return { article, body };
+}
+
+function renderAtlasChatWelcome() {
+ atlasChatMessages.replaceChildren();
+ addAtlasChatMessage("assistant", "我会结合当前物种档案与海洋保护知识回答。你想先了解什么？");
 }
 
 function addRegenerateButton(answer, question) {
@@ -4955,7 +4970,6 @@ function syncAtlasChatSpecies() {
  if (chatSpeciesIndex === speciesIdx) return;
  if (chatRequestController) abortAtlasChatRequest(true);
  chatSpeciesIndex = speciesIdx;
- chatContextSpecies = null;
  if (atlasChatPanel.classList.contains("open")) setAtlasChatStatus(`已切换至 ${species.cn}，下一问将更新物种语境`, "ok");
 }
 
@@ -4967,7 +4981,13 @@ function openAtlasChat() {
  atlasChatPanel.classList.add("open");
  atlasChatPanel.setAttribute("aria-hidden", "false");
  infoCard.classList.add("chat-hidden");
- setTimeout(() => atlasChatInput.focus(), 120);
+ setTimeout(() => {
+  atlasChatInput.focus();
+  const species = SPECIES[speciesIdx];
+  const speciesKey = `${species.la}:${speciesIdx}`;
+  if (chatRequestController || !speciesStarterTracker.begin(speciesKey)) return;
+  sendAtlasQuestion(buildSpeciesStarterQuestion(species), { starterSpeciesKey: speciesKey });
+ }, 120);
 }
 
 function closeAtlasChat() {
@@ -4980,25 +5000,43 @@ function closeAtlasChat() {
  target?.focus();
 }
 
-async function sendAtlasQuestion(rawQuestion) {
+function clearAtlasConversation() {
+ if (chatRequestController) abortAtlasChatRequest(false);
+ clearInterval(chatCooldownTimer);
+ chatCooldownTimer = 0;
+ chatCooldownUntil = 0;
+ clearAtlasChatHistory(chatHistory);
+ speciesStarterTracker.clear();
+ resetAtlasChatSessionId();
+ renderAtlasChatWelcome();
+ setAtlasChatStatus("对话与上下文已清空，下次提问将开启新会话", "ok");
+ refreshAtlasChatControls();
+ atlasChatInput.focus();
+}
+
+async function sendAtlasQuestion(rawQuestion, options = {}) {
  const question = String(rawQuestion ?? atlasChatInput.value).trim();
- if (!question || Date.now() < chatCooldownUntil) return;
+ const starterSpeciesKey = options.starterSpeciesKey || "";
+ let starterSucceeded = false;
+ if (!question || Date.now() < chatCooldownUntil) {
+  speciesStarterTracker.fail(starterSpeciesKey);
+  return;
+ }
  if (chatRequestController) abortAtlasChatRequest(true);
  const token = getStoredChatToken();
  if (!token) {
+  speciesStarterTracker.fail(starterSpeciesKey);
   addAtlasChatMessage("assistant", "请先在平台登录后再使用问答。登录完成后回到生命图谱即可继续。", { error: true });
   setAtlasChatStatus("未检测到登录凭证，未发送请求", "error");
   return;
  }
 
  const species = SPECIES[speciesIdx];
- const speciesKey = `${species.la}:${speciesIdx}`;
- const contextual = chatContextSpecies === speciesKey
-  ? { display: question, request: question }
-  : buildContextualQuestion(question, species);
+ // 每一轮都附带当前物种档案，后端才能稳定识别“它”等指代，快捷追问也不会掉进通用 RAG。
+ const contextual = buildContextualQuestion(question, species);
  atlasChatInput.value = "";
  addAtlasChatMessage("user", contextual.display);
- // 历史保存实际发给后端的文本，后续轮次仍能看到首轮物种语境；界面只显示用户原问题。
+ // 历史保存实际发给后端的文本，界面只显示用户原问题。
  chatHistory.push({ role: "user", content: contextual.request });
  const outbound = chatHistory.slice(-12).map(message => ({ ...message }));
  const answer = addAtlasChatMessage("assistant", "", { pending: true });
@@ -5025,7 +5063,8 @@ async function sendAtlasQuestion(rawQuestion) {
   });
   if (generation !== chatGeneration) return;
   settleActiveChatAnswer(false);
-  chatContextSpecies = speciesKey;
+  speciesStarterTracker.succeed(starterSpeciesKey);
+  starterSucceeded = !!starterSpeciesKey;
   setAtlasChatStatus("回答完成 · Enter 继续追问", "ok");
  } catch (error) {
   if (generation !== chatGeneration) return;
@@ -5041,6 +5080,7 @@ async function sendAtlasQuestion(rawQuestion) {
    beginAtlasChatCooldown();
   }
  } finally {
+  if (starterSpeciesKey && !starterSucceeded) speciesStarterTracker.fail(starterSpeciesKey);
   if (generation === chatGeneration) chatRequestController = null;
   refreshAtlasChatControls();
  }
@@ -5048,6 +5088,7 @@ async function sendAtlasQuestion(rawQuestion) {
 
 $("#askAssistantBtn")?.addEventListener("click", openAtlasChat);
 $("#closeAtlasChat")?.addEventListener("click", closeAtlasChat);
+$("#clearAtlasChat")?.addEventListener("click", clearAtlasConversation);
 sendAtlasChatBtn?.addEventListener("click", () => sendAtlasQuestion());
 stopAtlasChatBtn?.addEventListener("click", () => abortAtlasChatRequest(true));
 atlasChatInput?.addEventListener("keydown", event => {

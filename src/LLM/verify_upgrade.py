@@ -107,7 +107,8 @@ def run_offline_regression() -> None:
     grounded_fallback = finalize_model_answer(
         "海洋塑料污染怎么治理？", "治理包括恢复鱼虾和设立新机构。", evidence
     )
-    assert "海洋塑料治理技术综述.md" in grounded_fallback
+    assert "海洋塑料治理技术综述" in grounded_fallback
+    assert "海洋塑料治理技术综述.md" not in grounded_fallback
 
     assert clean_model_text("<think>内部推理</think>最终答案") == "最终答案"
     filter_ = _ThinkFilter()
@@ -235,7 +236,7 @@ def run_offline_regression() -> None:
     )
     assert not any(term in report_answer for term in ("清理记录", "坐标", "潮汐"))
     assert any(term in report_answer for term in ("资料", "依据", "不确定", "报告"))
-    intent_excerpt, _ = _evidence_excerpt(
+    intent_excerpt_lines, _ = _evidence_excerpt(
         report_question,
         [{
             "id": 1,
@@ -243,6 +244,7 @@ def run_offline_regression() -> None:
             "content": "现场清理记录包括坐标和潮汐。污染评估中的风险标注应说明降级依据。",
         }],
     )
+    intent_excerpt = "\n".join(sentence for _, sentence in intent_excerpt_lines)
     assert "污染评估" in intent_excerpt or "风险标注" in intent_excerpt
 
     # 组合机制必须在同一证据片段中同时出现，不能由两个擦边 chunk 拼接。
@@ -282,13 +284,14 @@ def run_offline_regression() -> None:
     assert _knowledge_fallback("鲸鱼为什么会搁浅？", pollution_evidence) is None
     assert _knowledge_fallback("YOLO 能识别哪些类别？", yolo_evidence) is None
 
-    hash_excerpt, _ = _evidence_excerpt(
+    hash_excerpt_lines, _ = _evidence_excerpt(
         report_question,
         [{
             "content": "海域污染评估报告 - 926b191c6cd67d6a311bb608e3aaf8ed_.jpg\n"
             "现场清理记录包括坐标和潮汐。风险标注应说明降级依据。",
         }],
     )
+    hash_excerpt = "\n".join(sentence for _, sentence in hash_excerpt_lines)
     assert "926b191c6cd67d6a311bb608e3aaf8ed_.jpg" not in hash_excerpt
 
     bound_report = "报告摘要：污染等级为中。\n关键发现：低置信度目标需要降级处理。\n处置方案：复核后复测。"

@@ -503,10 +503,10 @@ def _patch_with_evidence(
         return None
     if not _has_substantive_evidence_overlap(question, evidence):
         return None
-    excerpt, _sources = _evidence_excerpt(question, evidence)
-    if not excerpt:
+    excerpt_lines, _sources = _evidence_excerpt(question, evidence)
+    if not excerpt_lines:
         return None
-    top_lines = [line for line in excerpt.splitlines()][:2]
+    top_lines = [f"- [S{source_id}] {sentence}" for source_id, sentence in excerpt_lines[:2]]
     supplement = "\n".join(top_lines)
     return (
         f"{_trim_to_complete_sentence(cleaned)}\n\n"
@@ -668,7 +668,14 @@ def _has_substantive_evidence_overlap(message: str, evidence: Sequence[dict[str,
     return True
 
 
-def _evidence_excerpt(message: str, evidence: Sequence[dict[str, Any]]) -> tuple[str, list[str]]:
+def _evidence_excerpt(
+    message: str, evidence: Sequence[dict[str, Any]]
+) -> tuple[list[tuple[int, str]], list[str]]:
+    """挑选与问题最相关的证据句。
+
+    返回 (lines, sources)：lines 为 [(来源编号, 原句)]，sources 为涉及文档名列表。
+    排版由调用方决定——报告类保留逐行 [S编号]，科普类可拼成自然段落。
+    """
     query_terms = _query_terms(message)
     action_query = bool(re.search(r"治理|措施|处理|清理|怎么做|如何|建议|流程", message))
     action_terms = ("源头", "减量", "拦截", "清理", "回收", "复测", "监测", "记录", "评估", "管理")
@@ -677,9 +684,8 @@ def _evidence_excerpt(message: str, evidence: Sequence[dict[str, Any]]) -> tuple
     hash_artifact_re = re.compile(
         r"^.{1,80}\s*[-–—]\s*[a-f0-9]{20,}_?\.(?:jpg|jpeg|png|html|md|txt)$", re.I
     )
-    candidates: list[tuple[int, int, str, str, int]] = []
+    candidates: list[tuple[int, int, str, int]] = []
     for item_index, item in enumerate(evidence[:2]):
-        source = str(item.get("source") or (item.get("metadata") or {}).get("source") or "项目知识库")
         content = str(item.get("content") or "")
         parts = re.split(r"(?<=[。！？；])|\n+", content)
         for part_index, part in enumerate(parts):
@@ -697,26 +703,27 @@ def _evidence_excerpt(message: str, evidence: Sequence[dict[str, Any]]) -> tuple
             source_bonus = max(0, 6 - item_index * 3)
             action_bonus = sum(8 for term in action_terms if action_query and term in sentence)
             intent_bonus = sum(18 for term in intent_terms if intent_query and term in sentence)
-            candidates.append((overlap + source_bonus + action_bonus + intent_bonus, -part_index, sentence, source, item_index + 1))
+            candidates.append((overlap + source_bonus + action_bonus + intent_bonus, -part_index, sentence, item_index + 1))
     candidates.sort(reverse=True)
-    selected: list[str] = []
+    selected: list[tuple[int, str]] = []
+    seen_sentences: set[str] = set()
     sources: list[str] = []
     total = 0
-    selected_ids: list[int] = []
-    for _, _, sentence, source, source_id in candidates:
-        if sentence in selected or total + len(sentence) > 650:
+    for _, _, sentence, source_id in candidates:
+        if sentence in seen_sentences or total + len(sentence) > 650:
             continue
-        selected.append(sentence)
+        seen_sentences.add(sentence)
+        selected.append((source_id, sentence))
         total += len(sentence)
-        selected_ids.append(source_id)
-        if source not in sources:
-            sources.append(source)
         if len(selected) >= 4:
             break
-    return "\n".join(
-        f"- [S{selected_ids[index] if index < len(selected_ids) else 1}] {sentence}"
-        for index, sentence in enumerate(selected)
-    ), sources
+    items_by_id = {index + 1: evidence[index] for index in range(min(len(evidence), 2))}
+    for source_id, _sentence in selected:
+        item = items_by_id.get(source_id, {})
+        source = str(item.get("source") or (item.get("metadata") or {}).get("source") or "项目知识库")
+        if source not in sources:
+            sources.append(source)
+    return selected, sources
 
 
 def _knowledge_fallback(
@@ -750,9 +757,10 @@ def _knowledge_fallback(
         evidence_text = "\n".join(str(item.get("content") or "") for item in results)
         if not re.search(r"切割|微创|解缠|rov|潜水员", evidence_text, re.I):
             return None
-    excerpt, sources = _evidence_excerpt(message, results)
-    if not excerpt:
+    excerpt_lines, _excluded_sources = _evidence_excerpt(message, results)
+    if not excerpt_lines:
         return None
+    excerpt_text = "\n".join(sentence for _, sentence in excerpt_lines)
     # 操作型问题不能用同一 chunk 里的定义/背景句冒充操作指引；
     # 摘录本身也必须出现对应动作词，否则返回资料不足模板。
     if re.search(
@@ -761,15 +769,15 @@ def _knowledge_fallback(
         re.I,
     ) and not re.search(
         r"切割|微创|rov|潜水员|去散射|超分辨率|多帧|跟踪|追踪|机制|标准作业|sop|步骤|流程|方法|操作|解缠",
-        excerpt,
+        excerpt_text,
         re.I,
     ):
         return None
     # 多帧跟踪是组合机制，摘录也必须保留组合句，不能只摘 ROV/置信度等邻近背景。
     if re.search(r"多帧|时序|跨帧", message, re.I) and re.search(r"跟踪|追踪|关联", message, re.I):
-        sentences = re.split(r"(?<=[。！？；.!?;])|\n+", excerpt)
+        sentences = re.split(r"(?<=[。！？；.!?;])|\n+", excerpt_text)
         if not (
-            re.search(r"多帧\s*(?:跟踪|追踪)|时序\s*(?:跟踪|追踪)|跨帧\s*关联", excerpt, re.I)
+            re.search(r"多帧\s*(?:跟踪|追踪)|时序\s*(?:跟踪|追踪)|跨帧\s*关联", excerpt_text, re.I)
             or any(
                 re.search(r"帧|多帧", sentence, re.I)
                 and re.search(r"跟踪|追踪|关联", sentence, re.I)
@@ -778,19 +786,66 @@ def _knowledge_fallback(
         ):
             return None
 
-    result_sources: list[str] = []
-    for item in results[:3]:
-        source = str(item.get("source") or (item.get("metadata") or {}).get("source") or "项目知识库")
-        if source not in result_sources:
-            result_sources.append(source)
-    source_text = "、".join(
-        f"[S{index + 1}] {source}" for index, source in enumerate(result_sources)
-    ) or "项目知识库"
-    return (
-        f"根据项目知识库中与这个问题最相关的资料，可以确认：\n\n{excerpt}\n\n"
-        f"资料来源：{source_text}。"
-        "如果你有具体的检测数据（比如地点、垃圾类型、数量、置信度），我可以给出更针对性的建议。"
-    )
+    def display_source(name: str) -> str:
+        return re.sub(r"\.(md|markdown)$", "", name) or name
+
+    items_by_id = {index + 1: results[index] for index in range(min(len(results), 2))}
+    doc_names: list[str] = []
+    referenced_docs: dict[int, str] = {}
+    for source_id, _sentence in excerpt_lines:
+        item = items_by_id.get(source_id, {})
+        raw_source = str(item.get("source") or (item.get("metadata") or {}).get("source") or "")
+        name = display_source(raw_source) if raw_source else "项目知识库"
+        referenced_docs.setdefault(source_id, name)
+        if name not in doc_names:
+            doc_names.append(name)
+
+    if requires_citations(message):
+        # 报告/法规/统计类：保留逐行编号的审稿式排版，便于人工核对每条依据。
+        # 脚注按正文实际引用的编号逐一列出，保证 [Sx] 与来源一一对应。
+        cite_body = "\n".join(f"- [S{source_id}] {sentence}" for source_id, sentence in excerpt_lines)
+        cited_sources = "、".join(
+            f"[S{source_id}] {referenced_docs[source_id]}" for source_id in sorted(referenced_docs)
+        ) or "项目知识库"
+        opening = pick_variant(
+            "kb-cite-open",
+            ("根据项目知识库中与这个问题最相关的资料，可以确认：", "知识库里能直接支撑回答的依据如下："),
+        )
+        return (
+            f"{opening}\n\n{cite_body}\n\n"
+            f"资料来源：{cited_sources}。"
+            "如果你有具体的检测数据（比如地点、垃圾类型、数量、置信度），我可以给出更针对性的建议。"
+        )
+
+    # 科普类：摘录拼成自然段落 + 单一来源脚注 + 可轮换引导语，
+    # 不再逐行挂 [S]——这条路径本是模型不可用/被拦时的保底，不宜再用审稿脸。
+    prose = "".join(sentence for _, sentence in excerpt_lines).strip()
+    asks_for_risk_judgement = bool(re.search(
+        r"值得.{0,4}(?:警惕|担心|关注)|(?:需要|要不要).{0,4}(?:警惕|担心|注意)|"
+        r"(?:危险|有害|严重|可怕)吗",
+        message,
+        re.I,
+    ))
+    has_risk_basis = bool(re.search(
+        r"释放|迁移|暴露|风险|危害|毒|检出|摄入|累积|影响",
+        excerpt_text,
+        re.I,
+    ))
+    if asks_for_risk_judgement and has_risk_basis:
+        lead = "值得警惕，但不必恐慌。风险高低取决于具体材料、接触条件和实际暴露水平，不能只凭‘检出’就断定一定会造成伤害。"
+    else:
+        lead = pick_variant("kb-prose-open", (
+            "这个话题项目档案里有直接对应的说法，帮你把要点理一下：",
+            "翻了翻海瞳的知识库，和你的问题对得上的内容是这些——",
+            "先给你一个基于档案资料的可靠版本：",
+        ))
+    tail = pick_variant("kb-prose-close", (
+        "想再往下挖的话，告诉我你关注的具体场景或数据，我接着讲。",
+        "如果你手头有检测报告或具体海域信息，我可以把这份解释落得更细。",
+        "上面只是档案里的保守口径；补充时间、地点或对象，我能答得更准。",
+    ))
+    attribution = f"（依据：{'、'.join(doc_names)}）" if doc_names else ""
+    return f"{lead}\n\n{prose}\n\n{attribution}{tail}"
 
 
 def stream_text(text: str) -> AsyncGenerator[str, None]:
@@ -1073,11 +1128,14 @@ def _deterministic_math_response(message: str) -> Optional[str]:
 # 兜底摘录(_knowledge_fallback)、报告快照等结构化输出也不二次包装。
 _CARD_TAIL_SKIP_RE = re.compile(
     r"以[^。，]{0,12}为准|必须由现场负责人确认|不能(?:直接)?套[用固]|不得仅凭单帧"
-    r"|项目知识库目前没有这些参数|马上帮你查|随时来找我|有什么想了解的吗",
+    r"|项目知识库目前没有这些参数|马上帮你查|随时来找我|有什么想了解的吗"
+    r"|检出.{0,8}不等于.{0,12}(?:伤害|危害)|基于当前物种档案|当前档案给出的核心原因",
 )
 _STYLE_EXEMPT_MARKER = (
     "根据项目知识库中与这个问题最相关的资料",
     "根据当前绑定的报告/文档内容",
+    "基于当前物种档案",
+    "当前档案给出的核心原因",
 )
 
 
@@ -1097,8 +1155,84 @@ def _apply_card_style(text: str) -> str:
 
 def direct_response(message: str) -> Optional[str]:
     """确定性直答的公开入口：核心命中后统一追加语气壳，让重复知识点的表达不完全相同。"""
+    atlas_answer = _atlas_species_context_response(message)
+    if atlas_answer:
+        return atlas_answer
     answer = _direct_response_core(message)
     return _apply_card_style(answer) if answer else None
+
+
+_ATLAS_SPECIES_CONTEXT_RE = re.compile(
+    r"【当前浏览物种】\s*(?P<cn>[^/｜\n]+?)\s*/\s*(?P<en>[^/｜\n]+?)\s*/\s*"
+    r"(?P<latin>[^｜\n]+?)\s*｜IUCN：\s*(?P<code>[^·｜\n]+?)\s*·\s*"
+    r"(?P<status>[^｜\n]+?)\s*｜简介：\s*(?P<story>[^\n]+?)\s*\n我的问题：\s*(?P<question>.+)$",
+    re.S,
+)
+
+
+def _atlas_species_context_response(message: str) -> Optional[str]:
+    """只依据生命图谱随请求携带的当前档案回答，避免通用 RAG 抢答成别的物种。"""
+    match = _ATLAS_SPECIES_CONTEXT_RE.search((message or "").strip())
+    if not match:
+        return None
+    data = {key: value.strip() for key, value in match.groupdict().items()}
+    cn, code, status = data["cn"], data["code"].upper(), data["status"]
+    story = data["story"].rstrip("，,；;：: ")
+    if not re.search(r"[。！？!?]$", story):
+        story += "。"
+    question = data["question"].lower()
+    actions: list[str] = []
+    if re.search(r"刺网|渔网|渔具|兼捕|捕捞", story):
+        actions.append(
+            "选择来源可追溯、采用减缓兼捕措施的海产品，不购买与非法捕捞相关的野生动物制品，"
+            "并妥善处置钓线和渔具"
+        )
+    if re.search(r"船舶|撞击|航运|航道", story):
+        actions.append("参与观鲸或近海航行时遵守减速要求和安全距离，并支持船舶预警与避让措施")
+    if re.search(r"塑料|垃圾|误食|污染", story):
+        actions.append("减少一次性塑料，分类回收并阻止垃圾进入河流和海岸")
+    if re.search(r"猎杀|捕鲸|贸易|鱼翅|制品", story):
+        actions.append("拒绝购买相关野生动物制品，不为非法贸易提供需求")
+    if re.search(r"栖息地|珊瑚|红树林|海草|繁殖地", story):
+        actions.append("减少对栖息地的踩踏和干扰，参与来源可靠的海岸与栖息地保护行动")
+    if not actions:
+        actions.append("不追逐、投喂或触碰野生动物，并支持来源可靠的物种保护与监测项目")
+    action = (
+        "针对档案里提到的威胁，普通人能做的是："
+        + "；".join(actions)
+        + "。发现搁浅、受伤或缠绕个体时，应保持距离并联系当地渔政或专业救护机构。"
+    )
+
+    if code == "EX" or "灭绝" in status:
+        return (
+            f"{cn}已被标记为 {code}·{status}。基于当前物种档案：{story}"
+            "它已经不能靠保护行动恢复种群，但这份档案仍能帮助我们识别导致灭绝的压力，避免相同风险落到现存物种上。"
+        )
+    if re.search(r"生存现状|目前.*(?:状况|状态)|主要威胁|介绍", question) and re.search(
+        r"保护|普通人|行动", question
+    ):
+        return (
+            f"{cn}目前处于 {code}·{status}。基于当前物种档案，核心情况是：{story}"
+            f"{action}"
+        )
+    if re.search(r"为什么.{0,4}(?:濒危|危险)|濒危.{0,4}(?:原因|因素)", question):
+        return (
+            f"当前档案给出的核心原因很明确：{story}"
+            f"这也是它被列为 {code}·{status} 的直接背景；档案没有提供的数量或时间点，我不会替它补写。"
+        )
+    if re.search(r"垃圾|塑料|渔网|渔具|缠绕", question):
+        if re.search(r"刺网|渔网|渔具|兼捕|缠绕|塑料|垃圾", story):
+            return (
+                f"对{cn}来说，当前档案明确提到的相关压力是：{story}"
+                "其中废弃或遗失渔具会增加缠绕与误捕风险；至于塑料摄入等其他影响，当前档案没有数据，不能直接下结论。"
+            )
+        return (
+            f"当前档案没有把海洋垃圾列为{cn}的核心威胁，已确认的信息是：{story}"
+            "一般性的缠绕或误食风险不能替代这个物种的实测证据，因此这里不作过度推断。"
+        )
+    if re.search(r"我能|普通人|怎么保护|保护行动|能做什么", question):
+        return f"当前档案显示：{story}{action}"
+    return None
 
 
 def _direct_response_core(message: str) -> Optional[str]:
@@ -1125,6 +1259,24 @@ def _direct_response_core(message: str) -> Optional[str]:
         return "再见！祝你今天顺利，之后想继续看海洋数据或报告，随时来找我。"
     if re.search(r"傻逼|他妈的|妈的|操你|草泥马|滚蛋|废物|蠢货|弱智", q):
         return "我的专业是海洋环保，骂人我不太擅长～有什么海洋问题尽管问。"
+    if (
+        requires_citations(message)
+        and re.search(r"添加剂|增塑剂|阻燃剂|稳定剂|化学物质", q)
+        and re.search(r"警惕|担心|关注|危险|有害|严重", q)
+    ):
+        # 报告/统计混合意图必须保留具体数值与引用，不能被通用风险卡抢答。
+        return None
+    if (
+        re.search(r"塑料|微塑料", q)
+        and re.search(r"添加剂|增塑剂|阻燃剂|稳定剂|化学物质", q)
+        and re.search(r"值得.{0,4}(?:警惕|担心|关注)|(?:需要|要不要).{0,4}(?:警惕|担心|注意)|(?:危险|有害|严重)吗", q)
+        and not requires_citations(message)
+    ):
+        return (
+            "值得警惕，但不必恐慌。塑料中的增塑剂、阻燃剂、稳定剂等，在特定条件下可能迁移或释放。"
+            "风险高低取决于聚合物类型、温度、接触介质、时间和实际暴露水平；"
+            "‘检出’不等于一定会造成健康伤害。"
+        )
     safety_response = _marine_safety_response(message)
     if safety_response:
         return safety_response

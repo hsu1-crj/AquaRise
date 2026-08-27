@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -179,6 +180,44 @@ def test_domain_card_tail_rotates_for_same_knowledge_point():
     assert len({a.rstrip()[-24:] for a in answers}) >= 2  # 尾部至少两种表达
 
 
+def test_risk_question_fallback_starts_with_calibrated_direct_conclusion():
+    evidence = [{
+        "id": 1,
+        "source": "海洋垃圾与人类健康知识.md",
+        "content": (
+            "塑料含增塑剂、阻燃剂、稳定剂等添加剂，特定条件下可能释放。"
+            "添加剂迁移与暴露水平取决于聚合物、温度、接触介质与时间。"
+            "微塑料已在海洋、淡水、空气、食品与多种人体相关样本中被研究和检出。"
+        ),
+    }]
+
+    answer = llm._knowledge_fallback("塑料添加剂和化学物质值得警惕吗？", evidence)
+
+    assert answer is not None
+    assert answer.startswith("值得警惕，但不必恐慌。")
+    assert "风险高低" in answer or "暴露水平" in answer
+    assert "[S1]" not in answer
+    assert ".md" not in answer
+
+
+def test_plastic_additive_risk_question_uses_stable_direct_route():
+    answer = llm.direct_response("塑料添加剂和化学物质值得警惕吗？")
+
+    assert answer is not None
+    assert answer.startswith("值得警惕，但不必恐慌。")
+    assert "增塑剂" in answer and "阻燃剂" in answer
+    assert "取决于" in answer and "暴露" in answer
+    assert "您好" not in answer
+    assert "建议您查阅" not in answer
+
+
+def test_additive_risk_direct_route_does_not_steal_report_statistics_question():
+    question = "检测报告显示塑料添加剂检出率80%，值得警惕吗？"
+
+    assert llm.requires_citations(question)
+    assert llm.direct_response(question) is None
+
+
 # ---------- 4. 建议追问闭环 ----------
 
 def test_suggestions_only_from_index_and_blacklist_never_leaks():
@@ -203,6 +242,8 @@ def test_suggestion_index_tool_validates_clean():
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         cwd=str(ROOT),
     )
     assert result.returncode == 0, result.stdout + result.stderr

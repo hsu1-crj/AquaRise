@@ -56,6 +56,39 @@ export function buildContextualQuestion(question, species) {
   return { display, request: `${prefix}\n我的问题：${display}` };
 }
 
+export function buildSpeciesStarterQuestion(species) {
+  const name = String(species?.cn ?? '').trim() || '这个物种';
+  return `请介绍${name}目前的生存现状、主要威胁，以及普通人可以参与的保护行动？`;
+}
+
+export function clearAtlasChatHistory(history) {
+  if (Array.isArray(history)) history.length = 0;
+}
+
+export function createSpeciesStarterTracker() {
+  const asked = new Set();
+  const inFlight = new Set();
+  return {
+    begin(key) {
+      if (!key || asked.has(key) || inFlight.has(key)) return false;
+      inFlight.add(key);
+      return true;
+    },
+    succeed(key) {
+      if (!key) return;
+      inFlight.delete(key);
+      asked.add(key);
+    },
+    fail(key) {
+      if (key) inFlight.delete(key);
+    },
+    clear() {
+      asked.clear();
+      inFlight.clear();
+    },
+  };
+}
+
 export async function streamAtlasChat({
   messages,
   sessionId,
