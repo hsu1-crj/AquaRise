@@ -3,11 +3,16 @@
 > 🌟 **项目总策划**：`mingzhe` (Executive Producer & Chief Planner)  
 > ⚠️ **非商业与内部学习声明**：本项目内置背景音乐音频《跃》（演唱：薛之谦）仅供非商业性的**个人/内部学习、教学研究与学术交流**使用，音频版权归原作者及相关唱片公司所有。未经官方版权方授权许可，严禁用于任何形式的商业盈利行为或公开发布传播。
 
-一个由 MediaPipe Hands 手势感应驱动的 3D 粒子海洋生命图谱。手势在浏览器端本地完成（WASM + 21 手部关键点），无需逐帧上传摄像头画面；26,400 颗生物发光粒子从地球点云平滑重组为物种全息图谱与真实照片，并支持深度下潜展开保育档案。全部资源离线内置，无任何外部网络依赖。
+一个由 MediaPipe Hands 手势感应驱动的 3D 粒子海洋生命图谱。手势在浏览器端本地完成（WASM + 21 手部关键点），无需逐帧上传摄像头画面；26,400 颗生物发光粒子从地球点云平滑重组为物种全息图谱与真实照片，并支持深度下潜展开保育档案。核心图谱与手势资源离线内置；物种问答使用平台本地 LLM 链路，GBIF 全球观测分布为可选联网增强，断网时自动回退档案栖息地点。
 
 ---
 
-## 🌟 核心特色与版本更新（2026-08-19）
+## 🌟 核心特色与版本更新（2026-08-27）
+
+- **生命图谱 × 本地海瞳助手**：物种卡新增桌面对话抽屉，沿用平台 `/api/v1/chat` 流式契约与登录令牌；首轮自动携带当前物种语境，支持停止、重新生成与安全 Markdown 渲染，不接入任何云端 LLM。
+- **选择性 Bloom 生物荧光**：本地内置与 Three.js r160 兼容的 `postprocessing@6.38.3`，复用同一 WebGL 渲染器增强粒子高光；240 帧滚动平均持续低于 30 FPS 时自动释放后处理并回落基础渲染，系统减少动态效果设置下默认关闭。
+- **GBIF 全球观测分布**：地球模式可按需读取当前物种真实经纬度记录，每种最多显示 100 点，缓存 7 天；普通进入页面不发起请求，展览演示仅串行预热本轮物种，连续两次失败后本会话静默停用联网并显示档案栖息地。
+- **桌面端布局适配**：1280×720、1440×900、1920×1080 三档完成视觉回归；中等桌面宽度下检索与观测工具条下移，避免与顶栏控制重叠。
 
 - **总策划与艺术指导**：由 **`mingzhe`** 担任总策划，以深海生物荧光美学与声光电粒子互动为核心，打造兼具科研严谨度与浪漫艺术张力的生命图谱。
 - **22 份权威海洋物种档案**：收录 18 个 IUCN 受威胁海洋物种（9 极危 CR、5 濒危 EN、4 易危 VU）与 4 个已灭绝海洋物种（EX）。
@@ -67,6 +72,8 @@ python gesture_server.py
 - **搜索快捷键 `/`**：呼出全息多维搜索中枢（输入中文名/学名/英文名/IUCN评级回车定位）。
 - **手势图鉴**：点击右上角「手势图鉴」可查看所有动作说明，点击卡片可直接执行模拟交互。
 - **顶栏「自动演示」**：开启展览自动轮播模式（每轮随机挑选 3 种海洋生物依次展开第一人称专属童声自述与全息照片显影，随后自动触发深海鲸落进入生命轮回并循环往复；任何用户交互即时丝滑退出）。
+- **地球态「观测分布」**：按需显示当前物种的 GBIF 全球观测点；底部会明确标注实时记录、本地/离线缓存或档案栖息地回退状态。
+- **物种卡「问问海瞳助手」**：在不遮挡物种照片的右侧抽屉中进行纯文本问答；需要先登录平台，关闭抽屉或切换生成会立即终止当前流式请求。
 
 ### 七大公开手势映射表
 
@@ -121,6 +128,9 @@ life/
 └─ assets/
    ├─ js/
    │  ├─ hand-gestures.mjs     # 21 关键点分类算法模块
+   │  ├─ atlas-chat.mjs        # 本地 LLM 流式契约、上下文包装与安全 Markdown
+   │  ├─ bloom-policy.mjs      # 240 帧 FPS 滑窗与 Bloom 会话级性能保险丝
+   │  ├─ gbif-client.mjs       # GBIF 请求、坐标清洗、抽样、缓存与离线回退
    │  ├─ soundscape-manager.mjs# 声音场 5 轨道混音与 Analyser 联动引擎
    │  └─ poster-utils.mjs      # 海报智能排版工具
    ├─ img/species/             # 22 张已登记合法来源的物种真实照片
@@ -132,6 +142,7 @@ life/
    │  └─ easter-eggs/*.wav     # 鲸落程序合成音效
    └─ vendor/
       ├─ three.module.min.js   # Three.js 渲染引擎 (离线)
+      ├─ postprocessing/       # postprocessing@6.38.3（兼容 Three.js r160）
       └─ mediapipe/            # MediaPipe Hands WASM + hand_landmarker.task 模型 (离线)
 ```
 
@@ -142,14 +153,17 @@ life/
 在终端中执行以下命令验证系统各模块完备性：
 
 ```powershell
-# 1. 运行手势数学分类算法单测
-node tests/hand-gestures.test.mjs
+# 在项目根目录运行生命图谱全部 Node 测试
+node --test
 
-# 2. 运行生态海报焦点算法单测
-node tests/poster-utils.test.mjs
+# 检查主要独立模块语法
+node --check src/frontend/public/haitong/assets/js/atlas-chat.mjs
+node --check src/frontend/public/haitong/assets/js/bloom-policy.mjs
+node --check src/frontend/public/haitong/assets/js/gbif-client.mjs
 
-# 3. 运行声音管理器语法与依赖检查
-node --check assets/js/soundscape-manager.mjs
+# 验证平台生产构建
+cd src/frontend
+npm run build
 ```
 
 浏览器打开 `http://127.0.0.1:8765/tests/frontend-smoke.html` 可运行完整前端自动化冒烟测试。

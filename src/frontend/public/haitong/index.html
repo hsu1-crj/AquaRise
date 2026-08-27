@@ -190,7 +190,7 @@
   /* 地球待机态只保留居中的检索入口，给地球主体留出完整视野。 */
   #filterHub.planet-mode {
     top: 42px;
-    width: min(420px, 86vw);
+    width: min(620px, 90vw);
   }
   #filterHub.planet-mode .filter-main-bar {
     justify-content: center;
@@ -206,7 +206,8 @@
   #filterHub.planet-mode .filter-divider,
   #filterHub.planet-mode .taxa-sub-bar { display: none; }
   #filterHub.planet-mode .search-trigger-btn {
-    width: 100%;
+    width: auto;
+    flex: 1;
     justify-content: center;
     min-height: 40px;
     padding-top: 5px;
@@ -664,6 +665,89 @@
     transition: all 0.22s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   }
   .card-unlock:hover { border-color: var(--cyan); background: rgba(56, 248, 212, 0.18); color: #fff; transform: translateY(-1px); box-shadow: 0 0 14px rgba(56, 248, 212, 0.25); }
+
+  .ask-assistant-link {
+    grid-column: 1 / -1; min-height: 42px; justify-content: center;
+    color: #dffcff; border-color: rgba(104, 222, 255, 0.58);
+    background: linear-gradient(135deg, rgba(31, 102, 150, 0.48), rgba(29, 203, 190, 0.20));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 0 18px rgba(27,231,255,0.14);
+  }
+  .gbif-toggle {
+    display: none; align-items: center; justify-content: center; gap: 7px; flex: 0 0 auto;
+    min-height: 40px; padding: 0 15px; border-radius: 13px; cursor: pointer;
+    border: 1px solid rgba(135,222,255,0.25); color: #b7dbea;
+    background: rgba(5,24,42,0.70); font: 700 11px/1 var(--font-mono); letter-spacing: 0.05em;
+    transition: all 0.24s cubic-bezier(0.2,0.8,0.2,1);
+  }
+  #filterHub.planet-mode .gbif-toggle { display: inline-flex; }
+  .gbif-toggle:hover, .gbif-toggle:focus-visible { color: #fff; border-color: rgba(56,248,212,0.65); background: rgba(56,248,212,0.16); }
+  .gbif-toggle.on { color: #031a1b; border-color: var(--cyan); background: linear-gradient(135deg,#38f8d4,#1be7ff); box-shadow: 0 0 18px rgba(56,248,212,0.42); }
+  .gbif-toggle.loading .gbif-toggle-dot { animation: gbifLoading 0.9s linear infinite; }
+  .gbif-toggle-dot { font-size: 15px; line-height: 1; }
+  .gbif-attribution { color: #75dacc; border-left: 1px solid rgba(56,248,212,0.22); padding-left: 9px; white-space: nowrap; }
+  @keyframes gbifLoading { to { transform: rotate(360deg); } }
+  @media (min-width: 769px) and (max-width: 1500px) {
+    #filterHub.planet-mode { top: 88px; }
+  }
+  .ask-assistant-link:hover { color: #fff; border-color: #8df8ff; background: linear-gradient(135deg, rgba(31, 128, 180, 0.58), rgba(56,248,212,0.26)); }
+  .ask-assistant-link:focus-visible, .atlas-chat-close:focus-visible, .chat-chip:focus-visible,
+  .chat-send:focus-visible, .chat-stop:focus-visible, .chat-regenerate:focus-visible, #atlasChatInput:focus-visible {
+    outline: 2px solid #fff; outline-offset: 3px;
+  }
+  #infoCard.chat-hidden { opacity: 0 !important; pointer-events: none !important; transform: translateY(-50%) translateX(38px) !important; }
+
+  /* 对话抽屉接管档案卡所在的右侧阅读区，避免两块高密度玻璃面板互相遮挡。 */
+  #atlasChatPanel {
+    right: min(6vw, 64px); top: 132px; bottom: 70px; width: min(480px, 40vw); height: auto; max-height: 680px;
+    transform: translateX(calc(100% + 90px)); opacity: 0; pointer-events: none;
+    display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden;
+    border-radius: 26px; z-index: 72; color: var(--ink);
+    background: linear-gradient(165deg, rgba(5, 24, 44, 0.97), rgba(2, 12, 24, 0.95));
+    border: 1px solid rgba(56, 248, 212, 0.40); backdrop-filter: blur(36px); -webkit-backdrop-filter: blur(36px);
+    box-shadow: 0 36px 110px rgba(0,0,0,0.88), 0 0 70px rgba(27,231,255,0.16), inset 0 1px 0 rgba(255,255,255,0.14);
+    transition: transform 0.42s cubic-bezier(0.2,0.8,0.2,1), opacity 0.32s ease;
+  }
+  #atlasChatPanel.open { transform: translateX(0); opacity: 1; pointer-events: auto; }
+  .atlas-chat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 24px 16px; border-bottom: 1px solid rgba(135,222,255,0.13); }
+  .atlas-chat-kicker { font: 700 10px/1 var(--font-mono); letter-spacing: 0.26em; color: var(--cyan); }
+  .atlas-chat-title { margin: 8px 0 3px; font: 800 22px/1.25 var(--font-serif); color: #fff; }
+  .atlas-chat-subtitle { font: 11px/1.5 var(--font-mono); color: var(--ink-dim); }
+  .atlas-chat-close { width: 36px; height: 36px; flex: 0 0 auto; border-radius: 50%; border: 1px solid rgba(135,222,255,0.25); background: rgba(6,28,48,0.68); color: #dffcff; font-size: 21px; cursor: pointer; }
+  .atlas-chat-close:hover { color: #fff; border-color: var(--cyan); background: rgba(56,248,212,0.18); }
+  .atlas-chat-chips { display: flex; gap: 7px; padding: 12px 24px; overflow-x: auto; scrollbar-width: none; }
+  .atlas-chat-chips::-webkit-scrollbar { display: none; }
+  .chat-chip { flex: 0 0 auto; border: 1px solid rgba(56,248,212,0.25); border-radius: 999px; padding: 6px 10px; background: rgba(56,248,212,0.08); color: #bfeef5; font: 11px/1.2 var(--font-sans); cursor: pointer; }
+  .chat-chip:hover { color: #fff; border-color: rgba(56,248,212,0.65); background: rgba(56,248,212,0.18); }
+  .atlas-chat-messages { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 6px 24px 18px; scroll-behavior: smooth; }
+  .chat-message { max-width: 92%; display: grid; gap: 6px; }
+  .chat-message.user { align-self: flex-end; }
+  .chat-message.assistant { align-self: flex-start; }
+  .chat-message-label { font: 9px/1 var(--font-mono); letter-spacing: 0.16em; color: var(--ink-ghost); }
+  .chat-message.user .chat-message-label { text-align: right; }
+  .chat-message-content { padding: 10px 13px; border-radius: 15px; font-size: 13px; line-height: 1.72; overflow-wrap: anywhere; }
+  .chat-message.user .chat-message-content { color: #031a1b; background: linear-gradient(135deg, #55f1d5, #5adfff); border-bottom-right-radius: 5px; }
+  .chat-message.assistant .chat-message-content { color: #dff4ff; background: rgba(9,39,62,0.84); border: 1px solid rgba(135,222,255,0.18); border-bottom-left-radius: 5px; }
+  .chat-message-content p { margin: 0 0 8px; }
+  .chat-message-content p:last-child { margin-bottom: 0; }
+  .chat-message-content code { padding: 1px 5px; border-radius: 5px; color: #fff1b4; background: rgba(255,224,130,0.10); font: 0.92em var(--font-mono); }
+  .source-badge { display: inline-flex; vertical-align: 1px; margin: 0 2px; padding: 1px 5px; border: 1px solid rgba(56,248,212,0.45); border-radius: 999px; color: var(--cyan); font: 700 9px/1.4 var(--font-mono); }
+  .chat-message-tools { display: flex; gap: 8px; }
+  .chat-regenerate { padding: 0; border: 0; background: none; color: #8eb5ca; font: 10px var(--font-sans); cursor: pointer; }
+  .chat-regenerate:hover { color: var(--cyan); }
+  .chat-typing { display: inline-flex; gap: 4px; align-items: center; min-height: 14px; }
+  .chat-typing i { width: 4px; height: 4px; border-radius: 50%; background: var(--cyan); animation: chatDot 0.9s ease-in-out infinite alternate; }
+  .chat-typing i:nth-child(2) { animation-delay: 0.16s; } .chat-typing i:nth-child(3) { animation-delay: 0.32s; }
+  @keyframes chatDot { from { opacity: 0.25; transform: translateY(2px); } to { opacity: 1; transform: translateY(-2px); } }
+  .atlas-chat-compose { padding: 14px 18px 18px; border-top: 1px solid rgba(135,222,255,0.13); background: rgba(1,10,20,0.46); }
+  .atlas-chat-status { min-height: 16px; margin: 0 4px 7px; color: #8eb5ca; font: 10px/1.4 var(--font-mono); }
+  .atlas-chat-input-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: end; gap: 8px; }
+  #atlasChatInput { width: 100%; min-height: 46px; max-height: 112px; resize: none; border: 1px solid rgba(135,222,255,0.24); border-radius: 13px; padding: 11px 12px; color: #effcff; background: rgba(3,18,32,0.86); font: 13px/1.55 var(--font-sans); }
+  #atlasChatInput::placeholder { color: #62859a; }
+  .chat-send, .chat-stop { min-width: 42px; height: 42px; border-radius: 12px; cursor: pointer; font-weight: 800; }
+  .chat-send { border: 0; color: #031a1b; background: linear-gradient(135deg,#38f8d4,#1be7ff); box-shadow: 0 4px 16px rgba(56,248,212,0.32); }
+  .chat-stop { border: 1px solid rgba(255,117,140,0.45); color: #ffafbd; background: rgba(255,71,105,0.10); }
+  .chat-stop[hidden] { display: none; }
+  .chat-send:disabled, .chat-chip:disabled { opacity: 0.42; cursor: not-allowed; }
 
 
 
@@ -1551,6 +1635,9 @@
  <kbd>/</kbd>
  <span class="search-trigger-arrow" aria-hidden="true">↗</span>
  </button>
+ <button class="gbif-toggle" id="gbifToggle" type="button" aria-pressed="false" title="显示当前物种的全球观测记录">
+  <span class="gbif-toggle-dot" aria-hidden="true">◉</span><span id="gbifToggleText">观测分布</span>
+ </button>
  </div>
  </div>
 
@@ -1633,6 +1720,7 @@
           <span class="voice-wave-icon"><i class="vw-bar"></i><i class="vw-bar"></i><i class="vw-bar"></i></span>
           <span>声纹回响</span>
         </button>
+        <button class="card-link ask-assistant-link" id="askAssistantBtn" type="button"><span>问问海瞳助手</span></button>
         <button class="card-unlock" id="unlockDetail" type="button">
           <svg class="anim-svg anim-earth" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="4.5" ry="10"/><path d="M2 12h20"/></svg>
           <span id="unlockTxt">回到地球</span>
@@ -1643,9 +1731,40 @@
     </div>
   </article>
 
+  <section id="atlasChatPanel" class="ui" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="atlasChatTitle">
+    <div class="atlas-chat-head">
+      <div>
+        <div class="atlas-chat-kicker">MARINE EYE / LOCAL LLM</div>
+        <h2 class="atlas-chat-title" id="atlasChatTitle">问问海瞳助手</h2>
+        <div class="atlas-chat-subtitle" id="atlasChatSpecies">围绕当前物种继续探索</div>
+      </div>
+      <button class="atlas-chat-close" id="closeAtlasChat" type="button" aria-label="关闭海瞳助手">×</button>
+    </div>
+    <div class="atlas-chat-chips" aria-label="快捷追问">
+      <button class="chat-chip" type="button" data-question="它为什么濒危？">它为什么濒危？</button>
+      <button class="chat-chip" type="button" data-question="海洋垃圾对它有什么威胁？">海洋垃圾威胁</button>
+      <button class="chat-chip" type="button" data-question="我能为保护它做什么？">我能做什么？</button>
+    </div>
+    <div class="atlas-chat-messages" id="atlasChatMessages" role="log" aria-live="polite" aria-relevant="additions text">
+      <article class="chat-message assistant">
+        <span class="chat-message-label">海瞳助手</span>
+        <div class="chat-message-content"><p>我会结合当前物种档案与海洋保护知识回答。你想先了解什么？</p></div>
+      </article>
+    </div>
+    <div class="atlas-chat-compose">
+      <div class="atlas-chat-status" id="atlasChatStatus">Enter 发送 · Shift+Enter 换行</div>
+      <div class="atlas-chat-input-row">
+        <textarea id="atlasChatInput" rows="2" maxlength="600" placeholder="询问当前物种的生存现状、威胁或保护行动…"></textarea>
+        <button class="chat-stop" id="stopAtlasChat" type="button" title="停止生成" hidden>■</button>
+        <button class="chat-send" id="sendAtlasChat" type="button" aria-label="发送问题">➤</button>
+      </div>
+    </div>
+  </section>
+
   <!-- 底部操作提示 -->
   <div id="bottomHint" class="ui">
     <span>地球正在自转 · 拖拽旋转经纬 · 鼠标滚轮/手势下潜探索物种</span>
+    <span class="gbif-attribution" id="gbifAttribution" aria-live="polite" hidden></span>
     <button class="pill-btn" id="hintGestureBtn" style="padding:2px 8px;font-size:10px;">开启摄像头</button>
   </div>
 
@@ -2013,12 +2132,24 @@
   </div>
  </div>
 
+<script type="importmap">
+{
+  "imports": {
+    "three": "./assets/vendor/three.module.min.js",
+    "postprocessing": "./assets/vendor/postprocessing/postprocessing.esm.js"
+  }
+}
+</script>
 <script type="module">
 import * as THREE from "./assets/vendor/three.module.min.js";
+import { BloomEffect, EffectComposer, EffectPass, RenderPass } from "postprocessing";
 import { calculateFocalCoverCrop } from "./assets/js/poster-utils.mjs";
 import { createSoundscapeManager } from "./assets/js/soundscape-manager.mjs";
 import { FilesetResolver, HandLandmarker } from "./assets/vendor/mediapipe/vision_bundle.mjs";
 import { classifyHandGesture, HAND_RULES, HAND_LM } from "./assets/js/hand-gestures.mjs";
+import { AtlasChatError, buildContextualQuestion, renderSafeMarkdown, streamAtlasChat } from "./assets/js/atlas-chat.mjs";
+import { createFpsFuse } from "./assets/js/bloom-policy.mjs";
+import { createGbifClient } from "./assets/js/gbif-client.mjs";
 
 const $ = s => document.querySelector(s);
 let toastTimer = null;
@@ -2031,6 +2162,25 @@ function toast(msg) {
 }
 
 const CONFIG = {
+ atlasChat: true,
+ bloom: {
+  enabled: true,
+  intensity: 0.82,
+  luminanceThreshold: 0.18,
+  luminanceSmoothing: 0.32,
+  radius: 0.58,
+  fpsWindow: 240,
+  fpsThreshold: 30,
+  sustainedWindows: 60
+ },
+ gbifLayer: {
+  enabled: true,
+  maxRenderPoints: 2200,
+  maxSpeciesPoints: 100,
+  pointSize: 8.5,
+  timeoutMs: 8000,
+  ttlMs: 604800000
+ },
  coreParticles: 24000,
  ambientParticles: 2400,
  sampleCount: 24000,
@@ -2223,7 +2373,10 @@ window.__SOUNDSCAPE = soundscape; // 调试与冒烟测试钩子
 const canvas = $("#stage");
 let W = window.innerWidth, H = window.innerHeight, DPR = 1;
 let renderer, scene, camera;
+let composer = null, bloomEffect = null;
+let bloomActive = false, bloomDegradedReason = "not-initialized";
 let particleGeometry, particleMaterial, pointCloud;
+let gbifGeometry = null, gbifMaterial = null, gbifPointLayer = null, gbifPositionAttr = null;
 let planetRoot, particleProjectionLayer;
 let positionAttr, colorAttr, sizeAttr, alphaAttr, edgeAttr;
 
@@ -2255,6 +2408,98 @@ function updatePlanetRootTransform(pixelRadius, spin, pitch) {
 
 const TOTAL_PARTICLES = CONFIG.coreParticles + CONFIG.ambientParticles;
 let activeCount = TOTAL_PARTICLES;
+
+const bloomFpsFuse = createFpsFuse({
+ windowSize: CONFIG.bloom.fpsWindow,
+ threshold: CONFIG.bloom.fpsThreshold,
+ sustainedWindows: CONFIG.bloom.sustainedWindows,
+ onTrip: ({ average }) => disableBloom("low-fps", `平均 ${average.toFixed(1)} FPS`)
+});
+
+function disableBloom(reason, detail = "") {
+ if (composer) composer.dispose();
+ composer = null;
+ bloomEffect = null;
+ bloomActive = false;
+ bloomDegradedReason = reason;
+ if (reason === "low-fps") toast(`已切换至性能模式${detail ? " · " + detail : ""}`);
+}
+
+function initBloomRenderer() {
+ if (!CONFIG.bloom.enabled) { bloomDegradedReason = "config-disabled"; return; }
+ if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+  bloomDegradedReason = "reduced-motion";
+  return;
+ }
+ try {
+  composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType });
+  composer.addPass(new RenderPass(scene, camera));
+  bloomEffect = new BloomEffect({
+   intensity: CONFIG.bloom.intensity,
+   mipmapBlur: true,
+   luminanceThreshold: CONFIG.bloom.luminanceThreshold,
+   luminanceSmoothing: CONFIG.bloom.luminanceSmoothing,
+   radius: CONFIG.bloom.radius
+  });
+  composer.addPass(new EffectPass(camera, bloomEffect));
+  bloomActive = true;
+  bloomDegradedReason = "";
+ } catch (error) {
+  console.warn("Bloom 初始化失败，已回落基础渲染：", error);
+  disableBloom("init-failed");
+ }
+}
+
+function initGbifPointLayer() {
+ if (!CONFIG.gbifLayer.enabled || !planetRoot) return;
+ gbifGeometry = new THREE.BufferGeometry();
+ gbifPositionAttr = new THREE.Float32BufferAttribute(
+  new Float32Array(CONFIG.gbifLayer.maxRenderPoints * 3), 3
+ ).setUsage(THREE.DynamicDrawUsage);
+ gbifGeometry.setAttribute("position", gbifPositionAttr);
+ gbifGeometry.setDrawRange(0, 0);
+ gbifMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+   uTime: { value: 0 },
+   uPixelRatio: { value: 1 },
+   uPointSize: { value: CONFIG.gbifLayer.pointSize }
+  },
+  vertexShader: `
+   uniform float uPixelRatio;
+   uniform float uPointSize;
+   varying float vFacing;
+   void main() {
+    vec3 worldDirection = normalize(mat3(modelMatrix) * position);
+    vFacing = smoothstep(-0.12, 0.22, worldDirection.z);
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+    gl_PointSize = uPointSize * uPixelRatio * mix(0.72, 1.0, vFacing);
+   }
+  `,
+  fragmentShader: `
+   uniform float uTime;
+   varying float vFacing;
+   void main() {
+    vec2 uv = gl_PointCoord - vec2(0.5);
+    float distanceToCenter = length(uv);
+    if (distanceToCenter > 0.5 || vFacing < 0.02) discard;
+    float core = smoothstep(0.5, 0.02, distanceToCenter);
+    float pulse = 0.72 + 0.28 * sin(uTime * 2.2 + gl_FragCoord.x * 0.025);
+    vec3 color = mix(vec3(0.10, 0.92, 1.0), vec3(0.35, 1.0, 0.72), core);
+    gl_FragColor = vec4(color, core * pulse * vFacing);
+   }
+  `,
+  transparent: true,
+  depthTest: false,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending
+ });
+ gbifPointLayer = new THREE.Points(gbifGeometry, gbifMaterial);
+ gbifPointLayer.name = "gbif-observation-layer";
+ gbifPointLayer.frustumCulled = false;
+ gbifPointLayer.visible = false;
+ planetRoot.add(gbifPointLayer);
+}
 
 function initParticleRenderer() {
  renderer = new THREE.WebGLRenderer({
@@ -2354,6 +2599,8 @@ function initParticleRenderer() {
 
  pointCloud = new THREE.Points(particleGeometry, particleMaterial);
  particleProjectionLayer.add(pointCloud);
+ initGbifPointLayer();
+ initBloomRenderer();
 }
 
 /* ==================== 物理粒子定义与出生轨道 ==================== */
@@ -2520,7 +2767,12 @@ function resize() {
   W = window.innerWidth; H = window.innerHeight;
   renderer.setPixelRatio(DPR);
   renderer.setSize(W, H, false);
+  if (composer) {
+    composer.setPixelRatio?.(DPR);
+    composer.setSize(W, H);
+  }
   particleMaterial.uniforms.uPixelRatio.value = DPR;
+  if (gbifMaterial) gbifMaterial.uniforms.uPixelRatio.value = DPR;
   camera.left = 0; camera.right = W; camera.top = H; camera.bottom = 0;
   camera.updateProjectionMatrix();
   seedParticles();
@@ -2613,6 +2865,127 @@ const SPECIES_GEO = [
   [131.8, 37.2], // 21. 日本海狮(EX): 日本海与独岛
   [-23.5, 63.8] // 22. 大海雀(EX): 冰岛埃尔德岛
 ];
+
+/* ==================== GBIF 全球观测分布层 ==================== */
+let gbifStorage = null;
+try { gbifStorage = window.localStorage; } catch (error) { /* 隐私模式下直接使用会话数据。 */ }
+const gbifClient = CONFIG.gbifLayer.enabled ? createGbifClient({
+ fetchImpl: (...args) => window.fetch(...args),
+ storage: gbifStorage,
+ timeoutMs: CONFIG.gbifLayer.timeoutMs,
+ ttlMs: CONFIG.gbifLayer.ttlMs,
+ maxPoints: CONFIG.gbifLayer.maxSpeciesPoints
+}) : null;
+let gbifLayerEnabled = false;
+let gbifLayerLoading = false;
+let gbifLayerSource = "";
+let gbifLayerStale = false;
+let gbifLayerPointCount = 0;
+let gbifLoadedSpeciesIndex = -1;
+let gbifRequestToken = 0;
+
+function updateGbifUi() {
+ const button = $("#gbifToggle");
+ const label = $("#gbifToggleText");
+ const attribution = $("#gbifAttribution");
+ if (!button) return;
+ if (!CONFIG.gbifLayer.enabled) {
+  button.hidden = true;
+  if (attribution) attribution.hidden = true;
+  return;
+ }
+ button.hidden = false;
+ button.classList.toggle("on", gbifLayerEnabled);
+ button.classList.toggle("loading", gbifLayerLoading);
+ button.setAttribute("aria-pressed", String(gbifLayerEnabled));
+ const loadedSpeciesName = SPECIES[gbifLoadedSpeciesIndex]?.cn || "当前物种";
+ button.title = gbifLayerEnabled ? `隐藏${loadedSpeciesName}的全球观测记录` : "显示当前物种的全球观测记录";
+ if (label) {
+  label.textContent = gbifLayerLoading
+   ? "读取观测…"
+   : gbifLayerEnabled && gbifLayerPointCount
+    ? `观测分布 · ${gbifLayerPointCount}`
+    : "观测分布";
+ }
+ if (!attribution) return;
+ attribution.hidden = !gbifLayerEnabled || gbifLayerLoading || !gbifLayerPointCount;
+ if (gbifLayerSource === "gbif") attribution.textContent = `${loadedSpeciesName} · GBIF 实时记录 · ${gbifLayerPointCount} 点`;
+ else if (gbifLayerSource === "cache") attribution.textContent = `${loadedSpeciesName} · GBIF ${gbifLayerStale ? "离线" : "本地"}缓存 · ${gbifLayerPointCount} 点`;
+ else attribution.textContent = `${loadedSpeciesName} · GBIF 暂不可用 · 显示档案栖息地`;
+}
+
+function updateGbifPointPositions(points) {
+ if (!gbifGeometry || !gbifPositionAttr) return 0;
+ const count = Math.min(Array.isArray(points) ? points.length : 0, CONFIG.gbifLayer.maxRenderPoints);
+ const positions = gbifPositionAttr.array;
+ for (let i = 0; i < count; i++) {
+  const lon = Number(points[i][0]) * Math.PI / 180;
+  const lat = Number(points[i][1]) * Math.PI / 180;
+  const latitudeRadius = Math.cos(lat);
+  positions[i * 3] = -latitudeRadius * Math.cos(lon) * 1.018;
+  positions[i * 3 + 1] = Math.sin(lat) * 1.018;
+  positions[i * 3 + 2] = latitudeRadius * Math.sin(lon) * 1.018;
+ }
+ gbifGeometry.setDrawRange(0, count);
+ gbifPositionAttr.needsUpdate = true;
+ return count;
+}
+
+async function loadGbifForCurrentSpecies({ force = false } = {}) {
+ if (!gbifClient || !gbifLayerEnabled) return;
+ if (!force && gbifLoadedSpeciesIndex === speciesIdx && gbifLayerPointCount) return;
+ const requestedSpeciesIndex = speciesIdx;
+ const requestToken = ++gbifRequestToken;
+ const species = SPECIES[requestedSpeciesIndex];
+ gbifLayerLoading = true;
+ updateGbifUi();
+ const result = await gbifClient.loadSpecies({
+  slug: SPECIES_AUDIO_SLUGS[species.la] || species.la.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+  scientificName: species.la,
+  fallbackPoint: SPECIES_GEO[requestedSpeciesIndex]
+ });
+ if (requestToken !== gbifRequestToken || !gbifLayerEnabled || requestedSpeciesIndex !== speciesIdx) return;
+ gbifLayerPointCount = updateGbifPointPositions(result.points);
+ gbifLayerSource = result.source;
+ gbifLayerStale = !!result.stale;
+ gbifLoadedSpeciesIndex = requestedSpeciesIndex;
+ gbifLayerLoading = false;
+ updateGbifUi();
+ triggerSonarRipples();
+ if (result.source === "fallback") toast("GBIF 暂不可用，已显示档案中的代表性栖息地");
+}
+
+function toggleGbifLayer() {
+ if (!CONFIG.gbifLayer.enabled) return;
+ gbifLayerEnabled = !gbifLayerEnabled;
+ if (!gbifLayerEnabled) {
+  gbifRequestToken += 1;
+  gbifLayerLoading = false;
+  updateGbifUi();
+  return;
+ }
+ updateGbifUi();
+ loadGbifForCurrentSpecies({ force: gbifLoadedSpeciesIndex !== speciesIdx });
+}
+
+async function preheatGbifSequence(speciesIndices, runId) {
+ if (!gbifClient) return;
+ for (const index of speciesIndices) {
+  if (!demoMode || runId !== demoRunId || gbifClient.cooldown) return;
+  const species = SPECIES[index];
+  await gbifClient.loadSpecies({
+   slug: SPECIES_AUDIO_SLUGS[species.la] || species.la.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+   scientificName: species.la,
+   fallbackPoint: SPECIES_GEO[index]
+  });
+ }
+}
+
+$("#gbifToggle")?.addEventListener("click", () => {
+ stopDemo("查看了观测分布");
+ toggleGbifLayer();
+});
+updateGbifUi();
 
 /* 全球主要板块构造多边形回路 (Tectonic Plate Polygonal Lines - 还原参考图中的清晰多边形板块线) */
 const PLATE_LINES = [
@@ -3455,6 +3828,7 @@ function frame(now) {
   const dt = Math.min((now - lastFrameTime) / 1000, 0.1);
   lastFps = 1 / Math.max(dt, 0.001);
   lastFrameTime = now;
+  if (bloomActive && !document.hidden) bloomFpsFuse.push(lastFps);
 
   // 1. 惯性物理模拟
   if (Math.abs(scrollVelocity) > 0.0001) {
@@ -4193,7 +4567,19 @@ function frame(now) {
   particleMaterial.uniforms.uTime.value = tVal;
   particleMaterial.uniforms.uDepth.value = zoom;
   particleMaterial.uniforms.uInitialPlanetStyle.value = 0;
-  renderer.render(scene, camera);
+  if (gbifMaterial) {
+   gbifMaterial.uniforms.uTime.value = tVal;
+   gbifMaterial.uniforms.uPixelRatio.value = DPR;
+  }
+  if (gbifPointLayer) {
+   gbifPointLayer.visible = gbifLayerEnabled
+    && gbifLayerPointCount > 0
+    && lifeMode === "planet"
+    && uiState !== "whaleFall"
+    && zoom < 0.35;
+  }
+  if (bloomActive && composer) composer.render(dt);
+  else renderer.render(scene, camera);
 }
 /* ==================== 滚轮物理阻尼与手势交互 ==================== */
 window.addEventListener("wheel", e => {
@@ -4417,11 +4803,266 @@ function applySpecies(immediate = false) {
  $("#sourceLink").href = s.source;
  $("#photoCredit").textContent = "图像：" + s.credit;
  $("#photoCredit").title = s.credit;
+ const askAssistantBtn = $("#askAssistantBtn");
+ if (askAssistantBtn) {
+  askAssistantBtn.hidden = !CONFIG.atlasChat;
+  const label = askAssistantBtn.querySelector("span");
+  if (label) label.textContent = "问问海瞳助手 · " + s.cn;
+ }
+ syncAtlasChatSpecies();
+ if (gbifLayerEnabled && gbifLoadedSpeciesIndex !== speciesIdx) loadGbifForCurrentSpecies();
  renderDetailState();
  renderSoundTags();
 
  buildDots();
  if (s.extinct) toast("消逝档案 · " + s.cn + " —— 它们已经离开，别让下一个离开的是它们");
+}
+
+/* ==================== 物种档案 × 本地 LLM 对话 ==================== */
+const CHAT_SESSION_KEY = "haitong-chat-session";
+const CHAT_TOKEN_KEY = "aquarise-token";
+const CHAT_FAILURE_COOLDOWN = 30000;
+const atlasChatPanel = $("#atlasChatPanel");
+const atlasChatMessages = $("#atlasChatMessages");
+const atlasChatInput = $("#atlasChatInput");
+const atlasChatStatus = $("#atlasChatStatus");
+const sendAtlasChatBtn = $("#sendAtlasChat");
+const stopAtlasChatBtn = $("#stopAtlasChat");
+const chatHistory = [];
+let chatRequestController = null;
+let chatGeneration = 0;
+let chatContextSpecies = null;
+let chatSpeciesIndex = speciesIdx;
+let activeChatAnswer = null;
+let chatCooldownUntil = 0;
+let chatCooldownTimer = 0;
+let atlasChatReturnFocus = null;
+
+function getStoredChatToken() {
+ try {
+  return localStorage.getItem(CHAT_TOKEN_KEY) || sessionStorage.getItem(CHAT_TOKEN_KEY) || "";
+ } catch (error) {
+  return "";
+ }
+}
+
+function getAtlasChatSessionId() {
+ try {
+  const stored = sessionStorage.getItem(CHAT_SESSION_KEY);
+  if (stored) return stored;
+  const created = crypto.randomUUID?.() || `atlas-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  sessionStorage.setItem(CHAT_SESSION_KEY, created);
+  return created;
+ } catch (error) {
+  return `atlas-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+ }
+}
+
+function setAtlasChatStatus(message, tone = "normal") {
+ atlasChatStatus.textContent = message;
+ atlasChatStatus.style.color = tone === "error" ? "#ffafbd" : tone === "ok" ? "#74f8df" : "#8eb5ca";
+}
+
+function refreshAtlasChatControls() {
+ const cooling = Date.now() < chatCooldownUntil;
+ const busy = !!chatRequestController;
+ sendAtlasChatBtn.disabled = cooling || busy;
+ stopAtlasChatBtn.hidden = !busy;
+ document.querySelectorAll("#atlasChatPanel .chat-chip").forEach(button => { button.disabled = cooling || busy; });
+}
+
+function scrollAtlasChatToEnd() {
+ requestAnimationFrame(() => { atlasChatMessages.scrollTop = atlasChatMessages.scrollHeight; });
+}
+
+function addAtlasChatMessage(role, content, options = {}) {
+ const article = document.createElement("article");
+ article.className = `chat-message ${role}`;
+ const label = document.createElement("span");
+ label.className = "chat-message-label";
+ label.textContent = role === "user" ? "你" : "海瞳助手";
+ const body = document.createElement("div");
+ body.className = "chat-message-content";
+ if (role === "user") body.textContent = content;
+ else if (options.pending) body.innerHTML = '<span class="chat-typing" aria-label="正在生成"><i></i><i></i><i></i></span>';
+ else body.innerHTML = renderSafeMarkdown(content);
+ article.append(label, body);
+ atlasChatMessages.appendChild(article);
+ scrollAtlasChatToEnd();
+ return { article, body };
+}
+
+function addRegenerateButton(answer, question) {
+ const tools = document.createElement("div");
+ tools.className = "chat-message-tools";
+ const button = document.createElement("button");
+ button.type = "button";
+ button.className = "chat-regenerate";
+ button.textContent = "↻ 重新生成";
+ button.addEventListener("click", () => sendAtlasQuestion(question));
+ tools.appendChild(button);
+ answer.article.appendChild(tools);
+}
+
+function settleActiveChatAnswer(stopped = false) {
+ if (!activeChatAnswer) return;
+ if (activeChatAnswer.content) {
+  const suffix = stopped ? "\n\n（已停止生成）" : "";
+  activeChatAnswer.body.innerHTML = renderSafeMarkdown(activeChatAnswer.content + suffix);
+  chatHistory.push({ role: "assistant", content: activeChatAnswer.content + suffix });
+  addRegenerateButton(activeChatAnswer, activeChatAnswer.question);
+ } else {
+  activeChatAnswer.article.remove();
+ }
+ activeChatAnswer = null;
+}
+
+function abortAtlasChatRequest(showStopped = true) {
+ if (!chatRequestController) return;
+ chatGeneration += 1;
+ chatRequestController.abort();
+ chatRequestController = null;
+ settleActiveChatAnswer(showStopped);
+ refreshAtlasChatControls();
+ if (showStopped) setAtlasChatStatus("已停止生成，可继续提问");
+}
+
+function beginAtlasChatCooldown() {
+ clearInterval(chatCooldownTimer);
+ chatCooldownUntil = Date.now() + CHAT_FAILURE_COOLDOWN;
+ const tick = () => {
+  const seconds = Math.max(0, Math.ceil((chatCooldownUntil - Date.now()) / 1000));
+  if (!seconds) {
+   clearInterval(chatCooldownTimer);
+   chatCooldownTimer = 0;
+   chatCooldownUntil = 0;
+   setAtlasChatStatus("服务可重试 · Enter 发送");
+   refreshAtlasChatControls();
+   return;
+  }
+  setAtlasChatStatus(`AI 助手暂时离线 · ${seconds} 秒后可重试`, "error");
+  refreshAtlasChatControls();
+ };
+ tick();
+ chatCooldownTimer = setInterval(tick, 1000);
+}
+
+function syncAtlasChatSpecies() {
+ if (!atlasChatPanel?.isConnected) return;
+ const species = SPECIES[speciesIdx];
+ const speciesLabel = $("#atlasChatSpecies");
+ if (speciesLabel) speciesLabel.textContent = `${species.cn} · ${species.en} · ${species.iucn} ${species.iucnTxt}`;
+ if (chatSpeciesIndex === speciesIdx) return;
+ if (chatRequestController) abortAtlasChatRequest(true);
+ chatSpeciesIndex = speciesIdx;
+ chatContextSpecies = null;
+ if (atlasChatPanel.classList.contains("open")) setAtlasChatStatus(`已切换至 ${species.cn}，下一问将更新物种语境`, "ok");
+}
+
+function openAtlasChat() {
+ if (!CONFIG.atlasChat || !atlasChatPanel) return;
+ stopDemo("打开了海瞳助手");
+ atlasChatReturnFocus = document.activeElement;
+ syncAtlasChatSpecies();
+ atlasChatPanel.classList.add("open");
+ atlasChatPanel.setAttribute("aria-hidden", "false");
+ infoCard.classList.add("chat-hidden");
+ setTimeout(() => atlasChatInput.focus(), 120);
+}
+
+function closeAtlasChat() {
+ if (!atlasChatPanel?.classList.contains("open")) return;
+ abortAtlasChatRequest(true);
+ atlasChatPanel.classList.remove("open");
+ atlasChatPanel.setAttribute("aria-hidden", "true");
+ infoCard.classList.remove("chat-hidden");
+ const target = atlasChatReturnFocus?.isConnected ? atlasChatReturnFocus : $("#askAssistantBtn");
+ target?.focus();
+}
+
+async function sendAtlasQuestion(rawQuestion) {
+ const question = String(rawQuestion ?? atlasChatInput.value).trim();
+ if (!question || Date.now() < chatCooldownUntil) return;
+ if (chatRequestController) abortAtlasChatRequest(true);
+ const token = getStoredChatToken();
+ if (!token) {
+  addAtlasChatMessage("assistant", "请先在平台登录后再使用问答。登录完成后回到生命图谱即可继续。", { error: true });
+  setAtlasChatStatus("未检测到登录凭证，未发送请求", "error");
+  return;
+ }
+
+ const species = SPECIES[speciesIdx];
+ const speciesKey = `${species.la}:${speciesIdx}`;
+ const contextual = chatContextSpecies === speciesKey
+  ? { display: question, request: question }
+  : buildContextualQuestion(question, species);
+ atlasChatInput.value = "";
+ addAtlasChatMessage("user", contextual.display);
+ // 历史保存实际发给后端的文本，后续轮次仍能看到首轮物种语境；界面只显示用户原问题。
+ chatHistory.push({ role: "user", content: contextual.request });
+ const outbound = chatHistory.slice(-12).map(message => ({ ...message }));
+ const answer = addAtlasChatMessage("assistant", "", { pending: true });
+ activeChatAnswer = { ...answer, content: "", question };
+ const controller = new AbortController();
+ chatRequestController = controller;
+ const generation = ++chatGeneration;
+ setAtlasChatStatus("正在连接本地海洋模型…");
+ refreshAtlasChatControls();
+
+ try {
+  await streamAtlasChat({
+   messages: outbound,
+   sessionId: getAtlasChatSessionId(),
+   token,
+   signal: controller.signal,
+   onChunk: chunk => {
+    if (generation !== chatGeneration || !activeChatAnswer) return;
+    activeChatAnswer.content += chunk;
+    activeChatAnswer.body.innerHTML = renderSafeMarkdown(activeChatAnswer.content);
+    setAtlasChatStatus("本地模型正在生成 · 可随时停止");
+    scrollAtlasChatToEnd();
+   },
+  });
+  if (generation !== chatGeneration) return;
+  settleActiveChatAnswer(false);
+  chatContextSpecies = speciesKey;
+  setAtlasChatStatus("回答完成 · Enter 继续追问", "ok");
+ } catch (error) {
+  if (generation !== chatGeneration) return;
+  activeChatAnswer?.article.remove();
+  activeChatAnswer = null;
+  if (controller.signal.aborted || error?.name === "AbortError") {
+   setAtlasChatStatus("已停止生成，可继续提问");
+  } else if (error instanceof AtlasChatError && (error.status === 401 || error.status === 403)) {
+   addAtlasChatMessage("assistant", "登录状态已失效，请重新登录后再使用问答。", { error: true });
+   setAtlasChatStatus("登录状态失效，未继续请求", "error");
+  } else {
+   addAtlasChatMessage("assistant", "AI 助手暂时离线 · 你可以先阅读左侧档案与来源链接", { error: true });
+   beginAtlasChatCooldown();
+  }
+ } finally {
+  if (generation === chatGeneration) chatRequestController = null;
+  refreshAtlasChatControls();
+ }
+}
+
+$("#askAssistantBtn")?.addEventListener("click", openAtlasChat);
+$("#closeAtlasChat")?.addEventListener("click", closeAtlasChat);
+sendAtlasChatBtn?.addEventListener("click", () => sendAtlasQuestion());
+stopAtlasChatBtn?.addEventListener("click", () => abortAtlasChatRequest(true));
+atlasChatInput?.addEventListener("keydown", event => {
+ if (event.key === "Enter" && !event.shiftKey) {
+  event.preventDefault();
+  sendAtlasQuestion();
+ }
+});
+document.querySelectorAll("#atlasChatPanel .chat-chip").forEach(button => {
+ button.addEventListener("click", () => sendAtlasQuestion(button.dataset.question));
+});
+
+if (!CONFIG.atlasChat) {
+ $("#askAssistantBtn")?.remove();
+ atlasChatPanel?.remove();
 }
 
 $("#unlockDetail").addEventListener("click", () => {
@@ -5696,24 +6337,25 @@ ${shareData.url}`);
 /* ================= 键盘快捷键全局绑定 ================= */
 window.addEventListener("keydown", e => {
  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+ if (e.key === "Escape") {
+    if (posterLightbox.classList.contains("open")) {
+      closePosterLightbox();
+    } else if (atlasChatPanel?.classList.contains("open")) {
+      closeAtlasChat();
+    } else if (!typing && (guide.classList.contains("open") || $("#spotlightModal")?.classList.contains("open") || $("#shareModal")?.classList.contains("open"))) {
+      closeGestureGuide(); closeSpotlight(); closeShareModal();
+    } else if (!typing && window.parent && window.parent !== window) {
+      window.parent.postMessage("haitong-exit", "*");
+      try { window.parent.location.hash = "dashboard"; } catch (err) {}
+    }
+    return;
+ }
  if ((e.key === "/" || (e.key === "k" && (e.metaKey || e.ctrlKey))) && !typing) {
  e.preventDefault(); stopDemo("检测到检索操作"); openSpotlight();
  }
  if (typing) return;
  if (e.key === "ArrowRight") { stopDemo("检测到键盘操作"); switchSpecies(1); }
  if (e.key === "ArrowLeft") { stopDemo("检测到键盘操作"); switchSpecies(-1); }
- if (e.key === "Escape") {
-    if (posterLightbox.classList.contains("open")) {
-      closePosterLightbox();
-    } else if (guide.classList.contains("open") || $("#spotlightModal")?.classList.contains("open") || $("#shareModal")?.classList.contains("open")) {
-      closeGestureGuide(); closeSpotlight(); closeShareModal();
-    } else {
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage("haitong-exit", "*");
-        try { window.parent.location.hash = "dashboard"; } catch (err) {}
-      }
-    }
-  }
 });
 
 /* ================= 手势图鉴模态控制 ================= */
@@ -5929,6 +6571,8 @@ async function runDemo(runId) {
   if (!demoMode || runId !== demoRunId) return;
 
   const sequence = buildDemoSequence(3);
+  // 展览模式才串行预热本轮三个物种，避免普通访问一进入页面就产生批量外网请求。
+  void preheatGbifSequence(sequence, runId);
   switchSpeciesTo(sequence[0], { transition: false });
   uiState = "diving";
   targetZoom = 0.92;
@@ -6732,7 +7376,21 @@ Object.defineProperty(window, "__LIFE", {
  photoStart: PHOTO_REVEAL_START,
  photoEnd: PHOTO_REVEAL_END
  },
- perf: { fps: Math.round(lastFps) }
+  perf: {
+   fps: Math.round(lastFps),
+   bloomActive,
+   bloomAverageFps: Math.round(bloomFpsFuse.average || 0),
+   bloomDegradedReason
+  },
+  gbif: {
+   enabled: gbifLayerEnabled,
+   loading: gbifLayerLoading,
+   source: gbifLayerSource,
+   stale: gbifLayerStale,
+   pointCount: gbifLayerPointCount,
+   speciesIndex: gbifLoadedSpeciesIndex,
+   cooldown: gbifClient?.cooldown || false
+  }
  };
  }
 });
