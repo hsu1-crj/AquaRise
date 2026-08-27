@@ -373,6 +373,16 @@ export const api = {
     });
   },
 
+  /** 综合报告：基于勾选的若干份已有报告，聚合生成一份综合质量评估报告 */
+  async createComprehensiveReport(reportIds: number[]): Promise<Report> {
+    if (isMockMode()) { await wait(900); return mockReports[0]; }
+    return request<Report>('/api/v1/reports/comprehensive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ report_ids: reportIds, format: 'html' }),
+    });
+  },
+
   async getCurrentUser(): Promise<UserInfo> {
     if (isMockMode()) { await wait(200); return { id: 1, username: '林海', email: 'linhai@aquarise.local', role: 'admin' }; }
     return request<UserInfo>('/api/v1/auth/me');
