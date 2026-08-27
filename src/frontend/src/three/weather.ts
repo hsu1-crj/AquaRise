@@ -227,10 +227,14 @@ export class EnvironmentController {
     waterMat.uniforms.distortionScale.value = c.distortion;
     // 雾由 OceanWorld.applyDepthVisuals 管理: 暴露目标色供其取用
   }
+  private _fogOut = { color: 0, density: 0 };
 
   /** 当前环境的水面雾参数(OceanWorld.applyDepthVisuals 渐变时读取) */
   get surfaceFog(): { color: number; density: number } {
-    return { color: this.current.fogColor, density: this.current.fogDensity };
+    // 复用缓存对象: applyDepthVisuals 每帧读取, 避免逐帧分配
+    this._fogOut.color = this.current.fogColor;
+    this._fogOut.density = this.current.fogDensity;
+    return this._fogOut;
   }
 
   get nightGlow(): number { return this.current.nightGlow; }
@@ -253,7 +257,7 @@ export class EnvironmentController {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
       color: 0xcfe6ff, size: 2.6, sizeAttenuation: false, transparent: true, opacity: 0,
-      depthWrite: false,
+      depthWrite: false, fog: false, // 星空在雾外: 不参与 FogExp2, 否则永远被雾色吞掉
     });
     this.stars = new THREE.Points(geo, mat);
     this.group.add(this.stars);
@@ -282,7 +286,7 @@ export class EnvironmentController {
     tex.colorSpace = THREE.SRGBColorSpace;
     this.moon = new THREE.Mesh(
       new THREE.PlaneGeometry(190, 190),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, fog: false }),
     );
     this.moon.position.set(-2600, 1900, -3300);
     this.moon.lookAt(0, 0, 0);
@@ -351,10 +355,11 @@ export class EnvironmentController {
     this.group.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       mesh.geometry?.dispose();
-      const mat = mesh.material as THREE.Material | undefined;
+      const mat = (mesh.material ?? (obj as THREE.Points).material) as
+        | (THREE.Material & { map?: THREE.Texture | null })
+        | undefined;
+      mat?.map?.dispose?.(); // 月亮等 CanvasTexture 不随 material.dispose 释放
       mat?.dispose();
-      const pts = obj as THREE.Points;
-      if (pts.material) (pts.material as THREE.Material).dispose();
     });
     this.group.removeFromParent();
   }

@@ -180,11 +180,13 @@ export class UnderwaterWorld {
     this.buildUnderside();
     this.buildShafts();
     this.buildSnow();
-    this.buildVents();
     this.rovTrail = this.buildRovTrail();
     this.buildJellies();
-    void this.loadTerrain();
-    void this.loadScannedReef();
+    // 冷泉选点/礁盘落位依赖真实测深: 必须等地形就绪, 否则气泡从水中央升起、礁盘悬空
+    void this.loadTerrain().then(() => {
+      this.buildVents();
+      void this.loadScannedReef();
+    });
     void this.loadSchools();
   }
 
@@ -609,11 +611,11 @@ export class UnderwaterWorld {
             transformed.x += sin(uTime * 1.3 + gPh) * 0.14 * gT;
           #endif`);
     };
-    const grass = new THREE.InstancedMesh(grassBlade, grassMat, 400);
+    const grass = new THREE.InstancedMesh(grassBlade, grassMat, 800);
     {
       const c = new THREE.Color();
       let placed = 0; let tries = 0;
-      while (placed < 800 && tries < 16000) {
+      while (placed < 800 && tries < 16000) { // 容量必须≤InstancedMesh构造值, 否则越界写
         tries++;
         // 礁盘外围环形散布
         const a = Math.random() * Math.PI * 2;
@@ -1218,8 +1220,14 @@ export class UnderwaterWorld {
       const mesh = o as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
       const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-      else mat?.dispose();
+      const each = (m: THREE.Material & { map?: THREE.Texture | null }) => {
+        m.map?.dispose?.(); // 巨藻/海床/礁石贴图不随 material.dispose 释放
+        m.dispose();
+      };
+      if (Array.isArray(mat)) mat.forEach(each);
+      else if (mat) each(mat);
+      // InstancedMesh 的 instanceMatrix/instanceColor GPU 缓冲需显式释放
+      if (o instanceof THREE.InstancedMesh) o.dispose();
     });
     for (const s of this.schools) for (const a of s.agents) a.mixer?.stopAllAction();
     this.root.removeFromParent();
