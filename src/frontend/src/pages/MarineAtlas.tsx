@@ -4,7 +4,8 @@ import { LoaderCircle } from 'lucide-react';
 /**
  * 海瞳·生命图谱全屏包装页。
  * - iframe 加载 / haitong 初始化期间显示品牌启动屏，避免黑屏突兀；
- *   haitong 初始化完成后 postMessage 'haitong-ready' 揭幕（8s 兜底强制揭幕）；
+ *   haitong 初始化完成后 postMessage 'haitong-ready' 揭幕；onLoad 后 6s 未收到 ready 也兜底揭幕；
+ *   另有不依赖 onLoad 的连接看门狗（10s）：请求悬挂等"永不触发 onLoad"的场景下显示重试入口；
  * - postMessage 校验 e.origin，仅接受同源消息；
  * - ESC 与 'haitong-exit' 消息均可退出。
  */
@@ -12,6 +13,7 @@ export function MarineAtlasPage({ onExit }: { onExit: () => void }) {
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [booted, setBooted] = useState(false);
   const [splashGone, setSplashGone] = useState(false);
+  const [stalled, setStalled] = useState(false);
 
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
@@ -36,6 +38,14 @@ export function MarineAtlasPage({ onExit }: { onExit: () => void }) {
     };
   }, [onExit]);
 
+  // 连接看门狗：不依赖 iframe onLoad。请求悬挂（如 dev server 重启中）时 onLoad 永远不触发，
+  // 若没有这条 unconditional 计时器，启动屏会永久卡在"正在连接图谱引擎…"且重试按钮不可见。
+  useEffect(() => {
+    if (booted) return;
+    const timer = window.setTimeout(() => setStalled(true), 10000);
+    return () => window.clearTimeout(timer);
+  }, [booted]);
+
   // iframe onload 后的兜底：旧缓存等情况未收到 ready 消息时也揭幕
   useEffect(() => {
     if (!iframeLoaded) return;
@@ -54,6 +64,7 @@ export function MarineAtlasPage({ onExit }: { onExit: () => void }) {
     setBooted(false);
     setSplashGone(false);
     setIframeLoaded(false);
+    setStalled(false);
     window.location.reload();
   }, []);
 
@@ -105,11 +116,15 @@ export function MarineAtlasPage({ onExit }: { onExit: () => void }) {
             <i />
           </div>
           <p className="atlas-boot-hint">
-            {iframeLoaded ? '正在点亮深海粒子星球的生灵之光…' : '正在连接图谱引擎…'}
+            {stalled && !iframeLoaded
+              ? '图谱引擎连接超时 · 请点击下方重新加载'
+              : iframeLoaded
+                ? '正在点亮深海粒子星球的生灵之光…'
+                : '正在连接图谱引擎…'}
           </p>
-          {!booted && iframeLoaded && (
-            <button type="button" className="atlas-boot-retry" onClick={handleReload}>
-              加载缓慢？点击重新加载
+          {!booted && (iframeLoaded || stalled) && (
+            <button className="atlas-boot-retry" onClick={handleReload}>
+              重新加载
             </button>
           )}
         </div>

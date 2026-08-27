@@ -2932,3 +2932,14 @@
   transition: all 0.18s ease;
 }
 .atlas-boot-retry:hover { border-color: rgba(56, 248, 212, 0.6); color: #eafaff; box-shadow: 0 0 18px rgba(56, 248, 212, 0.18); }
+
+/* 标注视频回放：等比自适应铺满卡片宽度。默认 <video> 无样式时只有 300×150，会显得"铺展不开"。 */
+.annotated-replay { display:block; width:auto; height:auto; max-width:100%; max-height:70vh; margin:0 auto; border-radius:8px; background:#000; }
+.replay-tag { display:block; text-align:center; font-size:9px; color:var(--muted); padding:4px 0 0; }
+
+/* 综合报告勾选控件（Reports 页报告卡片右上角） */
+.report-card { position:relative; }
+.report-select { position:absolute; top:9px; right:9px; z-index:3; display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:6px; background:rgba(3,20,34,.74); border:1px solid rgba(92,218,255,.28); font-size:9px; line-height:1.6; color:#9fc8d6; cursor:pointer; -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px); transition:border-color .15s,color .15s; user-select:none; }
+.report-select:hover { border-color:var(--cyan); }
+.report-select input { width:11px; height:11px; margin:0; accent-color:#22b8e6; cursor:pointer; }
+.report-select.checked { color:var(--cyan); border-color:rgba(34,184,230,.6); background:rgba(8,40,60,.85); }

@@ -17,6 +17,9 @@ const DEFAULT_LEVELS = Object.freeze({
 const DEFAULT_DUCK_LEVEL = 0.14;
 const DEFAULT_FADE_MS = 900;
 
+// 静默时的共享零值快照：getLevels 每帧调用，返回新对象会造成稳定的高频小对象分配
+const ZERO_LEVELS = Object.freeze({ low: 0, mid: 0, high: 0, pan: 0 });
+
 function clamp(value, min = 0, max = 1) {
   return Math.min(max, Math.max(min, Number.isFinite(Number(value)) ? Number(value) : min));
 }
@@ -77,6 +80,13 @@ export class SoundscapeManager {
     this.bgmTrack = null;
     this.activeSpecies = null;
     this.sequenceId = 0;
+    // 每类声音的并发代次：新一轮 playTrack / stopKind 会作废同一类上仍在等待的过期调用，
+    // 防止快速连点切物种时，迟到恢复的旧调用杀掉新轨道。
+    this._generation = { bgm: 0, ambience: 0, call: 0, voice: 0, sfx: 0 };
+    // 独白压低（ducking）代次：只有最新一次独白请求才能在结束时解除压低，
+    // 避免"上一条独白自然结束"与"下一条独白开始压低"交错的窄窗口里背景音突增。
+    this._voiceGen = 0;
+    this._whaleFxResetTimer = null;
     this.voicePlaying = false;
     this.lastStatus = "声音待命 · 点击背景音或开启摄像头解锁音频";
     // 音频资源存在性探测缓存：缺失文件不产生控制台 404 噪音，直接以"未加载"继续运行
@@ -99,11 +109,11 @@ export class SoundscapeManager {
    */
   getLevels() {
     if (!this.analyser || !this.freqData || this.context?.state !== "running") {
-      return { low: 0, mid: 0, high: 0, pan: 0 };
+      return ZERO_LEVELS;
     }
     this.analyser.getByteFrequencyData(this.freqData);
     const n = this.analyser.frequencyBinCount;
-    if (n === 0) return { low: 0, mid: 0, high: 0, pan: 0 };
+    if (n === 0) return ZERO_LEVELS;
     let lowSum = 0, midSum = 0, highSum = 0;
     const lowEnd = Math.max(1, Math.floor(n * 0.08));   // ~前 8% bin
     const midEnd = Math.max(lowEnd + 1, Math.floor(n * 0.32));
@@ -132,7 +142,8 @@ export class SoundscapeManager {
     this.levels.mid += (mid - this.levels.mid) * k;
     this.levels.high += (high - this.levels.high) * k;
     this.levels.pan += (pan - this.levels.pan) * k;
-    return { ...this.levels };
+    // 就地返回共享快照（消费方在当帧内同步读取），不再每次调用新建对象
+    return this.levels;
   }
 
   status(message, detail = {}) {
@@ -148,9 +159,12 @@ export class SoundscapeManager {
     if (!this.context) this.createGraph();
     if (!this.context) return false; // 浏览器不支持 Web Audio
     if (this.context.state === "suspended") {
+      // 同步先发起 resume 再等待：iOS Safari 等严格策略要求 play/resume 贴近用户手势调用栈，
+      // 不能等探测/解码等 await 之后再启动。
+      const resuming = this.context.resume();
       try {
         await Promise.race([
-          this.context.resume(),
+          resuming,
           new Promise(resolve => globalThis.setTimeout(resolve, 300))
         ]);
       } catch (error) {
@@ -296,22 +310,21 @@ export class SoundscapeManager {
 
   async _sourceExists(url) {
     if (this._probeCache.has(url)) return this._probeCache.get(url);
-    const probe = (async () => {
+    const outcome = await (async () => {
       try {
         const absolute = new URL(url, this.document?.baseURI || globalThis.location?.href);
-        if (globalThis.location && absolute.origin === globalThis.location.origin) {
-          const statusUrl = `/api/resource-exists?path=${encodeURIComponent(absolute.pathname)}`;
-          const response = await fetch(statusUrl, { cache: "no-store" });
-          if (response.ok) return Boolean((await response.json()).exists);
-        }
         const response = await fetch(absolute, { method: "HEAD", cache: "no-store" });
-        return response.ok;
+        // 只有"明确缺失/已删除"才缓存为 false；405、5xx 等异常状态视为未知不缓存，便于下次重试
+        if (response.ok) return true;
+        if (response.status === 404 || response.status === 410) return false;
+        return null;
       } catch (_) {
-        return false;
+        return null; // 网络瞬断不能永久缓存为"缺失"，否则该音源整个会话都无法恢复
       }
-    })().catch(() => false);
-    this._probeCache.set(url, probe);
-    return probe;
+    })();
+    if (outcome === null) return false;
+    this._probeCache.set(url, outcome);
+    return outcome;
   }
 
   /** 只保留磁盘上真实存在的源：缺失文件不请求、不产生控制台 404。 */
@@ -343,7 +356,14 @@ export class SoundscapeManager {
   }
 
   async playTrack(kind, trackConfig, { loop = false, fadeMs = this.fadeMs, replace = true } = {}) {
+    // 并发代次：每次播放开始即递增；期间任何 stopKind/新播放都会让本次调用作废，
+    // 在 await 恢复点检查，杜绝"迟到的旧调用杀掉新轨道"的竞态。
+    const gen = ++this._generation[kind];
+    const duckGen = kind === "voice" ? ++this._voiceGen : null;
+    const stale = () => gen !== this._generation[kind];
+
     const probed = await this.resolveExistingSources(trackConfig);
+    if (stale()) return { ok: false, interrupted: true };
     const config = normalizeTrack(probed, kind);
     if (!config || !asSources(config).length) {
       this.kindState[kind] = "unloaded";
@@ -351,6 +371,7 @@ export class SoundscapeManager {
       return { ok: false, missing: true };
     }
     const unlocked = await this.unlock();
+    if (stale()) return { ok: false, interrupted: true };
     if (!unlocked) {
       this.kindState[kind] = "blocked";
       return { ok: false, unavailable: true };
@@ -358,6 +379,7 @@ export class SoundscapeManager {
 
     if (replace) this.stopKind(kind, fadeMs);
     if (kind === "voice") this.setVoiceDucking(true, fadeMs);
+    if (stale()) return { ok: false, interrupted: true };
     const element = this.createElement(kind, config);
     if (!element) return { ok: false, unavailable: true };
     const track = this.ensureTrack(kind, element, config);
@@ -374,14 +396,22 @@ export class SoundscapeManager {
         settled = true;
         resolve(value);
       };
+      // 被 stopKind / 新一轮播放打断时立即结算等待方，避免 await 永久悬挂。
+      track.onInterrupted = () => finish({ ok: false, interrupted: true });
       const fail = error => {
+        // 浏览器以 AbortError 中止被打断的 play()：属于正常打断而非文件缺失
+        if ((error && error.name === "AbortError") || stale()) {
+          finish({ ok: false, interrupted: true });
+          return;
+        }
         this.kindState[kind] = "unloaded";
         this.status(`${this.label(kind)}文件不存在或无法播放 · 已继续运行`, { type: "missing", kind, config, error });
         finish({ ok: false, missing: true, error });
       };
       track.endedHandler = () => {
         this.kindState[kind] = "paused";
-        if (kind === "voice") this.setVoiceDucking(false, fadeMs);
+        // 只有仍然最新的独白才能解除压低；旧轨道的 ended 不许提前恢复背景音量。
+        if (kind === "voice" && this._voiceGen === duckGen) this.setVoiceDucking(false, fadeMs);
         this.status(`${this.label(kind)}播放结束`, { type: "ended", kind });
         finish({ ok: true, ended: true, element, track });
       };
@@ -394,9 +424,12 @@ export class SoundscapeManager {
     });
 
     if (!result.ok) {
-      this.rampGain(track.gainNode, 0, Math.min(220, fadeMs));
-      try { element.pause(); } catch (_) {}
-      if (kind === "voice") this.setVoiceDucking(false, fadeMs);
+      // 打断场景的淡出与元素回收由打断方（stopKind）负责，这里不重复抢操作。
+      if (!result.interrupted) {
+        this.rampGain(track.gainNode, 0, Math.min(220, fadeMs));
+        try { element.pause(); } catch (_) {}
+        if (kind === "voice") this.setVoiceDucking(false, fadeMs);
+      }
     } else {
       this.kindState[kind] = result.ended ? "paused" : "playing";
     }
@@ -404,7 +437,10 @@ export class SoundscapeManager {
   }
 
   stopKind(kind, fadeMs = this.fadeMs) {
+    // 立刻作废该类声音上仍在等待的 playTrack 调用（含起播窗口内的 play() Promise）
+    this._generation[kind] += 1;
     [...this.tracks.values()].filter(track => track.kind === kind).forEach(track => {
+      if (track.onInterrupted) track.onInterrupted();
       this.rampGain(track.gainNode, 0, fadeMs);
       window.setTimeout(() => {
         try { track.element.pause(); track.element.currentTime = 0; } catch (_) {}
@@ -553,6 +589,8 @@ export class SoundscapeManager {
     const sfxBus = this.buses.get("sfx") || this.masterGain;
     const now = ctx.currentTime;
     const synthNodes = [];
+    // 先登记再逐段填充：合成中途任一步抛错时，stopWhaleFallFx 也能停掉已 start 的振荡器。
+    this._whaleSynthNodes = synthNodes;
 
     try {
       // ----------------------------------------------------
@@ -793,12 +831,15 @@ export class SoundscapeManager {
         synthNodes.push(hbOsc, hbGain);
       });
 
-      this._whaleSynthNodes = synthNodes;
-      setTimeout(() => {
-        if (this.kindState.sfx === "playing") {
+      if (this._whaleFxResetTimer) clearTimeout(this._whaleFxResetTimer);
+      // 玻璃琴末音实际响到约 now+6.4s，旧值 5400ms 会提前翻转状态；保存句柄以便中断撤销，
+      // 且校验仍是本次合成的登记节点，避免重叠触发时旧定时器翻转新一次的状态。
+      this._whaleFxResetTimer = setTimeout(() => {
+        this._whaleFxResetTimer = null;
+        if (this._whaleSynthNodes === synthNodes && this.kindState.sfx === "playing") {
           this.kindState.sfx = "paused";
         }
-      }, 5400);
+      }, 6500);
 
       return { ok: true, synthesized: true };
     } catch (e) {
@@ -808,6 +849,10 @@ export class SoundscapeManager {
   }
 
   stopWhaleFallFx() {
+    if (this._whaleFxResetTimer) {
+      clearTimeout(this._whaleFxResetTimer);
+      this._whaleFxResetTimer = null;
+    }
     if (this._whaleSynthNodes && Array.isArray(this._whaleSynthNodes)) {
       this._whaleSynthNodes.forEach(node => {
         try {

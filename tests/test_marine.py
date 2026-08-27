@@ -52,7 +52,7 @@ def test_fresh_cache_returned_without_fetch(client, monkeypatch):
     _write_cache(now.isoformat(timespec="seconds"))
     monkeypatch.setattr(
         marine_router, "fetch_conditions",
-        lambda: pytest.fail("新鲜缓存不应触发外网抓取"),
+        lambda *a, **k: pytest.fail("新鲜缓存不应触发外网抓取"),
     )
     resp = client.get("/api/v1/stats/marine")
     assert resp.status_code == 200
@@ -65,7 +65,7 @@ def test_production_format_cache_hit_within_ttl(client, monkeypatch):
     """真实抓取产出的缓存格式(UTC ISO fetched_at + 本地时间 observed_time)
     写入后, TTL 窗口内第二次请求必须命中缓存、不再抓取。"""
     # 第一次: 模拟生产 fetch_conditions 的输出格式
-    def _production_fetch():
+    def _production_fetch(*args, **kwargs):
         return marine_router.MarineConditions(
             fetched_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             observed_time="2026-08-19T14:00",  # Open-Meteo 本地时间串(无偏移)
@@ -80,7 +80,7 @@ def test_production_format_cache_hit_within_ttl(client, monkeypatch):
     # 第二次: 若再触发抓取则直接失败
     monkeypatch.setattr(
         marine_router, "fetch_conditions",
-        lambda: pytest.fail("TTL 内不应重复抓取"),
+        lambda *a, **k: pytest.fail("TTL 内不应重复抓取"),
     )
     second = client.get("/api/v1/stats/marine")
     assert second.status_code == 200
@@ -94,7 +94,7 @@ def test_fetch_success_writes_cache(client, monkeypatch):
         wave_height=0.9, wave_direction=100.0, wave_period=4.0,
         sea_surface_temperature=27.5, wind_speed=3.2, wind_direction=88.0,
     )
-    monkeypatch.setattr(marine_router, "fetch_conditions", lambda: fetched)
+    monkeypatch.setattr(marine_router, "fetch_conditions", lambda *a, **k: fetched)
     resp = client.get("/api/v1/stats/marine")
     assert resp.status_code == 200
     assert resp.json()["wave_height"] == 0.9
@@ -104,7 +104,7 @@ def test_fetch_success_writes_cache(client, monkeypatch):
 def test_fetch_fail_falls_back_to_stale_cache(client, monkeypatch):
     """抓取失败 + 有旧缓存 → 返回旧数据并标记 stale=true"""
 
-    def _boom():
+    def _boom(*args, **kwargs):
         raise OSError("外网不可达")
 
     monkeypatch.setattr(marine_router, "fetch_conditions", _boom)
@@ -120,7 +120,7 @@ def test_fetch_fail_falls_back_to_stale_cache(client, monkeypatch):
 def test_no_cache_and_fetch_fail_returns_503(client, monkeypatch):
     """抓取失败且无任何缓存 → 明确 503(前端隐藏面板)"""
 
-    def _boom():
+    def _boom(*args, **kwargs):
         raise OSError("外网不可达")
 
     monkeypatch.setattr(marine_router, "fetch_conditions", _boom)

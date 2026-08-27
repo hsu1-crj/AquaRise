@@ -435,6 +435,12 @@ class CreateBatchReportRequest(BaseModel):
     format: str = "html"
 
 
+class CreateComprehensiveReportRequest(BaseModel):
+    """前端综合报告：POST /api/v1/reports/comprehensive JSON body（基于勾选的报告聚合）"""
+    report_ids: list[int]
+    format: str = "html"
+
+
 class ReportSolution(BaseModel):
     priority: str
     action: str
