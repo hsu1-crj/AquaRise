@@ -47,9 +47,9 @@ export function PreviewGallery({ urls }: { urls: string[] }) {
   );
 }
 
-/** 视频结果卡片：与多图识别结果卡片同一布局（标注预览图 + 统计 + 可展开目标列表）。
- * 媒体区展示全部场景预览帧画廊（每次检测到新画面追加一张）；目标列表为去重后的垃圾清单。
- * status 可为 null（检测历史详情直接以 result 为准时），预览帧/标注视频从 result 兜底读取。 */
+/** 视频结果卡片：标注视频回放为主位(逐帧画框后的完整 MP4), 预览帧画廊为辅助;
+ *  目标列表为去重后的垃圾清单。
+ *  status 可为 null（检测历史详情直接以 result 为准时），预览帧/标注视频从 result 兜底读取。 */
 export function VideoResultCard({ fileName, status, result }: { fileName: string; status: VideoTaskStatus | null; result: VideoDetectResult | null }) {
   const [expanded, setExpanded] = useState(true); // 默认展开目标列表，与图片卡片一致
   const level = result?.pollutionLevel || status?.pollutionLevel || '';
@@ -70,13 +70,17 @@ export function VideoResultCard({ fileName, status, result }: { fileName: string
   return (
     <div className="result-card">
       <div className="result-card-media">
-        <PreviewGallery urls={previews} />
+        {annotatedUrl ? (
+          <>
+            {/* 标注视频回放(主位): 逐帧画框后的完整视频, 不是幻灯片 */}
+            <video className="annotated-replay" src={annotatedUrl} controls playsInline preload="metadata" poster={previews[0]} />
+            <span className="replay-tag">标注视频回放</span>
+            {previews.length > 0 && <PreviewGallery urls={previews} />}
+          </>
+        ) : (
+          <PreviewGallery urls={previews} />
+        )}
       </div>
-      {annotatedUrl && (
-        <div className="annotated-video-block">
-          <video src={annotatedUrl} controls playsInline preload="metadata" />
-        </div>
-      )}
       <div className="result-card-info">
         <strong title={fileName}>{fileName}</strong>
         <div className="result-card-tags">

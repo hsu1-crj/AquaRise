@@ -81,11 +81,11 @@ function flushDrops(): void {
   if (pendingDrops.size === 0) return;
   const drops = Array.from(pendingDrops.values());
   pendingDrops = new Map();
-  const total = drops.reduce((sum, d) => sum + d.count, 0);
   const listText = drops.map((d) => (d.count > 1 ? `${d.name}×${d.count}` : d.name)).join('、');
   const harms = drops.map((d) => `${d.name}: ${d.harm}`).join('；');
+  // 不播报"共N处污染源"之类的统计口吻, 科普场景只陈述投放事实与危害
   emitBroadcast({
     kind: 'drop',
-    text: `已投放${listText}，共${total}处污染源。${harms}。`,
+    text: `已投放${listText}。${harms}。`,
   });
 }

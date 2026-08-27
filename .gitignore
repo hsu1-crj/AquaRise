@@ -134,3 +134,11 @@ AQUARISE Ocean Conservation Super-App (Community)/
 .certs/
 *.jpg
 *.mp4
+# 浏览器回归验证临时产物(截图+playwright)
+.regress/
+
+# ==============================
+# 海况运行时缓存(后端按30分钟TTL自动重写, 不应入库)
+# ==============================
+data/marine_now.json
+data/marine_*.json

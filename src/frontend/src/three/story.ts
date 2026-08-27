@@ -173,13 +173,16 @@ export class GarbageStory {
     if (stage >= 2) {
       // 微塑料缓漫扩散(到上限后停留) + 浑浊带持续脉动
       microMat.opacity = 0.8;
-      const move = this.spreadK < 1 ? dt * (0.5 + this.spreadK) : dt * 0.05;
-      for (let i = 0; i < this.microPos.length / 3; i++) {
-        this.microPos[i * 3] += this.microDir[i * 3] * move;
-        this.microPos[i * 3 + 1] += this.microDir[i * 3 + 1] * move;
-        this.microPos[i * 3 + 2] += this.microDir[i * 3 + 2] * move;
+      // 到上限后完全停留(继续漂移会脱离污染半径中心, 与鱼群规避区错位)
+      if (this.spreadK < 1) {
+        const move = dt * (0.5 + this.spreadK);
+        for (let i = 0; i < this.microPos.length / 3; i++) {
+          this.microPos[i * 3] += this.microDir[i * 3] * move;
+          this.microPos[i * 3 + 1] += this.microDir[i * 3 + 1] * move;
+          this.microPos[i * 3 + 2] += this.microDir[i * 3 + 2] * move;
+        }
+        (this.micro.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
       }
-      (this.micro.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
       // 油污盘: 阶段2出现, 8s后消退(漂浮期污染痕迹)
       discMat.opacity = this.age < 8 ? Math.min(0.35, (this.age - 5) * 0.3) : Math.max(0, 0.35 - (this.age - 8) * 0.2);
       this.disc.scale.setScalar(1 + this.spreadK * 10);
@@ -203,7 +206,7 @@ export class GarbageStory {
         if (m.userData.rising) {
           m.position.y += dt * 0.5;
           m.rotation.y += dt * 0.3;
-          if (m.position.y > -1.2) {
+          if (m.position.y > this.floorY + 1.6) { // 阈值相对海床, 浅水也能看到完整上浮过程
             mat.opacity -= dt * 0.5;
             if (mat.opacity <= 0) { m.visible = false; m.userData.rising = 0; }
           }
@@ -252,9 +255,13 @@ export class GarbageStory {
     this.group.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
-      const mat = m.material as THREE.Material | undefined;
+      const mat = m.material as THREE.Material & { map?: THREE.Texture | null };
+      mat?.map?.dispose?.();
       mat?.dispose();
     });
+    this.fragments.dispose(); // instanceMatrix GPU 缓冲
+    this.micro.geometry.dispose();
+    (this.micro.material as THREE.Material).dispose();
     this.group.removeFromParent();
   }
 }
@@ -271,18 +278,22 @@ export class RovUnit {
     const hull = new THREE.MeshStandardMaterial({ color: 0xf5b324, roughness: 0.45, metalness: 0.55 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.6, metalness: 0.4 });
     const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.1, 3.2), hull);
+    this.proceduralParts.push(body);
     const frame = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.18, 3.5), dark);
     frame.position.y = -0.7;
+    this.proceduralParts.push(frame);
     const dome = new THREE.Mesh(
       new THREE.SphereGeometry(0.42, 14, 10),
       new THREE.MeshPhysicalMaterial({ color: 0xcfefff, transmission: 0.9, roughness: 0.08, transparent: true }),
     );
     dome.position.set(0, -0.15, 1.75);
+    this.proceduralParts.push(dome);
     this.group.add(body, frame, dome);
     for (const [x, z] of [[-1.0, 1.2], [1.0, 1.2], [-1.0, -1.2], [1.0, -1.2]] as const) {
       const thruster = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.7, 10), dark);
       thruster.rotation.x = Math.PI / 2;
       thruster.position.set(x, 0.45, z);
+      this.proceduralParts.push(thruster);
       this.group.add(thruster);
     }
     this.glow = new THREE.PointLight(0x9fdcff, 6, 26);

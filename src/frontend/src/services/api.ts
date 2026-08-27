@@ -86,9 +86,11 @@ function handleUnauthorized(response: Response): void {
 }
 
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+type RequestInitWithTimeout = RequestInit & { timeoutMs?: number };
+
+async function request<T>(path: string, init?: RequestInitWithTimeout): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 15000);
+  const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? 15000);
   try {
     const response = await fetch(path, { ...init, headers: authHeaders(init), signal: init?.signal ?? controller.signal });
     if (!response.ok) {
@@ -182,8 +184,8 @@ export const api = {
     if (isMockMode()) { await wait(400); return []; }
     return request<SiteStat[]>('/api/v1/stats/sites');
   },
-  /** 真实海况（Open-Meteo 抓取 + 后端缓存, 外网失败返回旧缓存 stale=true） */
-  async getMarine(): Promise<MarineInfo> {
+  /** 真实海况（Open-Meteo 抓取 + 后端缓存, 外网失败返回旧缓存 stale=true）; 带坐标按站点取数 */
+  async getMarine(lat?: number, lng?: number): Promise<MarineInfo> {
     if (isMockMode()) {
       await wait(350);
       return {
@@ -193,12 +195,13 @@ export const api = {
         seaTempC: 26.8, windSpeedMs: 5.6, windDirectionDeg: 128, stale: false,
       };
     }
+    const qs = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : '';
     const r = await request<{
       fetched_at: string; observed_time: string | null;
       wave_height: number | null; wave_direction: number | null;
       wave_period: number | null; sea_surface_temperature: number | null;
       wind_speed: number | null; wind_direction: number | null; stale: boolean;
-    }>('/api/v1/stats/marine');
+    }>(`/api/v1/stats/marine${qs}`);
     return {
       fetchedAt: r.fetched_at,
       observedAt: r.observed_time,
@@ -255,7 +258,7 @@ export const api = {
     form.append('width', String(width));
     form.append('height', String(height));
     if (siteId) form.append('site_id', String(siteId));
-    return request<DetectionResult>('/api/v1/detect/image', { method: 'POST', body: form });
+    return request<DetectionResult>('/api/v1/detect/image', { method: 'POST', body: form, timeoutMs: 300000 });
   },
 
   /** 批量识别多张图片：每张图独立返回结果（单张失败不影响其余）；siteId 整批共用 */
@@ -273,7 +276,7 @@ export const api = {
     const form = new FormData();
     files.forEach((file) => form.append('files', file));
     if (siteId) form.append('site_id', String(siteId));
-    return request<MultiImageDetectResponse>('/api/v1/detect/images', { method: 'POST', body: form });
+    return request<MultiImageDetectResponse>('/api/v1/detect/images', { method: 'POST', body: form, timeoutMs: 600000 });
   },
 
   async createVideoTask(file: File, siteId?: number): Promise<{ taskId: string }> {
@@ -281,7 +284,7 @@ export const api = {
     const form = new FormData();
     form.append('file', file);
     if (siteId) form.append('site_id', String(siteId));
-    const response = await request<{ task_id?: string; taskId?: string }>('/api/v1/detect/video', { method: 'POST', body: form });
+    const response = await request<{ task_id?: string; taskId?: string }>('/api/v1/detect/video', { method: 'POST', body: form, timeoutMs: 600000 });
     return { taskId: response.taskId ?? response.task_id ?? '' };
   },
 
@@ -297,7 +300,7 @@ export const api = {
       preview_url?: string | null; preview_urls?: string[] | null;
       annotated_video_url?: string | null;
       processed_frames?: number | null; total_frames?: number | null;
-    }>(`/api/v1/detect/status/${taskId}`);
+    }>(`/api/v1/detect/status/${taskId}`, { timeoutMs: 60000 });
     return {
       taskId: response.task_id,
       status: response.status as VideoTaskStatus['status'],
@@ -328,7 +331,7 @@ export const api = {
         bbox_x1?: number | null; bbox_y1?: number | null; bbox_x2?: number | null; bbox_y2?: number | null;
         material_type?: string | null; crop_url?: string | null;
       }[];
-    }>(`/api/v1/detect/result/${taskId}`);
+    }>(`/api/v1/detect/result/${taskId}`, { timeoutMs: 60000 });
     return {
       taskId: response.task_id,
       taskType: response.task_type,
@@ -367,6 +370,16 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task_ids: taskIds.map(Number), format: 'html' }),
+    });
+  },
+
+  /** 综合报告：基于勾选的若干份已有报告，聚合生成一份综合质量评估报告 */
+  async createComprehensiveReport(reportIds: number[]): Promise<Report> {
+    if (isMockMode()) { await wait(900); return mockReports[0]; }
+    return request<Report>('/api/v1/reports/comprehensive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ report_ids: reportIds, format: 'html' }),
     });
   },
 
