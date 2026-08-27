@@ -59,7 +59,8 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
         api.getSummary(),
         api.getTrend('month'),
         api.getAnalysis(),
-        api.getHistory(1, 4),
+        // 检测历史按模块门控：无 history 模块的用户组（如指挥决策组）会 403，降级为空列表不拖垮大屏
+        api.getHistory(1, 4).catch(() => ({ items: [], total: 0 })),
       ]);
       setSummary(summaryData);
       setTrend(trendData);

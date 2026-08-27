@@ -57,7 +57,8 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
         api.getSummary(),
         api.getTrend(),
         api.getAnalysis(),
-        api.getHistory(1, 4),
+        // 检测历史按模块门控：无 history 模块的用户组（如指挥决策组）会 403，降级为空列表不拖垮整页
+        api.getHistory(1, 4).catch(() => ({ items: [], total: 0 })),
       ]);
       setSummary(summaryData);
       setTrend(trendData);
