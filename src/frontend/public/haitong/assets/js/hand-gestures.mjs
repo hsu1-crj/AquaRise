@@ -25,7 +25,8 @@ export const HAND_RULES = {
   fistCurl: 0.86      // 四指平均卷曲比 < 该值 → 紧握拳；≥ → 松弛抓握 grip
 };
 
-function dist2(a, b) {
+// 两点欧氏距离（历史上叫 dist2，实为距离而非平方，已更名避免误用）
+function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
@@ -35,8 +36,16 @@ function dist2(a, b) {
  */
 export function classifyHandGesture(lm) {
   if (!Array.isArray(lm) || lm.length < 21) return { name: "unknown", score: 0, metrics: null };
+  // 坏帧防御：坐标含 NaN/Infinity 时所有比较为 false 会把坏帧误判成 grip，
+  // 这里直接判定 unknown 交给上层投票机制丢弃。
+  for (let i = 0; i < 21; i++) {
+    const pt = lm[i];
+    if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) {
+      return { name: "unknown", score: 0, metrics: null };
+    }
+  }
   const L = HAND_LM;
-  const d = (a, b) => dist2(lm[a], lm[b]);
+  const d = (a, b) => dist(lm[a], lm[b]);
   const wrist = L.WRIST;
   const handSize = Math.max(1e-6, d(L.WRIST, L.MID_MCP));
 
