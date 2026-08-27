@@ -44,6 +44,52 @@ class ChatResponse(BaseModel):
     finish_reason: Optional[str] = None
 
 
+_FOLLOW_UP_RE = re.compile(
+    r"上面|刚才|前面|上一(?:条|轮)|第一条|你提到|其中|除此|除了|该(?:公约|附则|规定|问题)|"
+    r"这个|这些|那个|那些|继续|再说|进一步|具体(?:呢|来说)|分别是|它(?:们)?",
+    re.I,
+)
+
+_COUNTERFACTUAL_RE = re.compile(
+    r"反事实|(?:如果|假如|假设|倘若).{0,32}(?:没有|不存在|消失|停止|不再).{0,48}"
+    r"(?:会|将).{0,24}(?:怎样|如何|什么|不同|变化|影响)",
+    re.I,
+)
+
+
+def _is_counterfactual_question(text: str) -> bool:
+    """识别要求推演一个不存在条件的开放问题，不拦截普通“如果发现垃圾怎么办”。"""
+    return bool(_COUNTERFACTUAL_RE.search((text or "").strip()))
+
+
+def _counterfactual_instruction(text: str) -> Optional[str]:
+    if not _is_counterfactual_question(text):
+        return None
+    return (
+        "本轮是开放反事实问题。请分点使用【较确定推论】【推测】【不确定性】三个小节："
+        "较确定推论只写由题设直接导致、且有可靠常识支持的方向；推测必须使用‘可能’等限定词；"
+        "不确定性要列出仍会影响结果的变量，并明确不能断定单一结局。"
+        "禁止把聚合物材质名称（如 PET、HDPE）直接等同于粒径类别‘微塑料’；"
+        "只有说明颗粒或碎片小于相应尺寸时，才能称为微塑料。不要使用‘一定、全部、必然均匀’等绝对化表述。"
+    )
+
+
+def _build_retrieval_query(messages: List[ChatMessage], max_user_turns: int = 2) -> str:
+    """为指代型追问补入最近主题，普通新问题仍只检索当前轮。"""
+    user_turns = [
+        message.content.strip()
+        for message in messages
+        if message.role == "user" and message.content.strip()
+    ]
+    if not user_turns:
+        return ""
+    current = user_turns[-1]
+    if len(user_turns) == 1 or not _FOLLOW_UP_RE.search(current):
+        return current
+    selected = user_turns[-max(2, min(max_user_turns, 3)):]
+    return "\n".join(f"用户问题：{turn}" for turn in selected)
+
+
 class ModelInfo(BaseModel):
     name: str
     size: str
@@ -308,9 +354,13 @@ class ChatService:
             })
         # 客户端 system 只作为 UI 提示，不允许覆盖服务端事实和安全边界。
         user_text = self._last_user(request.messages)
+        counterfactual_instruction = _counterfactual_instruction(user_text)
+        if counterfactual_instruction:
+            messages.append({"role": "system", "content": counterfactual_instruction})
+        retrieval_query = _build_retrieval_query(request.messages)
         evidence: List[Dict[str, Any]] = []
         if request.enable_rag and user_text:
-            context, evidence = self.rag.retrieve(user_text)
+            context, evidence = self.rag.retrieve(retrieval_query)
             if context:
                 citation_required = bool(re.search(
                     r"检测报告|报告|污染等级|污染指数|置信度|统计|正式|纳入|marpol|附则|法规|公约|"

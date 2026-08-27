@@ -24,7 +24,30 @@ _SIGNAL_TERMS = {
     "检测", "识别", "置信度", "报告", "污染", "清理", "打捞", "回收", "样方", "样带", "声呐",
     "传感器", "无人艇", "usv", "rov", "rfid", "pops", "富集", "食物链", "洋流", "潮汐", "碳汇",
     "巡航", "拦截", "监测", "复测", "降级", "风险标注", "作业", "切割", "微创", "网格", "抽检",
+    "pet", "hdpe", "聚合物", "材料", "紫外", "老化", "光氧化", "水解", "耐候", "性能", "对比",
 }
+
+
+def _chunks_preserving_lines(text: str, target_chars: int = 900) -> List[str]:
+    """优先在换行处切片，避免把表格中的对象、数字和限定条件拆开。"""
+    lines = [line.rstrip() for line in text.splitlines()]
+    chunks: List[str] = []
+    current: List[str] = []
+    heading = ""
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            heading = line
+        candidate = "\n".join(current + [line]).strip()
+        if current and len(candidate) > target_chars:
+            chunk = "\n".join(current).strip()
+            if chunk:
+                chunks.append(chunk)
+            current = [heading] if heading and heading != line else []
+        current.append(line)
+    tail = "\n".join(current).strip()
+    if tail:
+        chunks.append(tail)
+    return chunks
 
 
 def _terms(text: str) -> set[str]:
@@ -66,8 +89,7 @@ class LocalKnowledgeRetriever:
                 part = part.strip()
                 if not part:
                     continue
-                for start in range(0, len(part), 900):
-                    chunk = part[start:start + 1050].strip()
+                for chunk in _chunks_preserving_lines(part):
                     if len(chunk) >= 25:
                         self.chunks.append({"content": chunk, "source": path.name, "terms": _terms(chunk)})
 
