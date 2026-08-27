@@ -232,7 +232,6 @@ export interface DigitalHumanPublicConfig {
   sdk_integrity?: string | null;
   message?: string | null;
 }
-
 export interface ApiErrorShape {
   detail?: string;
   message?: string;
