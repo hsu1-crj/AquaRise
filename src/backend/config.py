@@ -62,11 +62,15 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
 # Ollama：正式使用本项目微调模型；deepseek-r1:1.5b 仅作为人工回滚基线。
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "ds-ocean_mingzhe")
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+# 采样温度从 0.2 上调至 0.45：0.2 下回答干瘪、句式高度雷同，是"机器感"来源之一；
+# 防复读由路由层重复门禁负责，不依赖低温。
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.45"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "768"))
 LLM_KEEP_ALIVE = os.getenv("LLM_KEEP_ALIVE", "10m")
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
-LLM_REQUIRE_CITATIONS = _env_bool("LLM_REQUIRE_CITATIONS", True)
+# 引用强制放开为按问题类型驱动：报告/法规/统计类仍逐段强制 [S编号]，
+# 科普类不再被引用格式绑架；此开关只是"全局强制"的兜底覆盖，默认关闭。
+LLM_REQUIRE_CITATIONS = _env_bool("LLM_REQUIRE_CITATIONS", False)
 
 # 数字人公开运行配置。按当前项目约定，浏览器凭证仍由前端环境提供；
 # 此处只负责报告真实状态和可公开的 SDK 参数，不再返回占位 token。
