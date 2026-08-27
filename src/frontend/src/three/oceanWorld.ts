@@ -28,15 +28,28 @@ import type { KnowledgePoi } from '../data/knowledgePois';
 import type { GarbageStoryState } from './story';
 import { EnvironmentController } from './weather';
 import type { TimeMode, WeatherMode } from './weather';
+import { EarthGlobe } from './globe';
+import type { GlobeStation } from './globe';
 
 export interface SiteVisual {
   id: number;
   code: string;
   name: string;
-  pollutionIndex: number | null;
+  /** 站点真实经纬度(用于场景内按地理位置定位与跨海域距离计算); 缺失时回退兜底布局 */
+  lat: number;
+  lng: number;
+  /** 环境质量评分 1-10 整数(越高越好); 未检测为 null */
+  qualityScore: number | null;
   taskCount: number;
   totalObjects: number;
-  evidence?: Array<{ taskId: number; mediaUrl: string | null; className: string | null; objectCount: number; level: string | null; at: string | null }>;
+  evidence?: Array<{ taskId: number; mediaUrl: string | null; mediaKind?: 'image' | 'video'; videoUrl?: string | null; className: string | null; objectCount: number; level: string | null; at: string | null }>;
+}
+
+export interface SiteJumpInfo {
+  fromId: number;
+  toId: number;
+  /** 两站真实大圆距离(km); 缺经纬度时为 null */
+  distanceKm: number | null;
 }
 
 export interface OceanHandlers {
@@ -44,13 +57,47 @@ export interface OceanHandlers {
   onWaterClick?: (point: THREE.Vector3) => void;
   onGarbageImpact?: (key: string) => void;
   onPoiClick?: (poi: KnowledgePoi) => void;
+  onGlobeSelect?: (station: GlobeStation) => void;
+  onGlobeEnter?: (stationId: number) => void;
+  /** 跨海域站点跃迁完成(页面据此显示"已跨越 XX km"提示) */
+  onSiteJump?: (info: SiteJumpInfo) => void;
 }
 
+/** 站点切换遮罩淡入淡出时长(ms): 所有切换统一走"淡出→瞬移→淡入", 不再近距离平飞 */
+const JUMP_FADE_MS = 380;
 
 const M_TO_SCENE = 1 / 150;
-const SITE_LAYOUT: Record<number, [number, number]> = {
-  1: [-52, -38], 2: [18, -62], 3: [58, 26], 4: [-8, 52], 5: [-62, 30],
+const GEO_UNITS_PER_DEG = 260;
+/** 兜底布局(仅当站点数据无经纬度时使用): 北戴河/秦皇岛/渤海湾各占一角 */
+const FALLBACK_LAYOUT: Record<number, [number, number]> = {
+  1: [-85, -60], 2: [30, -95], 3: [115, 55],
 };
+/** 站点群地理中心(首次 setSites 时标定, 之后投影稳定) */
+let geoCenter: { lat: number; lng: number } | null = null;
+/** 已投影的站点坐标表(id → 场景 xz), setSites 时重建 */
+const sitePosTable = new Map<number, [number, number]>();
+/** 兜底布局 → 表(无经纬度数据时) */
+function applyFallbackLayout(): void {
+  sitePosTable.clear();
+  for (const [id, pos] of Object.entries(FALLBACK_LAYOUT)) sitePosTable.set(Number(id), pos);
+}
+
+/** 站点场景坐标查询(setSites 后有效; 未登记的站点回落到原点附近散布, 避免全部叠在原点) */
+function sitePos(siteId: number): [number, number] {
+  const hit = sitePosTable.get(siteId);
+  if (hit) return hit;
+  const seed = (siteId * 137) % 360;
+  return [Math.cos(seed) * 60 - 40, Math.sin(seed) * 60];
+}
+
+/** 两站真实大圆距离(km), 缺坐标时返回 null */
+export function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad;
+  const dLng = (bLng - aLng) * rad;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(s)));
+}
 
 /** 太阳方位(决定水面高光方向/光束倾角/水下光晕, 全场景共享) */
 const SUN_DIR = new THREE.Vector3().setFromSphericalCoords(
@@ -130,29 +177,45 @@ function colorForIndex(index: number | null): number {
   return 0x27dafa;
 }
 
+/** 递归释放子树的几何体/材质/贴图(站点重建等批量清理用) */
+function disposeTree(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    mesh.geometry?.dispose?.();
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      if (!mat) continue;
+      const m = mat as THREE.Material & { map?: THREE.Texture | null };
+      m.map?.dispose?.();
+      m.dispose();
+    }
+  });
+}
+
 function makeLabelSprite(code: string, name: string, color: number): THREE.Sprite {
   const canvas = document.createElement('canvas');
   canvas.width = 512; canvas.height = 160;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = 'rgba(4,22,36,.78)';
+  ctx.fillStyle = '#071a2c';
   ctx.beginPath();
   ctx.roundRect(6, 6, canvas.width - 12, canvas.height - 12, 26);
   ctx.fill();
-  ctx.strokeStyle = `#${new THREE.Color(color).getHexString()}aa`;
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = `#${new THREE.Color(color).getHexString()}cc`;
+  ctx.lineWidth = 4;
   ctx.stroke();
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 58px "Microsoft YaHei"';
-  ctx.fillText(code, 28, 78);
-  ctx.fillStyle = 'rgba(225,240,250,.9)';
+  ctx.font = 'bold 60px "Microsoft YaHei"';
+  const codeW = ctx.measureText(code).width;
+  ctx.fillText(code, 28, 80);
+  ctx.fillStyle = 'rgba(228,242,252,.96)';
   ctx.font = '38px "Microsoft YaHei"';
-  ctx.fillText(name.replace('监测点', ''), 130, 72);
-  ctx.fillStyle = 'rgba(160,210,235,.75)';
+  ctx.fillText(name.replace('监测点', ''), Math.max(28 + codeW + 26, 130), 74);
+  ctx.fillStyle = 'rgba(170,216,240,.9)';
   ctx.font = '30px "Microsoft YaHei"';
   ctx.fillText('点击查看详情', 30, 128);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, toneMapped: false }));
   sprite.scale.set(13, 4.1, 1);
   return sprite;
 }
@@ -336,6 +399,11 @@ export class OceanWorld {
   private fpLast = { x: 0, y: 0 };
   private camGoal: { pos: THREE.Vector3; yaw: number; pitch: number } | null = null;
   private tmpDir = new THREE.Vector3();
+  private tmpRight = new THREE.Vector3();
+  private tmpEuler = new THREE.Euler();
+  /** 常驻雾/背景对象: applyDepthVisuals 每帧只改参数, 避免逐帧分配 */
+  private fog = new THREE.FogExp2(0xd7e9f0, 0.00045);
+  private bgWater = new THREE.Color();
   private lastRenderMs = 0;
   private readonly targetFrameMs = 1000 / 30;
   private clock = new THREE.Clock();
@@ -361,6 +429,9 @@ export class OceanWorld {
   private underwater: UnderwaterWorld;
   private coastline?: THREE.Group;
   private rov?: RovUnit;
+  private activeSiteId: number | null = null;
+  private globe?: EarthGlobe;
+  private globeTravelStationId: number | null = null;
   private rovScratch = new THREE.Vector3();
 
   private siteGroup = new THREE.Group();
@@ -398,11 +469,14 @@ export class OceanWorld {
   private sprintKeys = new Set<string>();
   private lastTapAt: Record<string, number> = {};
 
+  // 跨海域跃迁状态 + 全屏淡入淡出遮罩(跃迁期间屏蔽输入, 完成后由页面提示跨越距离)
+  private jumpState: { phase: 'rise' | 'descend'; t: number; target: { pos: THREE.Vector3; yaw: number; pitch: number }; siteId: number } | null = null;
+  private fadeEl: HTMLDivElement | null = null;
+
   constructor(private container: HTMLElement, private handlers: OceanHandlers) {
     // 30 FPS + 1.25 DPR: 保持海底细节的同时避免显卡持续满载/风扇高转
     this.renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
-    this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.56;
     container.appendChild(this.renderer.domElement);
@@ -490,7 +564,7 @@ export class OceanWorld {
     // ---------- 水下世界(地形 + 生态 + 氛围) ----------
     this.underwater = new UnderwaterWorld(this.scene, SUN_DIR, () => this.repositionSites());
     // 初始视觉(水面模式): 雾+曝光由 applyDepthVisuals 按深度自动切换
-    this.scene.fog = new THREE.FogExp2(0xd7e9f0, 0.00045);
+    this.scene.fog = this.fog;
 
     // ---------- 环境系统(昼夜/天气, 接管光照/天空/水色/雾/荧光) ----------
     const sunLightRef = this.scene.children.find(
@@ -574,18 +648,24 @@ export class OceanWorld {
     this.rov?.setVisible(underwater);
     if (this.fxPass) this.fxPass.uniforms.uOn.value = underwater ? 1 : 0;
     const envFog = this.env?.surfaceFog;
+    const fog = this.fog;
     if (underwater) {
       // 夜晚水下更暗更深; 曝光/hemi由环境控制器按水下状态接管
       const night = this.env?.isNight ?? false;
-      this.scene.fog = new THREE.FogExp2(night ? 0x041523 : 0x0a3548, 0.0035);
-      this.scene.background = new THREE.Color(night ? 0x020c14 : 0x062838);
+      fog.color.setHex(night ? 0x041523 : 0x0a3548);
+      fog.density = 0.0035;
+      this.bgWater.setHex(night ? 0x020c14 : 0x062838);
+      this.scene.background = this.bgWater;
     } else if (envFog) {
-      this.scene.fog = new THREE.FogExp2(envFog.color, envFog.density);
+      fog.color.setHex(envFog.color);
+      fog.density = envFog.density;
       this.scene.background = null;
     } else {
-      this.scene.fog = new THREE.FogExp2(0xd7e9f0, 0.00045);
+      fog.color.setHex(0xd7e9f0);
+      fog.density = 0.00045;
       this.scene.background = null;
     }
+    this.scene.fog = fog;
   }
 
   /** 当前是否处于水下视觉态(投放拾取等逻辑用) */
@@ -609,16 +689,36 @@ export class OceanWorld {
   // ---------- 站点(真实浮标 + 数据光柱 AR 叠加) ----------
   setSites(sites: SiteVisual[]): void {
     this.siteData = sites;
+    // 重建前释放旧浮标的几何体/材质/贴图, 否则每次45s轮询泄漏一批GPU资源
+    for (const child of [...this.siteGroup.children]) disposeTree(child);
     this.siteGroup.clear();
     this.siteBuoys = [];
     this.hitSpheres = [];
     this.pulseRings = [];
+    // 重建站点投影表: 有经纬度按真实地理位置定位(等距圆柱投影, 站间保持真实相对距离),
+    // 经纬度缺失时退回兜底布局——绝不让多个站点叠在同一坐标
+    sitePosTable.clear();
+    if (sites.length > 0 && sites.every((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng))) {
+      let latSum = 0;
+      let lngSum = 0;
+      for (const s of sites) { latSum += s.lat; lngSum += s.lng; }
+      geoCenter = { lat: latSum / sites.length, lng: lngSum / sites.length };
+      for (const s of sites) {
+        const x = (s.lng - geoCenter.lng) * GEO_UNITS_PER_DEG * Math.cos((geoCenter.lat * Math.PI) / 180);
+        const z = -(s.lat - geoCenter.lat) * GEO_UNITS_PER_DEG;
+        sitePosTable.set(s.id, [x, z]);
+      }
+    } else if (!sitePosTable.size) {
+      applyFallbackLayout();
+    }
     for (const site of sites) {
-      const [x, z] = SITE_LAYOUT[site.id] ?? [0, 0];
+      const [x, z] = sitePos(site.id);
       const groundY = Math.max(0, this.underwater.getHeightAt(x, z) ?? 0);
       const floating = groundY <= 0.05;
-      const color = colorForIndex(site.pollutionIndex);
-      const h = site.pollutionIndex != null ? 2 + site.pollutionIndex * 1.1 : 1.6;
+      // 质量评分(越高越好)反解为污染强度驱动视觉: 分低=污染重=红/高光柱
+      const pollutionProxy = site.qualityScore != null ? 11 - site.qualityScore : null;
+      const color = colorForIndex(pollutionProxy);
+      const h = pollutionProxy != null ? 2 + pollutionProxy * 1.1 : 1.6;
       const group = new THREE.Group();
       group.position.set(x, floating ? 0.15 : groundY, z);
 
@@ -665,6 +765,7 @@ export class OceanWorld {
       const pulseGeo = new THREE.RingGeometry(4.1, 4.5, 44);
       pulseGeo.rotateX(-Math.PI / 2);
       const pulse = new THREE.Mesh(pulseGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
+      group.userData.siteId = site.id;
       pulse.position.y = 0.15;
       group.add(pulse);
       this.pulseRings.push({ ring: pulse, phase: sites.indexOf(site) * 0.9 });
@@ -684,6 +785,7 @@ export class OceanWorld {
       const ev = site.evidence?.find((e) => e.mediaUrl);
       if (ev?.mediaUrl) {
         void makeEvidenceBoard(ev.mediaUrl, site.code).then((board) => {
+          if (!group.parent) return; // 期间站点已重建: 该group已脱离场景, 丢弃避免泄漏
           board.position.set(4.6, floating ? 2.6 : h + 1.6, 0);
           board.rotation.y = -0.5;
           group.add(board);
@@ -693,6 +795,9 @@ export class OceanWorld {
       this.siteGroup.add(group);
       this.siteBuoys.push({ group, baseY: group.position.y, phase: sites.indexOf(site) * 1.7, floating, lamp: lampMat, siteId: site.id });
     }
+    // 重建后所有浮标默认可见, 必须按当前聚焦站点重放可见性,
+    // 否则45s轮询同步后同海域只应可见当前站的约束被冲掉(其他站浮标重新冒出来)
+    this.setActiveSite(this.activeSiteId);
   }
 
   /** 地形就绪后站点贴地/贴水 */
@@ -705,13 +810,143 @@ export class OceanWorld {
   }
 
   focusSite(siteId: number): void {
-    const [x, z] = SITE_LAYOUT[siteId] ?? [0, 0];
-    // 平滑飞到站点上空海面视角(不再一头扎进水下): 俯角看向浮标
+    const [x, z] = sitePos(siteId);
+    // 站点上空海面视角: 俯角看向浮标
     const pos = new THREE.Vector3(x, 9.5, z + 26);
     const dir = new THREE.Vector3(x, 1.2, z).sub(pos);
     const yaw = Math.atan2(-dir.x, -dir.z);
     const pitch = Math.atan2(dir.y, Math.hypot(dir.x, dir.z));
-    this.camGoal = { pos, yaw, pitch };
+    // 切换站点统一走遮罩转场: 近距离平飞会让相机前后窜动("往前进/往后退"),
+    // 距离本身就是判据, 不依赖 activeSiteId(监测面板点击不经过 setActiveSite);
+    // 相机已在目标位附近时无需转场
+    if (this.camera.position.distanceTo(pos) > 4) {
+      this.beginJump(siteId, pos, yaw, pitch, this.activeSiteId ?? siteId);
+    } else {
+      // 相机已在目标位附近: 无转场, 但仍要聚焦该站(隐藏其他站浮标)
+      this.setActiveSite(siteId);
+      this.camGoal = { pos, yaw, pitch };
+    }
+  }
+
+  /** 站点切换: 全屏淡入淡出遮罩 + 黑场瞬移 */
+  private beginJump(toId: number, pos: THREE.Vector3, yaw: number, pitch: number, fromId: number): void {
+    if (this.jumpState) {
+      // 淡入黑场途中改选其他站点: 直接改写跃迁目标, 遮罩不中断不闪烁
+      if (this.jumpState.phase === 'rise') {
+        this.jumpState.target = { pos, yaw, pitch };
+        this.jumpState.siteId = toId;
+      }
+      return;
+    }
+    const from = this.siteData.find((s) => s.id === fromId);
+    const to = this.siteData.find((s) => s.id === toId);
+    const distanceKm = from && to ? haversineKm(from.lat, from.lng, to.lat, to.lng) : null;
+    this.jumpState = { phase: 'rise', t: 0, target: { pos, yaw, pitch }, siteId: toId };
+    this.setActiveSite(null); // 途中先放开聚焦, 抵达后再由页面 setActiveSite
+    if (!this.fadeEl) {
+      const el = document.createElement('div');
+      el.className = 'ocean3d-jump-fade';
+      el.setAttribute('aria-hidden', 'true');
+      this.container.appendChild(el);
+      this.fadeEl = el;
+    }
+    requestAnimationFrame(() => this.fadeEl?.classList.add('on'));
+    window.setTimeout(() => {
+      const state = this.jumpState;
+      if (!state) return;
+      // 遮罩全黑瞬间完成瞬移与朝向重置
+      this.camera.position.copy(state.target.pos);
+      state.phase = 'descend';
+      this.fpYaw = state.target.yaw;
+      this.fpPitch = state.target.pitch;
+      this.camGoal = null;
+      this.setActiveSite(toId); // 跃迁抵达即聚焦目标站点(浮标可见性跟随)
+      this.handlers.onSiteJump?.({ fromId, toId, distanceKm });
+      requestAnimationFrame(() => {
+        this.fadeEl?.classList.remove('on');
+        window.setTimeout(() => { this.jumpState = null; }, 420);
+      });
+    }, JUMP_FADE_MS);
+  }
+  setActiveSite(siteId: number | null): void {
+    this.activeSiteId = siteId;
+    this.siteGroup.traverse((object) => {
+      const id = object.userData.siteId as number | undefined;
+      if (id != null) object.visible = siteId == null || id === siteId;
+    });
+  }
+
+  switchToSite(siteId: number): void {
+    this.setActiveSite(siteId);
+    this.focusSite(siteId);
+    this.wasUnderwater = false;
+    this.underwaterState = false;
+  }
+
+  showGlobe(stations: GlobeStation[]): void {
+    if (!this.globe) {
+      this.globe = new EarthGlobe(this.scene, stations, (station) => {
+        this.globeTravelStationId = station.id;
+        this.handlers.onGlobeSelect?.(station);
+      });
+    } else {
+      this.globe.setStations(stations);
+    }
+    // 完整退出海洋态再切地球: 若用户在水下/跃迁中点"返回地球",
+    // 水下世界、后期特效、飞行目标残留会让地球被杂物遮挡或画面半黑("地球卡住一半")
+    this.jumpState = null;
+    this.camGoal = null;
+    this.fpKeys.clear();
+    this.sprintKeys.clear();
+    this.wasUnderwater = false;
+    this.underwaterState = false;
+    if (this.fxPass) this.fxPass.uniforms.uOn.value = 0;
+    this.underwater.setVisible(false);
+    this.rov?.setVisible(false);
+    this.scene.background = null;
+    this.liveTask?.setVisible(false);
+    for (const item of this.poiItems) { item.group.visible = false; item.hit.visible = false; }
+    for (const r of this.ripples) r.mesh.visible = false;
+    this.globe.show(this.camera);
+    this.globeTravelStationId = null;
+    if (this.water) this.water.visible = false;
+    if (this.sky) this.sky.visible = false;
+    if (this.coastline) this.coastline.visible = false;
+    this.siteGroup.visible = false;
+    for (const g of this.gulls) g.group.visible = false; // 地球视角下隐藏海鸥/声呐环, 避免"太空海鸥"
+    if (this.scanRing) this.scanRing.visible = false;
+    this.scene.fog = null;
+  }
+
+  private hideGlobe(): void {
+    this.globe?.hide();
+    if (this.water) this.water.visible = true;
+    if (this.sky) this.sky.visible = true;
+    if (this.coastline) this.coastline.visible = true;
+    this.siteGroup.visible = true;
+    for (const g of this.gulls) g.group.visible = true;
+    if (this.scanRing) this.scanRing.visible = true;
+    // 从地球回到海洋: 恢复地球期间被整体隐藏的叠加层(可见性随后按状态逐帧校正)
+    this.liveTask?.setVisible(true);
+    for (const item of this.poiItems) { item.group.visible = true; item.hit.visible = true; }
+    this.applyDepthVisuals();
+  }
+
+  travelGlobeToSite(siteId: number): boolean {
+    const station = this.globe?.travelTo(siteId);
+    if (!station) return false;
+    this.globeTravelStationId = station.id;
+    this.handlers.onGlobeSelect?.(station);
+    return true;
+  }
+
+  private updateGlobe(dt: number, t: number): void {
+    if (!this.globe?.isVisible) return;
+    if (!this.globe.update(dt, t, this.camera)) return;
+    const stationId = this.globeTravelStationId;
+    this.hideGlobe();
+    if (stationId != null) this.handlers.onGlobeEnter?.(stationId);
+    this.globeTravelStationId = null;
   }
 
   // ---------- 环境系统(昼夜/天气) ----------
@@ -725,7 +960,7 @@ export class OceanWorld {
   // ---------- 扩散推演 ----------
   setDiffusion(result: DiffusionResult, originSiteId: number): void {
     this.clearDiffusion();
-    const [ox, oz] = SITE_LAYOUT[originSiteId] ?? [0, 0];
+    const [ox, oz] = sitePos(originSiteId);
     const origin = new THREE.Vector3(ox, 0.5, oz);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(result.nParticles * 3), 3));
@@ -787,7 +1022,7 @@ export class OceanWorld {
   /** 开始一次联动: 站点上方升起检测屏, 任务ROV出发巡航 */
   startLiveTask(siteId: number, siteCode: string): void {
     this.clearLiveTask();
-    const [x, z] = SITE_LAYOUT[siteId] ?? [0, 0];
+    const [x, z] = sitePos(siteId);
     const groundY = Math.max(0, this.underwater.getHeightAt(x, z) ?? 0);
     const pos = new THREE.Vector3(x, groundY > 0.05 ? groundY : 0.15, z);
     this.liveTask = new LiveTaskOverlay(this.scene, pos, siteCode, (px, pz) => this.underwater.getHeightAt(px, pz));
@@ -810,7 +1045,7 @@ export class OceanWorld {
 
   // ---------- 污染告警特效(扩散红环+竖直告警光束, 页面驱动声音与语音) ----------
   triggerAlert(siteId: number): void {
-    const [x, z] = SITE_LAYOUT[siteId] ?? [0, 0];
+    const [x, z] = sitePos(siteId);
     const t = this.clock.getElapsedTime();
     for (let i = 0; i < 3; i++) {
       const geo = new THREE.RingGeometry(0.96, 1, 72);
@@ -921,11 +1156,7 @@ export class OceanWorld {
 
   private clearKnowledgePOIs(): void {
     for (const item of this.poiItems) {
-      item.group.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        mesh.geometry?.dispose();
-        (mesh.material as THREE.Material | undefined)?.dispose();
-      });
+      disposeTree(item.group);
       item.hit.geometry.dispose();
       (item.hit.material as THREE.Material).dispose();
       this.poiGroup.remove(item.group, item.hit);
@@ -933,11 +1164,6 @@ export class OceanWorld {
     this.poiItems = [];
     this.poiHits = [];
   }
-
-
-  // ---------- 科普投放（漂浮 → 沉降至海底驻留, 污染持续） ----------
-  setGarbageKey(key: string): void { this.garbageKey = key; }
-
   dropGarbage(point: THREE.Vector3, key: string, _color: string): void {
     // 每次投放一条独立且持久的污染叙事; 超过10条时清最早的
     const floorY = Math.min(this.underwater.getHeightAt(point.x, point.z) ?? -6, -0.8);
@@ -997,6 +1223,11 @@ export class OceanWorld {
 
   // ---------- 拾取 ----------
   private pick(e: PointerEvent): void {
+    if (this.globe?.isVisible) {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      this.globe.handleClick(e.clientX, e.clientY, this.camera, rect);
+      return;
+    }
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
@@ -1010,11 +1241,14 @@ export class OceanWorld {
         if (item) { this.handlers.onPoiClick(item.poi); return; }
       }
     }
-    const hits = this.raycaster.intersectObjects(this.hitSpheres, false);
+    // Raycaster 不检查 visible: 聚焦态下隐藏的命中球也要跳过, 否则点到不可见站点会切走视角
+    const hits = this.raycaster
+      .intersectObjects(this.hitSpheres, false)
+      .filter((h) => h.object.visible);
     if (hits.length > 0 && this.handlers.onSiteClick) {
       const id = hits[0].object.userData.siteId as number;
       const site = this.siteData.find((s) => s.id === id);
-      if (site) { this.handlers.onSiteClick(site); return; }
+      if (site) { this.setActiveSite(id); this.handlers.onSiteClick(site); return; }
     }
     if (this.clickMode === 'water' && !this.isUnderwater) {
       const waterHits = this.raycaster.intersectObject(this.pickPlane, false);
@@ -1104,9 +1338,14 @@ export class OceanWorld {
     this.lastRenderMs = now;
     const dt = Math.min(0.05, this.clock.getDelta());
     const t = this.clock.getElapsedTime();
+    if (this.globe?.isVisible) {
+      this.updateGlobe(dt, t);
+      if (this.composer) this.composer.render();
+      else this.renderer.render(this.scene, this.camera);
+      return;
+    }
     this.applyDepthVisuals();
     const underwater = this.underwaterState;
-    // 环境系统(昼夜/天气)每帧过渡 + 夜晚元素可见性
     this.env?.update(dt, t, this.camera, underwater);
     this.env?.applyVisibility(t, underwater);
 
@@ -1228,13 +1467,22 @@ export class OceanWorld {
   };
   private onFpMove = (e: PointerEvent): void => {
     if (!this.fpDragging) return;
-    this.fpYaw -= (e.clientX - this.fpLast.x) * 0.0024;
-    this.fpPitch = THREE.MathUtils.clamp(this.fpPitch - (e.clientY - this.fpLast.y) * 0.0024, -1.55, 1.55);
+    const dx = e.clientX - this.fpLast.x;
+    const dy = e.clientY - this.fpLast.y;
+    if (this.globe?.isVisible) this.globe.rotate(dx, dy);
+    else {
+      this.fpYaw -= dx * 0.0024;
+      this.fpPitch = THREE.MathUtils.clamp(this.fpPitch - dy * 0.0024, -1.55, 1.55);
+    }
     this.fpLast = { x: e.clientX, y: e.clientY };
   };
   private onFpUp = (): void => { this.fpDragging = false; };
   private onFpKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat || e.code.startsWith('F')) return;
+    // 焦点在输入框/可编辑元素时不劫持按键; 移动/升降键阻止页面滚动
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+    if (/^(Arrow|Space|Key[WASDQE])/.test(e.code)) e.preventDefault();
     this.fpKeys.add(e.code);
     // 双击移动键(320ms内) → 疾跑, 按住期间生效
     const MOVE_CODES: Record<string, true> = {
@@ -1254,12 +1502,36 @@ export class OceanWorld {
   private onFpWheel = (e: WheelEvent): void => {
     if (e.target !== this.renderer.domElement) return;
     e.preventDefault();
+    if (this.globe?.isVisible) {
+      // 地球视角: 滚轮只调观察距离, 钳制在球外, 防止滚进地球内部把球"卡住一半"
+      const dist = this.camera.position.length();
+      const next = THREE.MathUtils.clamp(dist + (e.deltaY < 0 ? -14 : 14), 150, 420);
+      this.camera.position.multiplyScalar(next / dist);
+      return;
+    }
+    if (this.jumpState) return;
     const step = e.deltaY < 0 ? 4.5 : -4.5;
     this.camera.getWorldDirection(this.tmpDir);
     this.camera.position.addScaledVector(this.tmpDir, step);
   };
 
   private updateFirstPerson(dt: number): void {
+    // 跨海域跃迁动画: rise 拉升远离 → (遮罩中瞬移) → descend 平滑降落到目标站位;
+    // 跃迁期间忽略手动移动, 防止中途打断出现"漂在半空"
+    if (this.jumpState) {
+      const jump = this.jumpState;
+      jump.t += dt;
+      if (jump.phase === 'rise') {
+        const f = Math.min(1, jump.t / (JUMP_FADE_MS / 1000));
+        this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, 26, f * 0.35);
+      } else {
+        this.camera.position.lerp(jump.target.pos, Math.min(1, 3.2 * dt));
+        this.fpYaw += (jump.target.yaw - this.fpYaw) * Math.min(1, 3.2 * dt);
+        this.fpPitch += (jump.target.pitch - this.fpPitch) * Math.min(1, 3.2 * dt);
+      }
+      this.camera.quaternion.setFromEuler(this.tmpEuler.set(this.fpPitch, this.fpYaw, 0, 'YXZ'));
+      return;
+    }
     // 站点聚焦飞行: 平滑插值到目标位姿, 手动操作立即接管
     if (this.camGoal) {
       this.camera.position.lerp(this.camGoal.pos, Math.min(1, 2.6 * dt));
@@ -1277,7 +1549,7 @@ export class OceanWorld {
     if (fwd || side || vert) {
       this.camGoal = null;
       this.camera.getWorldDirection(this.tmpDir);
-      const right = new THREE.Vector3().crossVectors(this.tmpDir, this.camera.up).normalize();
+      const right = this.tmpRight.crossVectors(this.tmpDir, this.camera.up).normalize();
       this.camera.position.addScaledVector(this.tmpDir, fwd * speed * dt);
       this.camera.position.addScaledVector(right, side * speed * dt);
       this.camera.position.y += vert * speed * dt;
@@ -1288,11 +1560,15 @@ export class OceanWorld {
     this.camera.position.y = THREE.MathUtils.clamp(this.camera.position.y, floor + 0.5, 30);
     const r = Math.hypot(this.camera.position.x, this.camera.position.z);
     if (r > 480) this.camera.position.multiplyScalar(480 / r);
-    this.camera.quaternion.setFromEuler(new THREE.Euler(this.fpPitch, this.fpYaw, 0, 'YXZ'));
+    this.camera.quaternion.setFromEuler(this.tmpEuler.set(this.fpPitch, this.fpYaw, 0, 'YXZ'));
   }
 
 
   dispose(): void {
+    this.jumpState = null;
+    this.fadeEl?.remove();
+    this.fadeEl = null;
+    this.globe?.dispose();
     cancelAnimationFrame(this.raf);
     this.env?.dispose();
     this.clearLiveTask();

@@ -23,6 +23,7 @@ from database import get_db
 from models import DetectionResult, DetectionTask, Report, ReportAnalysis, ReportType, SeaArea, User, UserRole
 from schemas import (
     CreateBatchReportRequest,
+    CreateComprehensiveReportRequest,
     CreateReportRequest,
     FrontendReport,
     FrontendReportListResponse,
@@ -331,6 +332,24 @@ def _to_frontend_report(report: Report) -> FrontendReport:
                 id=f"RPT-{report.id}",
                 title=f"多图批量识别质量报告（{count} 张）",
                 area="近岸监测点",
+                createdAt=f"{report.created_at:%Y-%m-%d %H:%M}" if report.created_at else "",
+                level=level,
+                score=score,
+                objectCount=object_count,
+                status="已生成",
+                summary=report.summary or "",
+                reportUrl=f"/api/v1/reports/{report.id}/preview",
+            )
+        m2 = re.match(
+            r"综合报告：汇总 (\d+) 份报告，检出 (\d+) 个垃圾目标，综合污染等级 (\S+)，平均质量分 (\d+)",
+            report.summary or "",
+        )
+        if m2:
+            count, object_count, level, score = int(m2.group(1)), int(m2.group(2)), m2.group(3), int(m2.group(4))
+            return FrontendReport(
+                id=f"RPT-{report.id}",
+                title=f"综合质量评估报告（{count} 份）",
+                area="多区汇总",
                 createdAt=f"{report.created_at:%Y-%m-%d %H:%M}" if report.created_at else "",
                 level=level,
                 score=score,
@@ -733,6 +752,170 @@ def _generate_batch_report(db: Session, tasks: list[DetectionTask], user_id: int
     return report
 
 
+# ---- 综合报告（基于已生成报告的聚合） ----
+
+_ZH_LEVEL_TO_KEY = {"优": "excellent", "良": "good", "中": "moderate", "差": "poor", "严重": "severe"}
+
+
+def _report_datetime(report: Report) -> str:
+    return f"{report.created_at:%Y-%m-%d %H:%M}" if report.created_at else "-"
+
+
+def _report_level_key(report: Report) -> str | None:
+    """单份报告的英文污染等级 key：优先任务，其次解析 summary（批量/综合报告无 task）。"""
+    if report.task and report.task.pollution_level:
+        return report.task.pollution_level.value
+    match = re.search(r"综合污染等级 (\S+)", report.summary or "")
+    if match:
+        return _ZH_LEVEL_TO_KEY.get(match.group(1))
+    return None
+
+
+def _report_object_count(report: Report) -> int:
+    if report.task:
+        return report.task.total_objects or 0
+    match = re.search(r"检出 (\d+) 个垃圾目标", report.summary or "")
+    return int(match.group(1)) if match else 0
+
+
+def _report_score(report: Report) -> int:
+    key = _report_level_key(report)
+    if key:
+        return POLLUTION_SCORE.get(key, 68)
+    match = re.search(r"(?:质量分|平均质量分) (\d+)", report.summary or "")
+    return int(match.group(1)) if match else 68
+
+
+def _report_display_name(report: Report) -> str:
+    if report.task and report.task.file_name:
+        base = os.path.splitext(os.path.basename(report.task.file_name))[0]
+        if base:
+            return base
+    base = os.path.splitext(os.path.basename(report.report_path or ""))[0]
+    return base or f"报告 RPT-{report.id}"
+
+
+def _build_comprehensive_report_html(reports: list[Report], sea_area_name: str = "近岸监测点") -> str:
+    """把多份已生成的质量报告聚合为一份综合报告 HTML。"""
+    total_objects = sum(_report_object_count(r) for r in reports)
+    level_keys = [k for r in reports if (k := _report_level_key(r))]
+    worst = max(level_keys, key=lambda v: LEVEL_SEVERITY.get(v, 0), default="excellent")
+    avg_score = round(sum(_report_score(r) for r in reports) / len(reports))
+
+    # 污染等级分布
+    level_section = ""
+    if level_keys:
+        level_counter = Counter(pollution_level_zh(k) for k in level_keys)
+        parts = "".join(
+            f'<div class="hbar-row"><div class="hbar-lbl">{lv}</div>'
+            f'<div class="hbar-track"><div class="hbar-fill" style="width:{cnt / len(level_keys) * 100:.1f}%"></div></div>'
+            f'<div class="hbar-val">{cnt} 份</div></div>'
+            for lv, cnt in level_counter.most_common()
+        )
+        level_section = f"<section><h2>📊 污染等级分布</h2>{parts}</section>"
+
+    # 垃圾类别分布（来自包含逐目标结果的报告）
+    class_counter: Counter = Counter()
+    for r in reports:
+        if r.task and (stats := _result_stats(r.task)):
+            class_counter.update(stats["class_counter"])
+
+    rows = ""
+    for i, r in enumerate(reports, 1):
+        key = _report_level_key(r)
+        lvl = pollution_level_zh(key)
+        rows += (
+            f"<tr><td>{i}</td><td>RPT-{r.id}</td>"
+            f"<td>{html.escape(_report_display_name(r))}</td>"
+            f"<td>{_report_object_count(r)}</td>"
+            f'<td><span class="lvl {_level_class(key)}">{lvl}</span></td>'
+            f"<td>{_report_score(r)}</td>"
+            f"<td>{_report_datetime(r)}</td></tr>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>综合质量评估报告</title>
+<style>{_PAGE_STYLE}
+{_MOBILE_CSS}</style></head><body>
+<div class="page">
+<div class="hero">
+<h1>🌊 综合质量评估报告</h1>
+<div class="sub">水下垃圾自动识别 · 海洋污染分析系统 · 多报告汇总</div>
+<div class="meta">
+<span class="chip">汇总报告：{len(reports)} 份</span>
+<span class="chip">监测海域：{sea_area_name}</span>
+<span class="chip">生成时间：{datetime.now():%Y-%m-%d %H:%M}</span>
+</div>
+</div>
+<div class="body">
+<div class="cards">
+<div class="card"><div class="num">{len(reports)}</div><div class="lbl">汇总报告数</div></div>
+<div class="card"><div class="num">{total_objects}</div><div class="lbl">检出目标总数</div></div>
+<div class="card"><div class="lvl {_level_class(worst)}">{pollution_level_zh(worst)}</div><div class="lbl" style="margin-top:8px">综合污染等级</div></div>
+<div class="card"><div class="num">{avg_score}</div><div class="lbl">平均质量分</div></div>
+</div>
+
+<section>
+<h2>📋 汇总报告明细</h2>
+<table>
+<tr><th>#</th><th>报告编号</th><th>报告名称</th><th>检出目标</th><th>污染等级</th><th>质量分</th><th>生成时间</th></tr>
+{rows}
+</table>
+</section>
+
+{level_section}
+
+<section>
+<h2>🧱 垃圾类别分布（汇总）</h2>
+{_build_category_bars(class_counter)}
+</section>
+
+<section>
+<h2>📝 综合评估结论与治理建议</h2>
+{_build_level_notice(worst)}
+</section>
+</div>
+<div class="foot">本报告由水下垃圾自动识别与海洋污染分析系统自动生成</div>
+</div></body></html>"""
+
+
+def _generate_comprehensive_report(db: Session, reports: list[Report], user_id: int, report_type: str) -> Report:
+    """把多份报告聚合保存为一条综合报告记录，返回 Report。"""
+    sea_area_ids = {r.task.sea_area_id for r in reports if r.task and r.task.sea_area_id}
+    sea_name = "近岸监测点"
+    if sea_area_ids:
+        area = db.query(SeaArea).filter(SeaArea.id.in_(sea_area_ids)).first()
+        sea_name = area.name if area else sea_name
+
+    os.makedirs("reports", exist_ok=True)
+    path = f"reports/report_comprehensive_{int(datetime.now().timestamp())}.html"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(_build_comprehensive_report_html(reports, sea_area_name=sea_name))
+
+    total_objects = sum(_report_object_count(r) for r in reports)
+    level_keys = [k for r in reports if (k := _report_level_key(r))]
+    worst = max(level_keys, key=lambda v: LEVEL_SEVERITY.get(v, 0), default="excellent")
+    avg_score = round(sum(_report_score(r) for r in reports) / len(reports))
+    summary = (
+        f"综合报告：汇总 {len(reports)} 份报告，检出 {total_objects} 个垃圾目标，"
+        f"综合污染等级 {pollution_level_zh(worst)}，平均质量分 {avg_score}"
+    )
+
+    report = Report(
+        task_id=None,
+        user_id=user_id,
+        report_type=ReportType.custom,
+        report_path=path,
+        summary=summary,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
 @router.post("/", response_model=FrontendReport)
 async def create_report(
     body: CreateReportRequest,
@@ -768,6 +951,26 @@ async def create_batch_report(
     if len(tasks) != len(set(body.task_ids)):
         raise HTTPException(status_code=404, detail="部分任务不存在或无权访问")
     report = _generate_batch_report(db, tasks, current_user.id, body.format)
+    return _to_frontend_report(report)
+
+
+@router.post("/comprehensive", response_model=FrontendReport)
+async def create_comprehensive_report(
+    body: CreateComprehensiveReportRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """基于用户勾选的已有报告聚合生成一份综合报告（Reports 页「创建综合报告」）。"""
+    if not body.report_ids:
+        raise HTTPException(status_code=400, detail="请先勾选至少一份报告")
+    reports = (
+        db.query(Report)
+        .filter(Report.id.in_(body.report_ids), Report.user_id == current_user.id)
+        .all()
+    )
+    if len(reports) != len(set(body.report_ids)):
+        raise HTTPException(status_code=404, detail="部分报告不存在或无权访问")
+    report = _generate_comprehensive_report(db, reports, current_user.id, body.format)
     return _to_frontend_report(report)
 
 

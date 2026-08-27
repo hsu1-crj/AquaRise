@@ -57,8 +57,9 @@ export interface DigitalHumanConfig {
 
 export const DEFAULT_XMOV_SDK_URL =
   'https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js';
-export const DEFAULT_XMOV_SDK_INTEGRITY =
-  'sha384-krYu4ZHwmSNtXwXO81hJ8Ec0SEHTHXqM4Ypzvs7rv8cahg7+oCMcMSYwyxuTaqDA';
+// 魔珐 CDN 的 @latest 文件会随版本更新, 固定校验和会失效并拦截脚本; 默认不启用SRI,
+// 后端如返回新的 sdk_integrity 则按后端为准。
+export const DEFAULT_XMOV_SDK_INTEGRITY = '';
 
 /** 动态加载魔珐星云 SDK 脚本 */
 export function loadXmovSDK(
@@ -190,18 +191,23 @@ export class OceanDigitalHuman {
 
   /** 待机状态 */
   idle(): void {
-    this.sdk?.idle();
+    try { this.sdk?.idle?.(); } catch { /* SDK 版本不支持时忽略, 不影响页面 */ }
   }
 
-  /** 互动待机（可打断当前播报） */
+  /** 互动待机（可打断当前播报）; 部分SDK版本无此方法, 必须兜底否则停止播报按钮整体失效 */
   interactiveIdle(): void {
-    this.sdk?.interactiveIdle();
+    try {
+      const sdk = this.sdk as unknown as Record<string, unknown> | null;
+      if (typeof sdk?.interactiveIdle === 'function') (sdk.interactiveIdle as () => void).call(sdk);
+      else if (typeof sdk?.idle === 'function') (sdk.idle as () => void).call(sdk);
+    } catch { /* SDK 不支持打断时忽略, 浏览器语音已由 stopSpeaking 清空 */ }
     this.isSpeaking = false;
+    this.speechQueue.length = 0;
   }
 
   /** 思考状态 */
   think(): void {
-    this.sdk?.think();
+    try { this.sdk?.think?.(); } catch { /* SDK 版本不支持时忽略 */ }
   }
 
   /** 设置音量 0-1 */

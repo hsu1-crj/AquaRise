@@ -209,13 +209,14 @@ def _ensure_monitoring_sites(db, sea_ids: dict[str, int]) -> None:
     （_LEGACY_SITE_CODES 与真实种子代号重合，不能按代号误删），
     并只插入 code 尚不存在的真实种子站点 —— 重启多次不报 Duplicate entry。"""
     seed_codes = {seed[0] for seed in _BOHAI_SITE_SEEDS}
-    # 迁移：删除旧演示站点中「不属于当前真实种子」的站点；真实种子站点即使代号
-    # 出现在 _LEGACY_SITE_CODES 中也保留（否则 C-02 等未被删、重插即报唯一键冲突）。
+    seed_name_by_code = {seed[0]: seed[1] for seed in _BOHAI_SITE_SEEDS}
+    # 迁移：删除旧演示站点。代号与真实种子重合（A-01等）时，必须再按名称判断——
+    # 名称与当前渤海种子不一致的（如"舟山·朱家尖"占着A-01）才是待替换的旧站点。
     legacy = db.query(models.MonitoringSite).filter(
         models.MonitoringSite.code.in_(_LEGACY_SITE_CODES)
     ).all()
     for site in legacy:
-        if site.code not in seed_codes:
+        if site.code not in seed_codes or site.name != seed_name_by_code.get(site.code):
             db.delete(site)
     # 幂等播种：code 已存在的站点跳过，避免 duplicate
     existing = set(

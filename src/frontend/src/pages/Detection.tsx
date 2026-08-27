@@ -26,7 +26,14 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   const [creatingReport, setCreatingReport] = useState(false); // 唯一"生成质量评估报告"按钮状态
   const [reportError, setReportError] = useState('');
-  // 全局海域（侧边栏选择）：驱动本页站点筛选与上传归属；空值=全部海域
+  // 图片放大查看(问题: 识别图片支持放大观看)
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!zoomUrl) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoomUrl(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoomUrl]);
   const { seaAreaId } = useSeaArea();
   // 监测站点（F0）：上传时可选归属站点，写入任务 sea_area_id（侧边栏海域决定可选范围）；空值=不归属
   const [sites, setSites] = useState<SiteStat[]>([]);
@@ -287,7 +294,7 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
               <>
                 <div className="result-card-list">
                   {result.items.map((item, index) => (
-                    <ResultCard key={`${item.fileName}-${index}`} item={item} preview={previews[index] ?? ''} />
+                    <ResultCard key={`${item.fileName}-${index}`} item={item} preview={previews[index] ?? ''} onZoom={setZoomUrl} />
                   ))}
                 </div>
                 {result.successCount > 0 && (
@@ -326,6 +333,14 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
         </article>
       </section>
       <div className="privacy-note"><ShieldCheck />上传内容通过项目内网传输；生产环境将由 FastAPI 校验文件类型、大小与权限。</div>
+
+      {/* 图片放大查看器(Esc 或点击空白关闭) */}
+      {zoomUrl && (
+        <div className="ocean3d-lightbox" onClick={() => setZoomUrl(null)}>
+          <img src={zoomUrl} alt="检测标注大图" />
+          <button className="ocean3d-close" aria-label="关闭" onClick={() => setZoomUrl(null)}><X size={16} /></button>
+        </div>
+      )}
     </div>
   );
 }
@@ -334,8 +349,8 @@ function ResultEmpty() {
   return <div className="result-empty"><div><WandSparkles /></div><h3>等待影像分析</h3><p>识别结果、置信度与环境质量建议将在这里展示。</p><ol><li><span>1</span>上传水下图片或视频</li><li><span>2</span>启动 AI 智能识别</li><li><span>3</span>生成污染质量报告</li></ol></div>;
 }
 
-/** 单张图片的结果卡片：缩略图 + 检测框 canvas + 统计 + 可展开目标列表 */
-function ResultCard({ item, preview }: { item: MultiImageDetectItem; preview: string }) {
+/** 单张图片的结果卡片：缩略图 + 检测框 canvas + 统计 + 可展开目标列表; 点击图片放大 */
+function ResultCard({ item, preview, onZoom }: { item: MultiImageDetectItem; preview: string; onZoom: (url: string) => void }) {
   const imageRef = useRef<HTMLImageElement>(null);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [expanded, setExpanded] = useState(true); // 默认展开目标列表，与单图模式一致
@@ -354,7 +369,7 @@ function ResultCard({ item, preview }: { item: MultiImageDetectItem; preview: st
   return (
     <div className="result-card">
       <div className="result-card-media">
-        <img ref={imageRef} src={preview} alt={item.fileName} onLoad={() => setImgLoaded(true)} />
+        <img ref={imageRef} src={preview} alt={item.fileName} onLoad={() => setImgLoaded(true)} onClick={() => onZoom(preview)} style={{ cursor: 'zoom-in' }} title="点击放大查看" />
         {imgLoaded && <DetectionCanvas image={imageRef.current} result={result} />}
       </div>
       <div className="result-card-info">

@@ -42,7 +42,7 @@ from services.detector import GARBAGE_CLASSES
 router = APIRouter(prefix="/api/v1", tags=["detection"])
 
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-ALLOWED_VIDEO = {".mp4", ".avi", ".mov", ".mkv"}
+ALLOWED_VIDEO = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 # 一次批量识别最多图片数（限制单次请求体大小）
 MAX_BATCH_IMAGES = 50
@@ -274,7 +274,7 @@ async def detect_video(
     """视频检测：上传 → 创建任务 → 后台处理 → 立即返回 task_id"""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_VIDEO:
-        raise HTTPException(status_code=400, detail="不支持的视频格式，支持 mp4/avi/mov/mkv")
+        raise HTTPException(status_code=400, detail="不支持的视频格式，支持 mp4/avi/mov/mkv/webm")
 
     file_path = _save_upload(file, "videos")
     task = DetectionTask(
