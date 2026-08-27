@@ -15,7 +15,7 @@ import { Wind, Crosshair, FileText, Globe2, Info, Maximize2, Minimize2, Pause, P
 import { formatStoryYear } from '../three/story';
 import type { GarbageStoryState } from '../three/story';
 import { api, isMockMode } from '../services/api';
-import type { MarineInfo, SiteStat, Summary } from '../types';
+import type { MarineInfo, SiteStat, Summary, UserInfo } from '../types';
 import { OceanWorld } from '../three/oceanWorld';
 import type { SiteVisual } from '../three/oceanWorld';
 import { simulate } from '../three/diffusion';
@@ -127,13 +127,20 @@ const LIVE_PHASE_TEXT: Record<LiveState['phase'], string> = {
   error: '任务失败',
 };
 
-export function Ocean3DPage() {
+export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
+  // ============ 用户组模式锁定（RBAC） ============
+  // ocean3d_monitor（监测模式）/ ocean3d_science（科普模式）由用户组决定；
+  // 权限未加载（演示模式/首帧）时双模式开放，加载后自动纠正到有权限的模式。
+  const perms = user?.permissions;
+  const allowMonitor = !perms || perms.includes('ocean3d_monitor');
+  const allowVolunteer = !perms || perms.includes('ocean3d_science');
+  const defaultMode: Mode = allowMonitor ? 'monitor' : 'volunteer';
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<OceanWorld | null>(null);
-  const modeRef = useRef<Mode>('monitor');
+  const modeRef = useRef<Mode>(defaultMode);
   const garbageKeyRef = useRef('bag');
   const playTimerRef = useRef<number | null>(null);
-  const [mode, setMode] = useState<Mode>('monitor');
+  const [mode, setMode] = useState<Mode>(defaultMode);
   const [sites, setSites] = useState<SiteStat[]>([]);
   const sitesRef = useRef<SiteStat[]>([]);
   useEffect(() => { sitesRef.current = sites; }, [sites]);
@@ -324,6 +331,12 @@ export function Ocean3DPage() {
       .catch(() => { if (!cancelled) setMarine(null); });
     return () => { cancelled = true; };
   }, [activeStation, sites]);
+
+  // 模式锁定纠偏：权限加载完成后，若当前模式不在允许集合内，切到有权限的模式
+  useEffect(() => {
+    if (mode === 'monitor' && !allowMonitor) setMode('volunteer');
+    if (mode === 'volunteer' && !allowVolunteer) setMode('monitor');
+  }, [mode, allowMonitor, allowVolunteer]);
 
   // 模式切换同步（点击行为 + 状态清理）
   useEffect(() => {
@@ -742,12 +755,16 @@ export function Ocean3DPage() {
             </div>
           </div>
           <div className="ocean3d-mode" role="tablist" aria-label="场景模式">
-            <button className={mode === 'monitor' ? 'active' : ''} onClick={() => setMode('monitor')} role="tab" aria-selected={mode === 'monitor'}>
-              <Radar size={15} />监测模式
-            </button>
-            <button className={mode === 'volunteer' ? 'active' : ''} onClick={() => setMode('volunteer')} role="tab" aria-selected={mode === 'volunteer'}>
-              <Sprout size={15} />科普模式
-            </button>
+            {allowMonitor && (
+              <button className={mode === 'monitor' ? 'active' : ''} onClick={() => setMode('monitor')} role="tab" aria-selected={mode === 'monitor'}>
+                <Radar size={15} />监测模式
+              </button>
+            )}
+            {allowVolunteer && (
+              <button className={mode === 'volunteer' ? 'active' : ''} onClick={() => setMode('volunteer')} role="tab" aria-selected={mode === 'volunteer'}>
+                <Sprout size={15} />科普模式
+              </button>
+            )}
           </div>
         </div>
       </header>

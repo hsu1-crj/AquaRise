@@ -18,9 +18,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from auth import get_current_user
+from auth import is_privileged, require_permission
 from database import get_db
-from models import DetectionResult, DetectionTask, Report, ReportAnalysis, ReportType, SeaArea, User, UserRole
+from models import DetectionResult, DetectionTask, Report, ReportAnalysis, ReportType, SeaArea, User
 from schemas import (
     CreateBatchReportRequest,
     CreateComprehensiveReportRequest,
@@ -389,12 +389,12 @@ def _to_frontend_report(report: Report) -> FrontendReport:
 
 @router.get("/", response_model=FrontendReportListResponse)
 async def list_reports(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """报告列表：普通用户看自己的，管理员看全部"""
     query = db.query(Report)
-    if current_user.role != UserRole.admin:
+    if not is_privileged(db, current_user):
         query = query.filter(Report.user_id == current_user.id)
     rows = query.order_by(Report.id.desc()).all()
     items = [_to_frontend_report(r) for r in rows]
@@ -404,14 +404,14 @@ async def list_reports(
 @router.get("/{report_id}", response_model=ReportInfo)
 async def get_report(
     report_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """报告详情"""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
-    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+    if not is_privileged(db, current_user) and report.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权限查看该报告")
     return ReportInfo.model_validate(report)
 
@@ -419,14 +419,14 @@ async def get_report(
 @router.get("/{report_id}/preview", response_class=HTMLResponse)
 async def preview_report(
     report_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """在线预览：返回与该报告对应的 HTML 报告文件内容。"""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
-    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+    if not is_privileged(db, current_user) and report.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权限查看该报告")
     if not report.report_path:
         raise HTTPException(status_code=404, detail="报告文件缺失")
@@ -441,14 +441,14 @@ async def preview_report(
 @router.delete("/{report_id}")
 async def delete_report(
     report_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """删除报告：同时删除数据库记录与磁盘上的 HTML 报告文件。"""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
-    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+    if not is_privileged(db, current_user) and report.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权限删除该报告")
     if report.report_path:
         html_path = os.path.abspath(report.report_path)
@@ -511,14 +511,14 @@ def _analysis_for_task(task: DetectionTask, results: list[DetectionResult]) -> d
 @router.post("/{report_id}/analyze", response_model=ReportAnalysisResponse)
 async def analyze_report(
     report_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """报告导入后的结构化分析与处置方案。事实由后端统计，结果可重复查看。"""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
-    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+    if not is_privileged(db, current_user) and report.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权限分析该报告")
     if not report.task_id:
         # 批量报告没有单一 task_id，但 summary 已包含批次数量、目标数、综合等级和质量分，
@@ -571,14 +571,14 @@ async def analyze_report(
 @router.get("/{report_id}/analysis", response_model=ReportAnalysisResponse)
 async def get_report_analysis(
     report_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """读取报告最近一次结构化分析。"""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
-    if current_user.role != UserRole.admin and report.user_id != current_user.id:
+    if not is_privileged(db, current_user) and report.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权限查看该报告分析")
     analysis = db.query(ReportAnalysis).filter(ReportAnalysis.report_id == report_id).order_by(ReportAnalysis.id.desc()).first()
     if not analysis:
@@ -919,7 +919,7 @@ def _generate_comprehensive_report(db: Session, reports: list[Report], user_id: 
 @router.post("/", response_model=FrontendReport)
 async def create_report(
     body: CreateReportRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """为指定检测任务生成报告（JSON，前端 api.createReport 调用）"""
@@ -937,7 +937,7 @@ async def create_report(
 @router.post("/batch", response_model=FrontendReport)
 async def create_batch_report(
     body: CreateBatchReportRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """多图批量报告：基于多张图片的检测任务聚合生成一份报告"""
@@ -957,7 +957,7 @@ async def create_batch_report(
 @router.post("/comprehensive", response_model=FrontendReport)
 async def create_comprehensive_report(
     body: CreateComprehensiveReportRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """基于用户勾选的已有报告聚合生成一份综合报告（Reports 页「创建综合报告」）。"""
@@ -978,7 +978,7 @@ async def create_comprehensive_report(
 async def generate_report(
     task_id: int = Form(...),
     report_type: str = Form("single"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
     """为指定检测任务生成报告（表单，兼容旧调用）"""

@@ -49,6 +49,10 @@ JWT_REMEMBER_DAYS = int(os.getenv("JWT_REMEMBER_DAYS", "30"))
 # 面向协作式官方客户端，不构成对抗「多账号共享」的强保证(强保证需设备绑定)。
 MAX_CONCURRENT_SESSIONS = {"admin": 3, "user": 1}
 
+# RBAC 用户组：自助注册用户的默认组 code（内置组见 models.SYSTEM_GROUP_SEEDS）。
+# 缺省 public（科普访客组）：公众自助注册只开放科普功能，业务组由后台分配。
+DEFAULT_GROUP_CODE = os.getenv("DEFAULT_GROUP_CODE", "public").strip() or "public"
+
 # 文件上传
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 

@@ -11,10 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from auth import get_current_user
+from auth import is_privileged, require_permission
 import config
 from database import get_db, SessionLocal
-from models import ChatHistory, ChatRole, KnowledgeDoc, Report, ReportAnalysis, User, UserRole
+from models import ChatHistory, ChatRole, KnowledgeDoc, Report, ReportAnalysis, User
 from schemas import ChatMessage, SpaChatRequest
 from services import llm as llm_stub
 
@@ -123,7 +123,7 @@ def _build_report_context(body: SpaChatRequest, current_user: User, db: Session)
         report = db.query(Report).filter(Report.id == body.report_id).first()
         if not report:
             raise HTTPException(status_code=404, detail="报告不存在")
-        if current_user.role != UserRole.admin and report.user_id != current_user.id:
+        if not is_privileged(db, current_user) and report.user_id != current_user.id:
             raise HTTPException(status_code=403, detail="无权限访问该报告上下文")
         latest = (
             db.query(ReportAnalysis)
@@ -144,7 +144,7 @@ def _build_report_context(body: SpaChatRequest, current_user: User, db: Session)
         doc = db.query(KnowledgeDoc).filter(KnowledgeDoc.id == body.document_id).first()
         if not doc:
             raise HTTPException(status_code=404, detail="导入文档不存在")
-        if current_user.role != UserRole.admin and doc.uploaded_by not in {None, current_user.id}:
+        if not is_privileged(db, current_user) and doc.uploaded_by not in {None, current_user.id}:
             raise HTTPException(status_code=403, detail="无权限访问该导入文档")
         content = ""
         if doc.file_path and os.path.isfile(doc.file_path):
@@ -169,7 +169,7 @@ def _sse_error(message: str) -> str:
 
 
 @router.post("/chat")
-async def chat(body: SpaChatRequest, request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def chat(body: SpaChatRequest, request: Request, current_user: User = Depends(require_permission("assistant")), db: Session = Depends(get_db)):
     message = _extract_user_message(body)
     if not message:
         return StreamingResponse(iter([f"data: {json.dumps({'error': '消息不能为空'}, ensure_ascii=False)}\n\n", "data: [DONE]\n\n"]), media_type="text/event-stream")
@@ -319,7 +319,7 @@ async def chat_suggestions(
     context: str = "",
     session_id: str | None = None,
     limit: int = 3,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("assistant")),
     db: Session = Depends(get_db),
 ):
     """证据锚定的"建议追问"：只下发 suggestion_index 内、知识库确实能答的问题。
@@ -375,7 +375,7 @@ async def chat_suggestions(
 
 
 @router.get("/chat/history", response_model=list[ChatMessage])
-async def chat_history(session_id: str | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def chat_history(session_id: str | None = None, current_user: User = Depends(require_permission("assistant")), db: Session = Depends(get_db)):
     query = db.query(ChatHistory).filter(ChatHistory.user_id == current_user.id)
     if session_id:
         query = query.filter(ChatHistory.session_id == session_id)

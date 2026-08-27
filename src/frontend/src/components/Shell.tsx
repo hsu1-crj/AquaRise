@@ -29,6 +29,7 @@ import {
   Waves,
   X,
 } from 'lucide-react';
+import { OCEAN3D_PAGE_KEYS } from '../types';
 import type { DetectionRecord, PageKey, Report, UserInfo } from '../types';
 import { api, isMockMode } from '../services/api';
 import { HaitongLogo } from './HaitongLogo';
@@ -72,6 +73,12 @@ const navGroups: Array<{
       { id: 'atlas', label: '海瞳 · 生命图谱', icon: HaitongLogo, badge: '3D' },
     ],
   },
+  {
+    title: '系统管理',
+    items: [
+      { id: 'admin', label: '后台管理', icon: ShieldCheck, badge: 'RBAC' },
+    ],
+  },
 ];
 
 export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children }: ShellProps) {
@@ -89,8 +96,6 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
   const { seaAreaId, seaAreaName, seaAreas, setSeaAreaId } = useSeaArea();
   const [pillOpen, setPillOpen] = useState(false);
   const pillRef = useRef<HTMLDivElement | null>(null);
-
-  // 点击搜索框外或按 Esc 关闭下拉；按 ⌘/Ctrl+K 聚焦搜索框
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
       if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) setDropOpen(false);
@@ -125,9 +130,11 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
     searchTimer.current = window.setTimeout(async () => {
       try {
         // 检测任务走后端 query（编号/文件名），报告较少则全量拉取后前端过滤（标题/海域/编号/摘要）
+        // 权限门控：无对应模块权限的用户组不搜索该数据源，避免 403 与越权入口
+        const perms = user?.permissions;
         const [taskPage, reports] = await Promise.all([
-          api.getHistory(1, 20, { query: keyword }).catch(() => ({ items: [], total: 0 })),
-          api.getReports().catch(() => []),
+          !perms || perms.includes('history') ? api.getHistory(1, 20, { query: keyword }).catch(() => ({ items: [], total: 0 })) : { items: [], total: 0 },
+          !perms || perms.includes('reports') ? api.getReports().catch(() => []) : [],
         ]);
         const kw = keyword.toLowerCase();
         setTaskHits(taskPage.items);
@@ -190,7 +197,19 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
           )}
         </div>
         <nav aria-label="主导航">
-          {navGroups.map((group) => (
+          {/* 用户组权限过滤：只渲染当前用户组拥有的功能模块；未加载权限前全量展示。
+              海洋 3D 项按模式键（ocean3d_monitor/science）判定：拥有任一模式即可进入该页 */}
+          {navGroups
+            .map((group) => ({
+              ...group,
+              items: group.items.filter((item) => {
+                if (!user?.permissions) return true;
+                if (item.id === 'ocean3d') return user.permissions.some((p) => OCEAN3D_PAGE_KEYS.includes(p));
+                return user.permissions.includes(item.id);
+              }),
+            }))
+            .filter((group) => group.items.length > 0)
+            .map((group) => (
             <div className="nav-group" key={group.title}>
               <div className="nav-caption">{group.title}</div>
               {group.items.map((item) => {
@@ -258,7 +277,7 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
           <div className="top-actions">
             {isMockMode() && <span className="demo-badge"><FlaskConical size={14} />演示数据</span>}
             <button className="icon-button" aria-label="消息通知"><Bell size={19} /><i /></button>
-            <button className="user-chip" onClick={() => onNavigate('profile')}><span>{(user?.username ?? '林').slice(0, 1).toUpperCase()}</span><div><strong>{user?.username ?? '林海'}</strong><small>{user?.role === 'admin' ? '管理员' : '用户'}</small></div><ChevronDown size={15} /></button>
+            <button className="user-chip" onClick={() => onNavigate('profile')}><span>{(user?.username ?? '林').slice(0, 1).toUpperCase()}</span><div><strong>{user?.username ?? '林海'}</strong><small>{user?.group_name ?? (user?.role === 'admin' ? '管理员' : '用户')}</small></div><ChevronDown size={15} /></button>
           </div>
         </header>
         <div className="page-container">{children}</div>

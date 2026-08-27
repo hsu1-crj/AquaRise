@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 import config
-from auth import get_current_user
+from auth import require_permission
 from database import get_db
 from models import DocStatus, KnowledgeDoc, User
 from schemas import DocumentAnalysisResponse, KnowledgeDocInfo, ReportSolution
@@ -75,7 +75,7 @@ def _vectorize_file(file_path: str) -> int:
 @router.post("/upload", response_model=KnowledgeDocInfo)
 async def upload_doc(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("assistant")),
     db: Session = Depends(get_db),
 ):
     """上传知识库文档：保存到 RAG 源目录 + 增量向量化 + 写库"""
@@ -127,7 +127,7 @@ async def upload_doc(
 
 @router.get("/", response_model=list[KnowledgeDocInfo])
 async def list_docs(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("assistant")),
     db: Session = Depends(get_db),
 ):
     """文档列表"""
@@ -138,7 +138,7 @@ async def list_docs(
 @router.delete("/{doc_id}")
 async def delete_doc(
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("assistant")),
     db: Session = Depends(get_db),
 ):
     """删除文档（连同磁盘文件与向量库分片）"""
@@ -167,7 +167,7 @@ async def delete_doc(
 @router.post("/{doc_id}/analyze", response_model=DocumentAnalysisResponse)
 async def analyze_knowledge_doc(
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("assistant")),
     db: Session = Depends(get_db),
 ):
     """对上传的外部质量报告做轻量结构化分析，供聊天页直接展示和追问。"""

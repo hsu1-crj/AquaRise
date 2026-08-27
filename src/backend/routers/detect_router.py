@@ -16,7 +16,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import config
-from auth import get_current_user
+from auth import require_permission
 from database import get_db
 from models import DetectionResult, DetectionTask, SeaArea, TaskStatus, TaskType, User
 from schemas import (
@@ -169,7 +169,7 @@ async def detect_image(
     width: int = Form(1280),
     height: int = Form(720),
     site_id: int | None = Form(None, description="海域ID（可选，软外键→sea_areas；字段名保持 site_id 兼容）"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("detection")),
     db: Session = Depends(get_db),
 ):
     """图片检测：上传 → YOLO 推理 → 结果写库 → 返回前端 DetectionResult 形状
@@ -181,7 +181,7 @@ async def detect_image(
 async def detect_images(
     files: list[UploadFile] = File(...),
     site_id: int | None = Form(None, description="海域ID（可选，整批共用；字段名保持 site_id 兼容）"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("detection")),
     db: Session = Depends(get_db),
 ):
     """多图批量识别：每张图独立保存 + 推理 + 建任务，单张失败不影响其余。
@@ -220,7 +220,7 @@ async def list_detections(
     page_size: int = Query(50, ge=1, le=200),
     level: str = Query("", description="中文污染等级过滤：优/良/中/差/严重，空=全部"),
     query: str = Query("", description="搜索：任务编号（精确）或文件名（模糊）"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("history")),
     db: Session = Depends(get_db),
 ):
     """检测历史列表（前端 History 页）：当前用户任务分页，支持等级过滤与编号/文件名搜索"""
@@ -268,7 +268,7 @@ async def detect_video(
     file: UploadFile = File(...),
     site_id: int | None = Form(None, description="海域ID（可选，软外键→sea_areas；字段名保持 site_id 兼容）"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("detection")),
     db: Session = Depends(get_db),
 ):
     """视频检测：上传 → 创建任务 → 后台处理 → 立即返回 task_id"""
@@ -302,7 +302,7 @@ async def detect_video(
 @router.get("/detect/status/{task_id}", response_model=TaskStatusResponse)
 async def task_status(
     task_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("detection", "history")),
     db: Session = Depends(get_db),
 ):
     """查询任务进度：DB 任务状态 + 内存实时进度（视频预览帧）合并"""
@@ -334,7 +334,7 @@ async def task_status(
 @router.get("/detect/result/{task_id}", response_model=ResultResponse)
 async def task_result(
     task_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("detection", "history")),
     db: Session = Depends(get_db),
 ):
     """获取检测结果：帧级目标列表 + 材质汇总"""

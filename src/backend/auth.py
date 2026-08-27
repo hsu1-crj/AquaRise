@@ -4,7 +4,7 @@
 - hash_password / verify_password   bcrypt 哈希（不用明文存密码）
 - create_access_token / decode      签发 / 校验 JWT
 - get_current_user                  FastAPI 依赖：从 Cookie 或 Authorization 头取当前用户
-- require_role                      依赖工厂：限制管理员接口
+- require_permission / get_user_modules  RBAC 依赖工厂：按用户组的功能模块守卫接口
 
 JWT 同时写入 HttpOnly Cookie（access_token）和返回给 API 调用方，
 页面请求用 Cookie，外部 API 调用用 Authorization: Bearer。
@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 import config
 from database import get_db
-from models import LoginSession, User, UserRole
+from models import MODULE_KEYS, GroupModule, LoginSession, User, UserRole
 
 # ============ bcrypt 密码哈希 ============
 def hash_password(raw: str) -> str:
@@ -202,14 +202,42 @@ def get_current_user_optional(
     return user
 
 
-def require_role(role: UserRole):
+# ============ RBAC：功能模块权限 ============
+def get_user_modules(db: Session, user: User) -> list[str]:
     """
-    依赖工厂：限制只有指定角色能访问。
-    用法：def xxx(current_user: User = Depends(require_role(UserRole.admin))):
+    用户拥有的功能模块（权限）：
+      - role=admin（最高管理员）恒为全部模块，兜底保证超管不被组数据锁死；
+      - 其余用户取所属用户组的模块集合；未归组（历史数据未迁移）则视为无业务模块。
+    每次请求实时查库，后台改组后立即生效，无需重签 JWT。
     """
-    def _checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role != role:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权限访问")
+    if user.role == UserRole.admin:
+        return list(MODULE_KEYS)
+    if not user.group_id:
+        return []
+    rows = db.query(GroupModule).filter(GroupModule.group_id == user.group_id).all()
+    return [row.module for row in rows]
+
+
+def require_permission(*modules: str):
+    """
+    依赖工厂：要求当前用户拥有任一指定功能模块（任一命中即放行）。
+    用法：def xxx(current_user: User = Depends(require_permission("detection"))):
+    """
+    allowed = set(modules)
+
+    def _checker(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+        owned = set(get_user_modules(db, current_user))
+        if not owned & allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="当前用户组未开放该功能模块，请联系管理员调整分组",
+            )
         return current_user
 
     return _checker
+
+
+def is_privileged(db: Session, user: User) -> bool:
+    """是否拥有全局数据视野（可查看/分析所有用户的报告与任务上下文）：
+    最高管理员或拥有后台管理模块的用户组。"""
+    return user.role == UserRole.admin or "admin" in get_user_modules(db, user)

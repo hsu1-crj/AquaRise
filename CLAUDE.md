@@ -109,6 +109,18 @@ issedu_ysu2026_7439/
 | 云GPU | AutoDL / 阿里云PAI | 模型训练加速 |
 | 版本控制 | Git (猿舟 GitLab + GitHub镜像) | 代码管理 |
 
+## 用户分组与后台管理（RBAC）
+
+**模型**：功能模块（= 前端导航页面）→ 用户组（模块集合）→ 用户（归组获得功能）。三张表：`user_groups`（内置组 `is_system=True`）、`group_modules`（组-模块关联）、`users.group_id`（软外键）。
+
+- 模块注册表：`src/backend/models.py` 的 `MODULE_REGISTRY`（11 个模块：dashboard / **ocean3d_monitor** / **ocean3d_science** / detection / history / analysis / screen / reports / assistant / atlas / admin），前端导航与后端守卫共用该口径。
+- **3D 模式按组锁定**：海洋 3D 页拆两个权限键——`ocean3d_monitor`（监测模式）/ `ocean3d_science`（科普模式），页面入口 = 拥有任一模式键；超管双模式，监测分析组/指挥决策组锁监测模式，科普访客组锁科普模式（前端 `Ocean3D.tsx` 隐藏无权模式的切换按钮并自动纠偏当前模式）。旧库 `ocean3d` 单键由 `main._migrate_ocean3d_module_keys()` 自动迁移。
+- 内置组：超级管理员（全模块+后台，权限不可改）、监测分析组（识别检测主线，3D 锁监测）、指挥决策组（研判大屏，3D 锁监测）、科普访客组（3D 科普+生命图谱，自助注册默认组，`config.DEFAULT_GROUP_CODE` 可改）。
+- 权限计算：`src/backend/auth.py` `get_user_modules()`（role=admin 恒全量；其余按组实时查库，改组即时生效，无需重签 JWT）；接口守卫 `require_permission("module")`；全局数据视野 `is_privileged()`。
+- 后台管理 API：`src/backend/routers/admin_router.py`（`/api/v1/admin/*`，概览/用户/用户组 CRUD）。前端：`src/frontend/src/pages/Admin.tsx`（概览/用户管理/用户组管理三个标签）。
+- **注销规则（产品要求：只有最高管理员不能销号，其他均可销号）**：最高管理员（role=admin 或 super_admin 组成员）不可被注销、不可调组、密码仅本人修改；其余账号（含操作者自己）均可注销，前端注销自己后清登录态回登录页。超级管理员组不可改不可删；内置组不可删；有成员的组不可删。
+- 启动播种：`src/backend/main.py` `_ensure_user_groups()` + `_migrate_ocean3d_module_keys()` + `_migrate_users_into_groups()`（存量 admin→超管组，其余历史用户→监测分析组，幂等）。
+
 ## 数据集信息
 
 **TrashCan 1.0 Instance Version** — 已转换为YOLO格式，可直接用于训练。数据处理细节见 `dataset/数据集处理进度报告.md`。

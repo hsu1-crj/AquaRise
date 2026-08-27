@@ -8,7 +8,19 @@ export type PageKey =
   | 'reports'
   | 'assistant'
   | 'atlas'
+  | 'admin'
   | 'profile';
+
+/** 全部业务功能模块 key（与后端 MODULE_REGISTRY 一致；profile 为全员可见的个人中心）。
+ *  海洋 3D 态势按模式拆两个权限键：ocean3d_monitor（监测）/ ocean3d_science（科普），
+ *  页面入口 = 拥有任一模式键（见 OCEAN3D_PAGE_KEYS）。 */
+export const ALL_MODULE_KEYS = [
+  'dashboard', 'ocean3d_monitor', 'ocean3d_science', 'detection', 'history', 'analysis',
+  'screen', 'reports', 'assistant', 'atlas', 'admin',
+] as const;
+
+/** 海洋 3D 页面的入场权限：任一模式键即可进入该页 */
+export const OCEAN3D_PAGE_KEYS = ['ocean3d_monitor', 'ocean3d_science'];
 
 export type PollutionLevel = '优' | '良' | '中' | '差' | '严重';
 
@@ -238,8 +250,15 @@ export interface DigitalHumanPublicConfig {
   sdk_integrity?: string | null;
   message?: string | null;
 }
+export interface ApiValidationError {
+  type?: string;
+  loc?: Array<string | number>;
+  msg?: string;
+}
+
 export interface ApiErrorShape {
-  detail?: string;
+  /** FastAPI HTTPException 的 detail 是字符串；pydantic 422 校验失败时是错误数组 */
+  detail?: string | ApiValidationError[];
   message?: string;
   error?: string;
 }
@@ -250,7 +269,55 @@ export interface UserInfo {
   email?: string | null;
   phone_num?: string | null;
   role: 'admin' | 'user';
+  group_id?: number | null;
+  group_code?: string | null;
+  group_name?: string | null;
+  /** 拥有的功能模块 key 集合（后端按用户组实时计算） */
+  permissions?: string[];
   created_at?: string;
+}
+
+
+// ============ 后台管理契约（/api/v1/admin/*） ============
+export interface AdminUserRow {
+  id: number;
+  username: string;
+  email?: string | null;
+  phone_num?: string | null;
+  role: 'admin' | 'user';
+  group_id?: number | null;
+  group_code?: string | null;
+  group_name?: string | null;
+  permissions: string[];
+  created_at?: string | null;
+  is_super_admin: boolean;
+}
+
+export interface AdminGroup {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  is_system: boolean;
+  modules: string[];
+  member_count: number;
+  created_at?: string | null;
+}
+
+export interface AdminOverview {
+  user_count: number;
+  group_count: number;
+  task_count: number;
+  completed_task_count: number;
+  report_count: number;
+  group_members: AdminGroup[];
+  recent_users: AdminUserRow[];
+}
+
+export interface ModuleMeta {
+  key: string;
+  name: string;
+  desc: string;
 }
 
 export interface FaceInfo {

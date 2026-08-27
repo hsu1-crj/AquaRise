@@ -1,11 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
 import { ArrowRight, Camera, CheckCircle2, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, Waves } from 'lucide-react';
+import type { FormEvent } from 'react';
 import { Shell } from './components/Shell';
 import { SeaAreaProvider } from './context/SeaAreaContext';
 import { HaitongLogo } from './components/HaitongLogo';
 import { api, clearStoredAuth, enterDemoMode, getStoredToken, storeToken } from './services/api';
 import { useCamera } from './services/camera';
+import { OCEAN3D_PAGE_KEYS } from './types';
 import type { PageKey, UserInfo } from './types';
 const AnalysisPage = lazy(() => import('./pages/Analysis').then((module) => ({ default: module.AnalysisPage })));
 const AssistantPage = lazy(() => import('./pages/Assistant').then((module) => ({ default: module.AssistantPage })));
@@ -17,7 +18,11 @@ const HistoryPage = lazy(() => import('./pages/History').then((module) => ({ def
 const ReportsPage = lazy(() => import('./pages/Reports').then((module) => ({ default: module.ReportsPage })));
 const ProfilePage = lazy(() => import('./pages/UtilityPages').then((module) => ({ default: module.ProfilePage })));
 const MarineAtlasPage = lazy(() => import('./pages/MarineAtlas').then((module) => ({ default: module.MarineAtlasPage })));
-const validPages: Record<PageKey, true> = { dashboard: true, ocean3d: true, detection: true, history: true, analysis: true, screen: true, reports: true, assistant: true, atlas: true, profile: true };
+const AdminPage = lazy(() => import('./pages/Admin').then((module) => ({ default: module.AdminPage })));
+const validPages: Record<PageKey, true> = { dashboard: true, ocean3d: true, detection: true, history: true, analysis: true, screen: true, reports: true, assistant: true, atlas: true, admin: true, profile: true };
+
+/** 权限守卫的兜底跳转顺序：无权访问当前页时落到第一个有权限的业务页 */
+const PAGE_FALLBACK_ORDER: PageKey[] = ['dashboard', 'ocean3d', 'detection', 'history', 'analysis', 'screen', 'reports', 'assistant', 'atlas', 'admin', 'profile'];
 
 /** 启动时是否已有登录态：本次会话标记存在，或本地存有 token（保持登录） */
 function hasStoredAuth(): boolean {
@@ -51,6 +56,21 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
+  // ============ 用户组权限守卫：无权访问当前页时，落到第一个有权限的页面 ============
+  // 个人中心对全员开放；user.permissions 未加载完成（null/undefined）前不拦截。
+  // 海洋 3D 页按模式键判定：拥有任一模式（ocean3d_monitor/science）即可进入。
+  useEffect(() => {
+    if (!authenticated || !user?.permissions) return;
+    const allowed = (target: PageKey) =>
+      target === 'profile'
+      || (target === 'ocean3d'
+        ? user.permissions!.some((p) => OCEAN3D_PAGE_KEYS.includes(p))
+        : user.permissions!.includes(target));
+    if (allowed(page)) return;
+    const fallback = PAGE_FALLBACK_ORDER.find(allowed) ?? 'profile';
+    setPage(fallback);
+    window.location.hash = fallback;
+  }, [page, user, authenticated]);
   const navigate = (target: PageKey) => {
     setSearchFocus(null);
     setPage(target);
@@ -75,11 +95,11 @@ export default function App() {
   if (!authenticated) return <LoginScreen onLogin={login} />;
   if (page === 'screen') return <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入指挥大屏…</div>}><CommandScreen onExit={() => navigate('dashboard')} /></Suspense>;
   if (page === 'atlas') return <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入生命图谱…</div>}><MarineAtlasPage onExit={() => navigate('dashboard')} /></Suspense>;
-
   return <SeaAreaProvider><Shell page={page} onNavigate={navigate} onSearchJump={searchJump} onLogout={logout} user={user}>
     <Suspense fallback={<div className="page-state glass"><i className="loader-orbit" /><p>正在载入海洋工作台…</p></div>}>
       {page === 'dashboard' && <Dashboard onNavigate={navigate} user={user} />}
-      {page === 'ocean3d' && <Ocean3DPage />}
+      {page === 'ocean3d' && <Ocean3DPage user={user} />}
+      {page === 'admin' && <AdminPage user={user} />}
       {page === 'detection' && <Detection onNavigate={navigate} />}
       {page === 'history' && <HistoryPage initialQuery={searchFocus?.page === 'history' ? searchFocus.query : ''} />}
       {page === 'analysis' && <AnalysisPage />}

@@ -5,7 +5,7 @@
 
 from fastapi import APIRouter, Depends
 
-from auth import get_current_user
+from auth import require_permission
 import config
 from models import User
 from schemas import DigitalHumanConfig
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1", tags=["digital-human"])
 
 
 @router.get("/digital-human/config", response_model=DigitalHumanConfig)
-async def get_digital_human_config(current_user: User = Depends(get_current_user)):
+async def get_digital_human_config(current_user: User = Depends(require_permission("assistant"))):
     """返回数字人 SDK 公开配置与服务端配置状态。"""
     configured = bool(config.DH_APP_ID and config.DH_APP_SECRET)
     return DigitalHumanConfig(

@@ -33,15 +33,94 @@ class TokenResponse(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """用户信息"""
+    """用户信息（含所属用户组与功能模块权限，前端据此过滤导航与页面）"""
     id: int
     username: str
     email: Optional[str]
     phone_num: Optional[str]
     role: str
+    group_id: Optional[int] = None
+    group_code: Optional[str] = None
+    group_name: Optional[str] = None
+    permissions: list[str] = []
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
+
+
+# ============ 后台管理（RBAC 用户/用户组） ============
+class AdminUserItem(BaseModel):
+    """后台用户列表行"""
+    id: int
+    username: str
+    email: Optional[str] = None
+    phone_num: Optional[str] = None
+    role: str
+    group_id: Optional[int] = None
+    group_code: Optional[str] = None
+    group_name: Optional[str] = None
+    permissions: list[str] = []
+    created_at: Optional[datetime] = None
+    is_super_admin: bool = False  # 最高管理员：后台不可注销、不可调组
+
+
+class AdminUserCreateRequest(BaseModel):
+    """后台创建用户"""
+    username: str = Field(min_length=2, max_length=50, pattern=r"^[A-Za-z0-9_\u4e00-\u9fa5]+$")
+    password: str = Field(min_length=6, max_length=64)
+    email: Optional[str] = Field(default=None, max_length=100)
+    phone_num: Optional[str] = Field(default=None, max_length=20)
+    group_id: int = Field(ge=1, description="所属用户组（必选，决定可用功能）")
+
+
+class AdminUserUpdateRequest(BaseModel):
+    """后台更新用户（分组/联系方式；均为可选字段，未传不改）"""
+    group_id: Optional[int] = Field(default=None, ge=1)
+    email: Optional[str] = Field(default=None, max_length=100)
+    phone_num: Optional[str] = Field(default=None, max_length=20)
+
+
+class AdminResetPasswordRequest(BaseModel):
+    """后台重置用户密码"""
+    new_password: str = Field(min_length=6, max_length=64)
+
+
+class AdminGroupItem(BaseModel):
+    """后台用户组（含功能模块集合与成员数）"""
+    id: int
+    code: str
+    name: str
+    description: Optional[str] = None
+    is_system: bool = False
+    modules: list[str] = []
+    member_count: int = 0
+    created_at: Optional[datetime] = None
+
+
+class AdminGroupCreateRequest(BaseModel):
+    """后台创建用户组"""
+    name: str = Field(min_length=2, max_length=50)
+    code: Optional[str] = Field(default=None, pattern=r"^[a-z][a-z0-9_]{1,29}$")
+    description: Optional[str] = Field(default=None, max_length=200)
+    modules: list[str] = Field(default_factory=list, description="勾选的功能模块 key 集合")
+
+
+class AdminGroupUpdateRequest(BaseModel):
+    """后台更新用户组（名称/描述/模块集合）"""
+    name: Optional[str] = Field(default=None, min_length=2, max_length=50)
+    description: Optional[str] = Field(default=None, max_length=200)
+    modules: Optional[list[str]] = None
+
+
+class AdminOverview(BaseModel):
+    """后台概览"""
+    user_count: int
+    group_count: int
+    task_count: int
+    completed_task_count: int
+    report_count: int
+    group_members: list[AdminGroupItem] = []  # 各组规模（概览分布图用）
+    recent_users: list[AdminUserItem] = []    # 最近注册用户
 
 
 class ChangePasswordRequest(BaseModel):

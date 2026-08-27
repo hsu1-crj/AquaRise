@@ -1,7 +1,9 @@
 """
-ORM 模型层：全部 8 张 MySQL 表
+ORM 模型层：全部 10 张 MySQL 表
 =====================================
-users               用户表（JWT + bcrypt）
+users               用户表（JWT + bcrypt，group_id 软外键 → user_groups）
+user_groups         用户组表（RBAC：一组 = 一批功能模块）
+group_modules       组-模块关联表（用户组拥有哪些功能模块）
 login_sessions      登录会话表（并发登录控制）
 detection_tasks     检测任务表（图片/视频）
 detection_results   检测结果表（逐帧逐目标）
@@ -27,16 +29,53 @@ from sqlalchemy import (
     String,
     Text,
     Boolean,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
 from database import Base
 
 
+
 # ============ 枚举（对应规划文档的 ENUM 字段） ============
 class UserRole(str, enum.Enum):
     admin = "admin"
     user = "user"
+
+
+# ============ 功能模块注册表（RBAC 权限粒度 = 前端导航页面） ============
+# key 同时是前端 PageKey（ocean3d 页除外，见下）与后端 require_permission 的权限名；
+# 前端导航、后台管理页的模块矩阵、后端 API 守卫共用这一份口径。
+# 海洋 3D 态势页按模式拆分两个权限键：ocean3d_monitor（监测模式）/ ocean3d_science（科普模式），
+# 页面入口 = 拥有任一模式键；组内勾选即按职能锁定可用模式。
+MODULE_REGISTRY: list[dict] = [
+    {"key": "dashboard", "name": "态势总览", "desc": "海域污染态势仪表盘"},
+    {"key": "ocean3d_monitor", "name": "海洋 3D · 监测模式", "desc": "3D 态势监测：真实站点数据 + 实时检测联动 + 扩散推演"},
+    {"key": "ocean3d_science", "name": "海洋 3D · 科普模式", "desc": "3D 科普体验：垃圾沉降演示 + 知识漂流瓶 + 数字人导游"},
+    {"key": "detection", "name": "智能识别", "desc": "水下垃圾图片/视频识别检测"},
+    {"key": "history", "name": "检测历史", "desc": "历史检测任务查询与详情"},
+    {"key": "analysis", "name": "污染分析", "desc": "污染指数与材质分布研判"},
+    {"key": "screen", "name": "指挥大屏", "desc": "全屏指挥调度大屏"},
+    {"key": "reports", "name": "质量报告", "desc": "海域污染质量报告生成与管理"},
+    {"key": "assistant", "name": "海洋守护者", "desc": "数字人智能问答助手"},
+    {"key": "atlas", "name": "海瞳 · 生命图谱", "desc": "灭绝海洋生物 3D 知识库"},
+    {"key": "admin", "name": "后台管理", "desc": "用户/用户组与权限管理"},
+]
+MODULE_KEYS = [m["key"] for m in MODULE_REGISTRY]
+
+
+# 内置用户组（启动播种；super_admin 权限不可修改、账号不可注销）。
+# 模式锁定口径：超管双模式；监测/决策组锁监测模式；科普组锁科普模式。
+SYSTEM_GROUP_SEEDS: list[dict] = [
+    {"code": "super_admin", "name": "超级管理员", "desc": "拥有全部功能模块与后台管理权限（系统内置，权限不可修改）",
+     "modules": MODULE_KEYS},
+    {"code": "analyst", "name": "监测分析组", "desc": "一线监测与识别检测：垃圾识别、历史回溯、污染分析、报告产出（3D 锁监测模式）",
+     "modules": ["dashboard", "ocean3d_monitor", "detection", "history", "analysis", "reports", "assistant"]},
+    {"code": "commander", "name": "指挥决策组", "desc": "管理决策视角：态势研判、指挥大屏与质量报告（3D 锁监测模式）",
+     "modules": ["dashboard", "ocean3d_monitor", "analysis", "screen", "reports", "assistant"]},
+    {"code": "public", "name": "科普访客组", "desc": "公众科普视角：3D 海洋科普与灭绝生物知识库（3D 锁科普模式；自助注册默认组）",
+     "modules": ["ocean3d_science", "atlas", "assistant"]},
+]
 
 
 class TaskType(str, enum.Enum):
@@ -87,7 +126,7 @@ class DHStatus(str, enum.Enum):
 
 # ============ 1. 用户表 ============
 class User(Base):
-    """用户：username 唯一，密码存 bcrypt 哈希"""
+    """用户：username 唯一，密码存 bcrypt 哈希；group_id 软外键 → user_groups.id"""
 
     __tablename__ = "users"
 
@@ -97,11 +136,50 @@ class User(Base):
     email = Column(String(100), nullable=True)
     phone_num = Column(String(20), nullable=True)  # 手机号，可作为登录凭据
     role = Column(SAEnum(UserRole), default=UserRole.user, nullable=False)
+    group_id = Column(Integer, nullable=True, index=True)  # 软外键 → user_groups.id（组删除前须先移走成员）
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     def __repr__(self):
         return f"<User id={self.id} username={self.username!r} role={self.role.value}>"
+
+
+# ============ 1b. 用户组表 + 组-模块关联表（RBAC） ============
+class UserGroup(Base):
+    """用户组：一个组 = 一批功能模块的集合。用户归入组即获得组内全部功能。
+    内置组（is_system=True）不可删除；super_admin 组权限不可修改。"""
+
+    __tablename__ = "user_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(30), unique=True, index=True, nullable=False)  # super_admin / analyst / ...
+    name = Column(String(50), nullable=False)
+    description = Column(String(200), nullable=True)
+    is_system = Column(Boolean, default=False, nullable=False)  # 内置职能组：不可删除
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    modules = relationship(
+        "GroupModule", cascade="all, delete-orphan", lazy="selectin",
+        order_by="GroupModule.module", passive_deletes=True,
+    )
+
+    def __repr__(self):
+        return f"<UserGroup id={self.id} code={self.code!r} name={self.name!r}>"
+
+
+class GroupModule(Base):
+    """组拥有的功能模块（module 取值见 MODULE_KEYS）"""
+
+    __tablename__ = "group_modules"
+    __table_args__ = (UniqueConstraint("group_id", "module", name="uq_group_module"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    module = Column(String(50), nullable=False)
+
+    def __repr__(self):
+        return f"<GroupModule group={self.group_id} module={self.module!r}>"
 
 
 # ============ 2. 登录会话表（并发登录控制） ============

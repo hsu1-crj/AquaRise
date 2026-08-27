@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from auth import get_current_user
+from auth import get_current_user, require_permission
 from database import get_db
 from models import DetectionResult, DetectionTask, MonitoringSite, PollutionLevel, SeaArea, TaskStatus, User
 from schemas import (ClassRankItem, FrontendSummary, FrontendTrendPoint, SeaAreaItem, SiteEvidence,
@@ -20,6 +20,13 @@ from schemas import (ClassRankItem, FrontendSummary, FrontendTrendPoint, SeaArea
 from services import detector as detector_svc
 
 router = APIRouter(prefix="/api/v1/stats", tags=["stats"])
+
+# ============ RBAC 守卫 ============
+# 统计数据按消费页面挂对应模块：态势总览 / 污染分析 / 指挥大屏共用趋势与聚合，
+# 站点列表还被海洋 3D（双模式）的地球站点消费；海域下拉（sea-areas）是全员侧边栏组件，保持仅登录。
+SUMMARY_GUARD = Depends(require_permission("dashboard", "analysis", "screen", "ocean3d_monitor"))
+TREND_GUARD = Depends(require_permission("dashboard", "analysis", "screen"))
+SITES_GUARD = Depends(require_permission("dashboard", "analysis", "screen", "ocean3d_monitor", "ocean3d_science"))
 
 # 污染等级 → 严重度权重（综合污染指数 = 平均权重 × 2，落在 0-10 区间）
 _LEVEL_WEIGHT = {"excellent": 1, "good": 2, "moderate": 3, "poor": 4, "severe": 5}
@@ -107,7 +114,7 @@ def _severe_count(db: Session, since, until=None) -> int:
 
 @router.get("/summary", response_model=FrontendSummary)
 async def stats_summary(
-    current_user: User = Depends(get_current_user),
+    current_user: User = SUMMARY_GUARD,
     db: Session = Depends(get_db),
 ):
     """统计概览：从数据库聚合真实数据，映射为前端 Summary 形状"""
@@ -122,8 +129,8 @@ async def stats_summary(
 
 @router.get("/trend", response_model=list[FrontendTrendPoint])
 async def stats_trend(
-    period: str = Query("week", pattern="^(week|month|year)$"),
-    current_user: User = Depends(get_current_user),
+    period: str = Query("month", pattern="^(week|month|year)$"),
+    current_user: User = TREND_GUARD,
     db: Session = Depends(get_db),
 ):
     """趋势数据：week/month 按天分组，year 按月分组（只统计已完成任务）"""
@@ -161,7 +168,7 @@ async def stats_trend(
 
 @router.get("/analysis", response_model=StatsAnalysis)
 async def stats_analysis(
-    current_user: User = Depends(get_current_user),
+    current_user: User = TREND_GUARD,
     db: Session = Depends(get_db),
 ):
     """分析页聚合数据（前端 Analysis / Dashboard 共用）：
@@ -229,7 +236,7 @@ async def stats_sea_areas(
 @router.get("/sites", response_model=list[SiteStatItem])
 async def stats_sites(
     days: int = Query(30, ge=1, le=365, description="统计窗口（天），默认近 30 天"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = SITES_GUARD,
     db: Session = Depends(get_db),
 ):
     """分站点聚合（F0）：所有监测站点 + 各站所在海域近 N 天已完成任务统计。

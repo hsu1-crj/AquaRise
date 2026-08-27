@@ -9,6 +9,8 @@
 页面请求自动携带，外部 API 也可用 Authorization: Bearer。
 """
 
+import re
+
 import config
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
@@ -17,12 +19,13 @@ from sqlalchemy.orm import Session
 from auth import (
     create_access_token,
     get_current_user,
+    get_user_modules,
     hash_password,
     record_login_session,
     verify_password,
 )
 from database import get_db
-from models import User, UserRole
+from models import User, UserGroup, UserRole
 # Jinja2 templates removed — React SPA handles all page rendering now
 from schemas import (
     ChangePasswordRequest,
@@ -35,6 +38,42 @@ from schemas import (
 )
 
 router = APIRouter(tags=["auth"])
+
+
+def _default_group_id(db: Session) -> int | None:
+    """自助注册用户的默认用户组（config.DEFAULT_GROUP_CODE，缺省科普访客组 public）。"""
+    group = db.query(UserGroup).filter(UserGroup.code == config.DEFAULT_GROUP_CODE).first()
+    return group.id if group else None
+
+
+USERNAME_PATTERN = r"^[A-Za-z0-9_\u4e00-\u9fa5]+$"
+
+
+def _validate_username(raw: str) -> str:
+    """注册用户名规范：与后台创建用户同口径（字母/数字/下划线/中文，不含 - 等符号）。"""
+    username = raw.strip()
+    if not username or len(username) > 20:
+        raise HTTPException(status_code=400, detail="用户名不能为空且不超过 20 个字符")
+    if not re.fullmatch(USERNAME_PATTERN, username):
+        raise HTTPException(status_code=400, detail="用户名仅支持字母、数字、下划线或中文")
+    return username
+
+
+def user_to_response(db: Session, user: User) -> UserResponse:
+    """User ORM → UserResponse：补齐所属用户组与功能模块权限。"""
+    group = db.query(UserGroup).filter(UserGroup.id == user.group_id).first() if user.group_id else None
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        phone_num=user.phone_num,
+        role=user.role.value if isinstance(user.role, UserRole) else str(user.role),
+        group_id=user.group_id,
+        group_code=group.code if group else None,
+        group_name=group.name if group else None,
+        permissions=get_user_modules(db, user),
+        created_at=user.created_at,
+    )
 
 
 def _issue_auth_cookie(response: Response, user: User) -> str:
@@ -99,9 +138,7 @@ async def register_form(
     db: Session = Depends(get_db),
 ):
     """表单注册：校验 → 查重 → 写入。错误返回 JSON。"""
-    username = username.strip()
-    if not username or len(username) > 20:
-        raise HTTPException(status_code=400, detail="用户名不能为空且不超过 20 个字符")
+    username = _validate_username(username)
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="密码至少需要 6 位")
     if password != confirm_password:
@@ -115,6 +152,7 @@ async def register_form(
             password_hash=hash_password(password),
             email=email.strip() or None,
             role=UserRole.user,
+            group_id=_default_group_id(db),
         )
     )
     db.commit()
@@ -150,25 +188,26 @@ async def api_login(body: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/api/v1/auth/register", response_model=UserResponse)
 async def api_register(body: RegisterRequest, db: Session = Depends(get_db)):
-    """API 注册：创建用户并返回用户信息"""
-    if db.query(User).filter(User.username == body.username).first():
+    username = _validate_username(body.username)
+    if db.query(User).filter(User.username == username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
     user = User(
-        username=body.username,
+        username=username,
         password_hash=hash_password(body.password),
         email=body.email,
         role=UserRole.user,
+        group_id=_default_group_id(db),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    return user
+    return user_to_response(db, user)
 
 
 @router.get("/api/v1/auth/me", response_model=UserResponse)
-async def api_me(current_user: User = Depends(get_current_user)):
-    """返回当前登录用户信息"""
-    return current_user
+async def api_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """返回当前登录用户信息（含用户组与功能模块权限）"""
+    return user_to_response(db, current_user)
 
 
 @router.post("/api/v1/auth/change-password", response_model=MessageResponse)
@@ -200,4 +239,4 @@ async def api_update_profile(
         current_user.phone_num = body.phone_num.strip() or None
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return user_to_response(db, current_user)

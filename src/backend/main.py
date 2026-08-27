@@ -40,8 +40,10 @@ from database import (  # noqa: E402
     ensure_database_exists,
     ensure_login_session_platform_column,
     ensure_monitoring_sites_sea_area_column,
+    ensure_users_group_column,
 )
 from routers import (  # noqa: E402
+    admin_router,
     auth_router,
     chat_router,
     detect_router,
@@ -54,6 +56,71 @@ from routers import (  # noqa: E402
 )
 
 
+def _ensure_user_groups(db) -> dict[str, int]:
+    """播种内置用户组（幂等）：不存在则建组并写入模块集合；已存在不覆盖后台的改动。
+    返回 {组 code: 组 id} 供存量用户迁移使用。"""
+    id_by_code: dict[str, int] = {}
+    for seed in models.SYSTEM_GROUP_SEEDS:
+        group = db.query(models.UserGroup).filter(models.UserGroup.code == seed["code"]).first()
+        if group is None:
+            group = models.UserGroup(
+                code=seed["code"],
+                name=seed["name"],
+                description=seed["desc"],
+                is_system=True,
+            )
+            db.add(group)
+            db.flush()
+            for key in seed["modules"]:
+                db.add(models.GroupModule(group_id=group.id, module=key))
+        else:  # 已存在的内置组：只回填标记，不动名称与模块（保留后台的自定义调整）
+            group.is_system = True
+        id_by_code[seed["code"]] = group.id
+    db.commit()
+    _migrate_ocean3d_module_keys(db)
+    return id_by_code
+
+
+def _migrate_ocean3d_module_keys(db) -> None:
+    """旧版 ocean3d 单键拆分为 ocean3d_monitor / ocean3d_science 两个模式键后的存量迁移（幂等）：
+    - 内置组：按新种子的模式口径回填（public→仅科普，analyst/commander→仅监测，super_admin→双模式）；
+    - 自定义组：旧键曾代表完整 3D 页面权限，保守地回填双模式，管理员可在后台按需收紧。"""
+    seed_by_code = {seed["code"]: seed for seed in models.SYSTEM_GROUP_SEEDS}
+    groups = db.query(models.UserGroup).all()
+    for group in groups:
+        existing = {
+            row.module
+            for row in db.query(models.GroupModule).filter(models.GroupModule.group_id == group.id)
+        }
+        if "ocean3d" not in existing:
+            continue
+        seed = seed_by_code.get(group.code)
+        if seed:
+            new_keys = [k for k in seed["modules"] if k in ("ocean3d_monitor", "ocean3d_science")]
+        else:
+            new_keys = ["ocean3d_monitor", "ocean3d_science"]
+        db.query(models.GroupModule).filter(
+            models.GroupModule.group_id == group.id, models.GroupModule.module == "ocean3d"
+        ).delete(synchronize_session=False)
+        for key in new_keys:
+            if key not in existing:
+                db.add(models.GroupModule(group_id=group.id, module=key))
+    db.commit()
+
+
+def _migrate_users_into_groups(db, group_ids: dict[str, int]) -> None:
+    """存量用户归组（幂等，仅补 group_id 为空的行）：
+    - role=admin（最高管理员）→ 超级管理员组；
+    - 其余历史用户 → 监测分析组，保持原有核心业务能力不回退。"""
+    admin_group = group_ids.get("super_admin")
+    analyst_group = group_ids.get("analyst")
+    if not admin_group or not analyst_group:
+        return
+    for user in db.query(models.User).filter(models.User.group_id.is_(None)).all():
+        user.group_id = admin_group if user.role == models.UserRole.admin else analyst_group
+    db.commit()
+
+
 def _migrate_legacy_users(db):
     """兼容旧版 users 表：补齐新列并迁移明文密码 → bcrypt 哈希。"""
     from sqlalchemy import inspect, text
@@ -62,7 +129,6 @@ def _migrate_legacy_users(db):
     if "users" not in inspector.get_table_names():
         return
     cols = {c["name"] for c in inspector.get_columns("users")}
-
     if "password" in cols and "password_hash" not in cols:
         db.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL"))
     if "email" not in cols:
@@ -103,6 +169,7 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_login_session_platform_column()
     ensure_monitoring_sites_sea_area_column()
+    ensure_users_group_column()
 
     db = SessionLocal()
     try:
@@ -124,6 +191,9 @@ async def lifespan(app: FastAPI):
                 db.commit()
         sea_ids = _ensure_sea_areas(db)
         _ensure_monitoring_sites(db, sea_ids)
+        # RBAC：播种内置用户组 → 存量用户归组（admin→超管组，历史用户→监测分析组）
+        group_ids = _ensure_user_groups(db)
+        _migrate_users_into_groups(db, group_ids)
     finally:
         db.close()
 
@@ -273,6 +343,7 @@ app.include_router(marine_router.router)         # /api/v1/stats/marine (真实�
 app.include_router(reports_router.router)        # /api/v1/reports/*
 app.include_router(knowledge_router.router)      # /api/v1/knowledge/*
 app.include_router(digital_human_router.router)  # /api/v1/digital-human/*
+app.include_router(admin_router.router)          # /api/v1/admin/*（后台管理：用户/用户组/概览）
 
 # ============ 静态文件：上传产物（图片/视频/视频预览帧）同源访问 ============
 # 挂载 /uploads → config.UPLOAD_DIR（默认 uploads/，相对 cwd=src/backend），

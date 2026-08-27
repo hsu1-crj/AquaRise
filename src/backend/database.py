@@ -82,6 +82,27 @@ def get_db():
         db.close()
 
 
+def ensure_users_group_column() -> None:
+    """
+    幂等迁移：为 users 增加 group_id 列（RBAC 用户组软外键 → user_groups.id）。
+    create_all 只建新表、不会 ALTER 旧表，因此启动时手动补列（MySQL 专用写法，
+    information_schema.COLUMNS 查询；本项目仅用 MySQL，可接受）。
+    缺省 NULL：随后由 main.py 的播种迁移把存量用户归入内置组。
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = :db AND TABLE_NAME = 'users' "
+                "AND COLUMN_NAME = 'group_id'"
+            ),
+            {"db": DB_NAME},
+        ).scalar()
+        if not exists:
+            conn.execute(text("ALTER TABLE users ADD COLUMN group_id INT NULL"))
+            conn.execute(text("CREATE INDEX ix_users_group_id ON users (group_id)"))
+            conn.commit()
+
 def ensure_monitoring_sites_sea_area_column() -> None:
     """
     幂等迁移：为 monitoring_sites 增加 sea_area_id 列（挂靠到 sea_areas 的软外键）。

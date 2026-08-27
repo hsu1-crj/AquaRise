@@ -1,5 +1,5 @@
 import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, MultiImageDetectItem, MultiImageDetectResponse, Report, ReportAnalysis, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import type { AdminGroup, AdminOverview, AdminUserRow, ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, ModuleMeta, MultiImageDetectItem, MultiImageDetectResponse, Report, ReportAnalysis, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -85,7 +85,21 @@ function handleUnauthorized(response: Response): void {
   window.location.reload();
 }
 
-
+/** 把后端错误载荷转成可读消息：HTTPException 的 detail 是字符串，
+ *  pydantic 422 校验失败时是数组（如用户名格式不符），需逐项取 msg 拼接 */
+function errorMessage(payload: ApiErrorShape | null, status: number): string {
+  const detail = payload?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map((item) => {
+        const field = item.loc?.filter((part) => part !== 'body').join('.') ?? '';
+        return field ? `${field}: ${item.msg ?? '格式不正确'}` : (item.msg ?? '格式不正确');
+      })
+      .join('；');
+  }
+  return payload?.message || payload?.error || `请求失败（${status}）`;
+}
 type RequestInitWithTimeout = RequestInit & { timeoutMs?: number };
 
 async function request<T>(path: string, init?: RequestInitWithTimeout): Promise<T> {
@@ -97,7 +111,7 @@ async function request<T>(path: string, init?: RequestInitWithTimeout): Promise<
       handleUnauthorized(response);
       let payload: ApiErrorShape | null = null;
       try { payload = await response.json() as ApiErrorShape; } catch { /* non-JSON error */ }
-      throw new Error(payload?.detail || payload?.message || payload?.error || `请求失败（${response.status}）`);
+      throw new Error(errorMessage(payload, response.status));
     }
     return await response.json() as T;
   } catch (error) {
@@ -384,7 +398,14 @@ export const api = {
   },
 
   async getCurrentUser(): Promise<UserInfo> {
-    if (isMockMode()) { await wait(200); return { id: 1, username: '林海', email: 'linhai@aquarise.local', role: 'admin' }; }
+    if (isMockMode()) {
+      await wait(200);
+      // 演示模式：以超级管理员身份进入（全量模块），便于展示全部页面与后台
+      return {
+        id: 1, username: '林海', email: 'linhai@aquarise.local', role: 'admin',
+        permissions: ['dashboard', 'ocean3d_monitor', 'ocean3d_science', 'detection', 'history', 'analysis', 'screen', 'reports', 'assistant', 'atlas', 'admin'],
+      };
+    }
     return request<UserInfo>('/api/v1/auth/me');
   },
 
@@ -546,3 +567,134 @@ export async function streamChat(
     }
   }
 }
+
+// ============ 后台管理 API（/api/v1/admin/*，要求「后台管理」模块权限） ============
+
+const MOCK_GROUPS: AdminGroup[] = [
+  { id: 1, code: 'super_admin', name: '超级管理员', description: '拥有全部功能模块与后台管理权限（系统内置，权限不可修改）', is_system: true, member_count: 1, modules: ['dashboard', 'ocean3d_monitor', 'ocean3d_science', 'detection', 'history', 'analysis', 'screen', 'reports', 'assistant', 'atlas', 'admin'] },
+  { id: 2, code: 'analyst', name: '监测分析组', description: '一线监测与识别检测：垃圾识别、历史回溯、污染分析、报告产出（3D 锁监测模式）', is_system: true, member_count: 2, modules: ['dashboard', 'ocean3d_monitor', 'detection', 'history', 'analysis', 'reports', 'assistant'] },
+  { id: 3, code: 'commander', name: '指挥决策组', description: '管理决策视角：态势研判、指挥大屏与质量报告（3D 锁监测模式）', is_system: true, member_count: 1, modules: ['dashboard', 'ocean3d_monitor', 'analysis', 'screen', 'reports', 'assistant'] },
+  { id: 4, code: 'public', name: '科普访客组', description: '公众科普视角：3D 海洋科普与灭绝生物知识库（3D 锁科普模式；自助注册默认组）', is_system: true, member_count: 3, modules: ['ocean3d_science', 'atlas', 'assistant'] },
+];
+
+const MOCK_ADMIN_USERS: AdminUserRow[] = [
+  { id: 1, username: 'admin', email: 'admin@aquarise.local', phone_num: null, role: 'admin', group_id: 1, group_code: 'super_admin', group_name: '超级管理员', permissions: MOCK_GROUPS[0].modules, created_at: '2026-07-01 09:00:00', is_super_admin: true },
+  { id: 2, username: '监测员小赵', email: 'zhao@aquarise.local', phone_num: '13800000002', role: 'user', group_id: 2, group_code: 'analyst', group_name: '监测分析组', permissions: MOCK_GROUPS[1].modules, created_at: '2026-08-02 14:20:00', is_super_admin: false },
+  { id: 3, username: '决策员老钱', email: null, phone_num: '13800000003', role: 'user', group_id: 3, group_code: 'commander', group_name: '指挥决策组', permissions: MOCK_GROUPS[2].modules, created_at: '2026-08-20 10:12:00', is_super_admin: false },
+  { id: 4, username: '访客小孙', email: 'sun@example.com', phone_num: null, role: 'user', group_id: 4, group_code: 'public', group_name: '科普访客组', permissions: MOCK_GROUPS[3].modules, created_at: '2026-08-26 19:40:00', is_super_admin: false },
+];
+
+const MOCK_MODULES: ModuleMeta[] = [
+  { key: 'dashboard', name: '态势总览', desc: '海域污染态势仪表盘' },
+  { key: 'ocean3d_monitor', name: '海洋 3D · 监测模式', desc: '3D 态势监测：真实站点数据 + 实时检测联动 + 扩散推演' },
+  { key: 'ocean3d_science', name: '海洋 3D · 科普模式', desc: '3D 科普体验：垃圾沉降演示 + 知识漂流瓶 + 数字人导游' },
+  { key: 'detection', name: '智能识别', desc: '水下垃圾图片/视频识别检测' },
+  { key: 'history', name: '检测历史', desc: '历史检测任务查询与详情' },
+  { key: 'analysis', name: '污染分析', desc: '污染指数与材质分布研判' },
+  { key: 'screen', name: '指挥大屏', desc: '全屏指挥调度大屏' },
+  { key: 'reports', name: '质量报告', desc: '海域污染质量报告生成与管理' },
+  { key: 'assistant', name: '海洋守护者', desc: '数字人智能问答助手' },
+  { key: 'atlas', name: '海瞳 · 生命图谱', desc: '灭绝海洋生物 3D 知识库' },
+  { key: 'admin', name: '后台管理', desc: '用户/用户组与权限管理' },
+];
+
+export const adminApi = {
+  /** 功能模块注册表（用户组编辑页的矩阵数据源） */
+  async getModules(): Promise<ModuleMeta[]> {
+    if (isMockMode()) { await wait(120); return MOCK_MODULES; }
+    const payload = await request<{ items: ModuleMeta[] }>('/api/v1/admin/modules');
+    return payload.items;
+  },
+  async getOverview(): Promise<AdminOverview> {
+    if (isMockMode()) {
+      await wait(300);
+      return {
+        user_count: MOCK_ADMIN_USERS.length, group_count: MOCK_GROUPS.length,
+        task_count: 46, completed_task_count: 42, report_count: 12,
+        group_members: MOCK_GROUPS, recent_users: MOCK_ADMIN_USERS.slice().reverse(),
+      };
+    }
+    return request<AdminOverview>('/api/v1/admin/overview');
+  },
+
+  async getUsers(params: { page?: number; pageSize?: number; query?: string; groupId?: number } = {}): Promise<{ items: AdminUserRow[]; total: number }> {
+    if (isMockMode()) {
+      await wait(250);
+      const kw = (params.query ?? '').trim().toLowerCase();
+      const items = MOCK_ADMIN_USERS.filter((u) =>
+        (!kw || u.username.toLowerCase().includes(kw) || (u.email ?? '').toLowerCase().includes(kw))
+        && (!params.groupId || u.group_id === params.groupId));
+      return { items, total: items.length };
+    }
+    const qs = new URLSearchParams({ page: String(params.page ?? 1), page_size: String(params.pageSize ?? 20) });
+    if (params.query?.trim()) qs.set('query', params.query.trim());
+    if (params.groupId) qs.set('group_id', String(params.groupId));
+    return request<{ items: AdminUserRow[]; total: number }>(`/api/v1/admin/users?${qs.toString()}`);
+  },
+
+  async createUser(payload: { username: string; password: string; email?: string | null; phone_num?: string | null; group_id: number }): Promise<AdminUserRow> {
+    if (isMockMode()) {
+      await wait(400);
+      const group = MOCK_GROUPS.find((g) => g.id === payload.group_id) ?? MOCK_GROUPS[3];
+      return { id: Date.now(), username: payload.username, email: payload.email ?? null, phone_num: payload.phone_num ?? null, role: 'user', group_id: group.id, group_code: group.code, group_name: group.name, permissions: group.modules, created_at: new Date().toISOString().slice(0, 19).replace('T', ' '), is_super_admin: false };
+    }
+    return request<AdminUserRow>('/api/v1/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateUser(userId: number, payload: { group_id?: number; email?: string | null; phone_num?: string | null }): Promise<AdminUserRow> {
+    if (isMockMode()) { await wait(300); const u = MOCK_ADMIN_USERS.find((x) => x.id === userId); if (!u) throw new Error('用户不存在'); Object.assign(u, payload); return u; }
+    return request<AdminUserRow>(`/api/v1/admin/users/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async resetPassword(userId: number, newPassword: string): Promise<{ message: string }> {
+    if (isMockMode()) { await wait(350); return { message: '已重置密码（演示）' }; }
+    return request<{ message: string }>(`/api/v1/admin/users/${userId}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_password: newPassword }),
+    });
+  },
+
+  /** 注销账号（后端保护：不能注销自己；最高管理员账号不可注销） */
+  async deleteUser(userId: number): Promise<{ message: string }> {
+    if (isMockMode()) { await wait(350); return { message: '已注销（演示）' }; }
+    return request<{ message: string }>(`/api/v1/admin/users/${userId}`, { method: 'DELETE' });
+  },
+
+  async getGroups(): Promise<AdminGroup[]> {
+    if (isMockMode()) { await wait(250); return MOCK_GROUPS; }
+    const payload = await request<{ items: AdminGroup[] }>('/api/v1/admin/groups');
+    return payload.items;
+  },
+
+  async createGroup(payload: { name: string; code?: string; description?: string | null; modules: string[] }): Promise<AdminGroup> {
+    if (isMockMode()) { await wait(400); return { id: Date.now(), code: payload.code ?? `g_${Date.now().toString(36)}`, name: payload.name, description: payload.description ?? null, is_system: false, modules: payload.modules, member_count: 0 }; }
+    return request<AdminGroup>('/api/v1/admin/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateGroup(groupId: number, payload: { name?: string; description?: string | null; modules?: string[] }): Promise<AdminGroup> {
+    if (isMockMode()) { await wait(300); const g = MOCK_GROUPS.find((x) => x.id === groupId); if (!g) throw new Error('用户组不存在'); Object.assign(g, payload); return g; }
+    return request<AdminGroup>(`/api/v1/admin/groups/${groupId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteGroup(groupId: number): Promise<{ message: string }> {
+    if (isMockMode()) { await wait(300); return { message: '已删除（演示）' }; }
+    return request<{ message: string }>(`/api/v1/admin/groups/${groupId}`, { method: 'DELETE' });
+  },
+};
