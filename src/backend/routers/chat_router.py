@@ -5,6 +5,8 @@ import logging
 import os
 import time
 import uuid
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -310,6 +312,66 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.get("/chat/suggestions")
+async def chat_suggestions(
+    context: str = "",
+    session_id: str | None = None,
+    limit: int = 3,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """证据锚定的"建议追问"：只下发 suggestion_index 内、知识库确实能答的问题。
+
+    - 检索命中的文档用于加重排序（hit_docs），检索不可用时退化为纯关键词匹配；
+    - 同会话已问过的问题自动排除；
+    - 凑不满 limit 就少给甚至返回空数组——宁可不展示，也不能重新引入超纲问题。
+    """
+    context = (context or "").strip()
+    if not context:
+        return []
+    limit = max(1, min(int(limit or 3), 5))
+
+    asked_questions: list[str] = []
+    if session_id:
+        rows = (
+            db.query(ChatHistory.content)
+            .filter(
+                ChatHistory.session_id == session_id,
+                ChatHistory.user_id == current_user.id,
+                ChatHistory.role == ChatRole.user,
+            )
+            .order_by(ChatHistory.id.desc())
+            .limit(40)
+            .all()
+        )
+        asked_questions = [row[0] for row in rows if row[0]]
+
+    hit_docs: list[str] = []
+    svc = _get_ollama_service()
+    if svc is not None and getattr(svc, "rag", None) is not None:
+        try:
+            _, results = svc.rag.retrieve(context, k=4)
+            hit_docs = [str(item.get("source") or "") for item in results if item.get("source")]
+        except Exception:
+            logger.debug("建议追问检索加权失败，忽略命中文档", exc_info=True)
+    elif not hit_docs:
+        # Ollama/RAG 未就绪时退化到本地词法检索，仍能给排序加权。
+        try:
+            from src.LLM.rag.lexical_retriever import LocalKnowledgeRetriever
+
+            for item in LocalKnowledgeRetriever().search(context, 3) or []:
+                source = str((item.get("metadata") or {}).get("source") or "")
+                if source:
+                    hit_docs.append(Path(source).name)
+        except Exception:
+            pass
+
+    items = llm_stub.suggest_adjacent_questions(
+        context, limit=limit, asked_questions=asked_questions, hit_docs=hit_docs
+    )
+    return [{"question": item["question"], "sourceDoc": item["sourceDoc"]} for item in items]
 
 
 @router.get("/chat/history", response_model=list[ChatMessage])

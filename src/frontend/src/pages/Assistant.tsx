@@ -34,7 +34,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { api, getChatHistory, streamChat, type ChatMessagePayload } from '../services/api';
+import { api, getChatHistory, getSuggestions, streamChat, type ChatMessagePayload, type SuggestionItem } from '../services/api';
 import {
   loadXmovSDK,
   OceanDigitalHuman,
@@ -62,8 +62,10 @@ interface ActiveReportContext {
 
 const SYSTEM_PROMPT: ChatMessagePayload = {
   role: 'system',
+  // 与后端运行时提示词（chat_api.prepare_messages）同口径的轻量 UI 提示：
+  // 服务端 system 消息始终优先，这里只补充底线约束，避免双系统提示风格打架。
   content:
-    '你是海洋守护者，海瞳海洋垃圾识别与海洋环保平台的专业 AI 助手。请结合项目知识库直接回答海洋垃圾、污染治理和检测结果问题；先给结论，再给依据和行动建议，不确定就明确说明，不要编造。不得把用户问题或历史消息中的假设当作事实；涉及具体数字、技术参数、编码、颜色体系或分类体系时，必须有知识库/报告依据，否则明确说明资料不足或不确定。不要在介绍中主动提及项目背景或开发者信息；只有当用户问到开发者、作者或“谁做的”时，回答“这是一个实训项目成果；海瞳 LLM 组是本项目 LLM 部分负责人，负责模型微调与对话能力升级。”；当用户问父母、爸爸或妈妈时，说明你是 AI 助手，没有家庭关系，并补充海瞳 LLM 组的 LLM 负责人身份。',
+    '你是海洋守护者，海瞳平台的 AI 助手。回答保持自然、有温度，用通俗语言解释专业概念；不确定就明确说明，不要编造数字、来源、机构或检测结论；不得把用户问题或历史消息中的假设当作事实。涉及具体数字和技术参数必须有知识库或报告依据。',
 };
 
 const SESSION_KEY = 'aquarise-chat-session';
@@ -468,245 +470,59 @@ function MessageBubble({
   );
 }
 
-// ---------- 智能追问建议组件 (自适应多轮上下文引擎) ----------
+// ---------- 建议追问（证据锚定：只展示后端确认知识库能答的问题） ----------
+// 旧版在此维护 10 组关键词池 ×3 条共 30 条硬编码深水区问题 + 4 条兜底题，
+// 其中大量超出知识库覆盖（RFID 渔具追踪、UUV 巡检、PLA 特定环境降解等），
+// 而且触发条件匹配 AI 自己的回答文本——回答里出现"置信度/塑料"就弹出超纲追问，
+// 用户点了必然得到"资料不足"。现在唯一来源是后端 /api/v1/chat/suggestions：
+// 后端按话题检索加权、过滤黑名单并排除本会话已问问题；返回空就隐藏本区块。
 
 interface FollowUpProps {
+  sessionId: string;
   userQuestion?: string;
   assistantAnswer?: string;
-  allMessages: UiMessage[];
   onSelect: (q: string) => void;
   busy: boolean;
 }
 
 function FollowUpSuggestions({
+  sessionId,
   userQuestion,
   assistantAnswer,
-  allMessages,
   onSelect,
   busy,
 }: FollowUpProps) {
-  const suggestions = useMemo(() => {
-    if (!assistantAnswer) return [];
-    const uText = (userQuestion || '').toLowerCase();
-    const aText = (assistantAnswer || '').toLowerCase();
-    const combined = `${uText} ${aText}`;
+  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
+  const contextText = useMemo(
+    () => [userQuestion, assistantAnswer].filter(Boolean).join(' ').slice(0, 300),
+    [userQuestion, assistantAnswer],
+  );
 
-    // 收集对话历史，避免生成重复或已被提问过的问题
-    const historyText = allMessages.map((m) => m.content.toLowerCase()).join(' ');
-
-    // 结构化领域追问知识图谱
-    const knowledgePools: Array<{ match: () => boolean; questions: string[] }> = [
-      // 1. 低置信度 / 浑浊水体 / 误检复核 / 图像增强
-      {
-        match: () =>
-          combined.includes('置信度') ||
-          combined.includes('复核') ||
-          combined.includes('误检') ||
-          combined.includes('把握') ||
-          combined.includes('阈值') ||
-          combined.includes('浑浊') ||
-          combined.includes('混浊') ||
-          combined.includes('去雾') ||
-          combined.includes('模糊'),
-        questions: [
-          '针对低置信度（<0.6）的水下疑似目标，有哪些时序多帧跟踪与人工复核机制？',
-          '在浑浊泥沙或暗光深水环境中，如何结合图像去散射与超分辨率提升检测率？',
-          '低置信度识别结果在生成正式海域污染评估报告时如何做降级与风险标注？',
-        ],
-      },
-      // 2. 废弃渔网 / 幽灵渔网 / 珊瑚保护 / 缠绕解脱
-      {
-        match: () =>
-          combined.includes('渔网') ||
-          combined.includes('幽灵渔网') ||
-          combined.includes('珊瑚') ||
-          combined.includes('缠绕') ||
-          combined.includes('trash_net') ||
-          combined.includes('渔具') ||
-          combined.includes('潜水'),
-        questions: [
-          '水下幽灵渔网缠绕珊瑚礁时，潜水员或 ROV 进行微创切割的标准作业指引是什么？',
-          '打捞上岸的废弃尼龙与聚乙烯渔网有哪些脱盐清洗与再生颗粒高值化利用途径？',
-          '如何利用水下声呐应答器与 RFID 标签对高风险遗失渔具实现长效全流程追踪？',
-        ],
-      },
-      // 3. 微塑料 / 降解机理 / 生态食物链毒性 / 纳米塑料
-      {
-        match: () =>
-          combined.includes('微塑料') ||
-          combined.includes('降解') ||
-          combined.includes('碎裂') ||
-          combined.includes('纳米塑料') ||
-          combined.includes('5毫米') ||
-          combined.includes('5mm') ||
-          combined.includes('食物链') ||
-          combined.includes('浮游生物'),
-        questions: [
-          '微塑料在近岸表层海水与深海沉积物中的光谱快速定性定量检测方法有哪些？',
-          '微塑料吸附持久性有机污染物（POPs）后，如何通过海洋食物链产生生物毒性富集？',
-          '可降解塑料（如 PLA/PHA）在真实海洋低温高盐缺氧环境下的降解速率与演化机理是什么？',
-        ],
-      },
-      // 4. 塑料瓶 / 塑料袋 / 漂浮垃圾 / 拦截打捞 / 洋流动力学
-      {
-        match: () =>
-          combined.includes('塑料瓶') ||
-          combined.includes('塑料袋') ||
-          combined.includes('塑料') ||
-          combined.includes('trash_bottle') ||
-          combined.includes('trash_bag') ||
-          combined.includes('漂浮') ||
-          combined.includes('无人艇') ||
-          combined.includes('拦截'),
-        questions: [
-          '针对渤海近岸漂浮塑料垃圾，有哪些基于无人艇（USV）的自主巡航与高效拦截装置？',
-          'PET 塑料瓶在海水长期浸泡与紫外辐射下的力学老化衰减与微粒碎裂模型如何构建？',
-          '如何结合高分辨率海洋数值同化模式模拟预测近岸漂浮垃圾的漂移聚集带？',
-        ],
-      },
-      // 5. MARPOL 公约 / 国际海事法规 / 船舶排污监管 / 港口接收
-      {
-        match: () =>
-          combined.includes('marpol') ||
-          combined.includes('公约') ||
-          combined.includes('船舶') ||
-          combined.includes('附则') ||
-          combined.includes('排污') ||
-          combined.includes('港口') ||
-          combined.includes('法规') ||
-          combined.includes('海事') ||
-          combined.includes('罚则'),
-        questions: [
-          'MARPOL 附则 V 对特殊区域（如地中海、波罗的海等）船舶生活垃圾排放有哪些禁止条款？',
-          '海事监管部门在检查船舶垃圾记录簿（GRB）与防污染证书时重点核查哪些项？',
-          '我国沿海港口对国际航行船舶产生的塑料废弃物有哪些无害化接收与转运联单流程？',
-        ],
-      },
-      // 6. 清理优先级 / 网格化巡检 / 治理方案 / 复测评估
-      {
-        match: () =>
-          combined.includes('清理') ||
-          combined.includes('优先级') ||
-          combined.includes('复测') ||
-          combined.includes('方案') ||
-          combined.includes('打捞') ||
-          combined.includes('治理') ||
-          combined.includes('巡检') ||
-          combined.includes('网格'),
-        questions: [
-          '如何基于垃圾堆积密度、生态脆弱度与潮汐窗口划分 A/B/C 三级清理响应网格？',
-          '海岸清滩作业完成后，推荐采用哪种样方抽检方案评估生态净化达标率？',
-          '针对潮间带与泥质滩涂，如何配置轻量化机械化装备清漂以减少对底栖生物的扰动？',
-        ],
-      },
-      // 7. 质量评分 / 报告评级 / 综合指数 / 预警联动
-      {
-        match: () =>
-          combined.includes('报告') ||
-          combined.includes('评分') ||
-          combined.includes('污染等级') ||
-          combined.includes('轻度') ||
-          combined.includes('重度') ||
-          combined.includes('严重') ||
-          combined.includes('指数') ||
-          combined.includes('预警'),
-        questions: [
-          '综合环境质量评分（100分制）中各类垃圾数量与材质毒性权重是如何分配计算的？',
-          '当某监测区域触发“严重污染”红色预警时，系统建议启动哪些联合联动处置与应急溯源？',
-          '如何将本次检测结果一键导出为符合国家生态环境部监测标准的专业研判报告？',
-        ],
-      },
-      // 8. 开发者 / 团队 / 海瞳 LLM 组 / 平台技术架构 / RAG 知识库
-      {
-        match: () =>
-          combined.includes('海瞳 LLM 组') ||
-          combined.includes('谁做') ||
-          combined.includes('开发') ||
-          combined.includes('作者') ||
-          combined.includes('团队') ||
-          combined.includes('爸爸') ||
-          combined.includes('父亲') ||
-          combined.includes('架构') ||
-          combined.includes('rag') ||
-          combined.includes('知识库'),
-        questions: [
-          '海瞳平台在 LLM 领域微调与 RAG 本地向量知识库挂载方面采用了哪些核心技术？',
-          '模型是如何结合 YOLO11 视觉检测结果生成智能治理建议的？',
-          '海瞳平台的计算机视觉算法支持精准识别哪些水下垃圾类别？',
-        ],
-      },
-      // 9. 危废 / 电池 / 油污 / 金属腐蚀 / 化学品
-      {
-        match: () =>
-          combined.includes('金属') ||
-          combined.includes('电池') ||
-          combined.includes('化学品') ||
-          combined.includes('危废') ||
-          combined.includes('油污') ||
-          combined.includes('医疗') ||
-          combined.includes('毒性') ||
-          combined.includes('腐蚀'),
-        questions: [
-          '水下发现废弃铅酸蓄电池或油桶时，有哪些防止二次泄漏的原位封堵与打捞流程？',
-          '废弃金属在海水长期电化学腐蚀下对底栖生态的重金属溶出危害有多大？',
-          '针对海面漂浮油膜与含油污水，现场荧光检测与吸附材料回收工艺有哪些？',
-        ],
-      },
-      // 10. 海洋生态 / 生物保护 / 海龟鲸豚 / 栖息地恢复
-      {
-        match: () =>
-          combined.includes('生物') ||
-          combined.includes('海龟') ||
-          combined.includes('鲸') ||
-          combined.includes('豚') ||
-          combined.includes('鱼类') ||
-          combined.includes('鸟') ||
-          combined.includes('生态') ||
-          combined.includes('白化') ||
-          combined.includes('栖息地'),
-        questions: [
-          '水下垃圾对珍稀海洋生物（如海龟误食塑料、海豚缠绕）有哪些紧急现场救护指引？',
-          '水体中塑料增塑剂（如邻苯二甲酸酯）对海洋鱼类内分泌系统有哪些潜在干扰？',
-          '如何通过水下原位摄像与声学监测评估垃圾清理前后的珊瑚礁生物多样性恢复？',
-        ],
-      },
-    ];
-
-    const matchedQuestions: string[] = [];
-
-    for (const pool of knowledgePools) {
-      if (pool.match()) {
-        for (const q of pool.questions) {
-          // 过滤历史对话已存在或已选中的问题
-          if (!historyText.includes(q.toLowerCase()) && !matchedQuestions.includes(q)) {
-            matchedQuestions.push(q);
-            if (matchedQuestions.length >= 2) break;
+  useEffect(() => {
+    if (!contextText || busy) {
+      setSuggestions([]);
+      return undefined;
+    }
+    // 防抖 450ms；用 aborted 标记丢弃过期响应（request 自带超时，此处无需向 fetch 传 signal）
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void getSuggestions(sessionId, contextText, 3)
+        .then((items) => {
+          if (!controller.signal.aborted) {
+            setSuggestions(items.filter((item) => item.question !== userQuestion));
           }
-        }
-      }
-      if (matchedQuestions.length >= 2) break;
-    }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setSuggestions([]);
+        });
+    }, 450);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [sessionId, contextText, userQuestion, busy]);
 
-    // 后备兜底选项
-    if (matchedQuestions.length < 2) {
-      const fallbacks = [
-        '结合本次分析结果，针对该海域下一步建议采取哪些针对性防治措施？',
-        '海瞳平台如何协同水下无人潜航器（UUV）进行全天候自动化巡检？',
-        '在当前海况下，如何评估该类水下废弃物对海洋生态的长期扩散风险？',
-        '针对沿海社区与渔港，有哪些推行渔具实名制与减塑激励机制的优秀实践？',
-      ];
-      for (const f of fallbacks) {
-        if (!historyText.includes(f.toLowerCase()) && !matchedQuestions.includes(f)) {
-          matchedQuestions.push(f);
-          if (matchedQuestions.length >= 2) break;
-        }
-      }
-    }
-
-    return matchedQuestions.slice(0, 2);
-  }, [userQuestion, assistantAnswer, allMessages]);
-
-  if (suggestions.length === 0 || busy) return null;
+  if (busy || suggestions.length === 0) return null;
 
   return (
     <div className="og-followups">
@@ -714,9 +530,14 @@ function FollowUpSuggestions({
         <Sparkles size={13} /> 建议追问：
       </span>
       <div className="og-followups-list">
-        {suggestions.map((q) => (
-          <button key={q} className="og-followup-btn" onClick={() => onSelect(q)}>
-            <span>{q}</span>
+        {suggestions.map((item) => (
+          <button
+            key={item.question}
+            className="og-followup-btn"
+            onClick={() => onSelect(item.question)}
+            title={`依据：${item.sourceDoc}`}
+          >
+            <span>{item.question}</span>
             <ChevronRight size={12} />
           </button>
         ))}
@@ -724,7 +545,6 @@ function FollowUpSuggestions({
     </div>
   );
 }
-
 // ---------- 空态欢迎 Hero（能力卡片即点即问） ----------
 
 const HERO_CAPABILITIES = [
@@ -1754,12 +1574,12 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             </div>
           )}
 
-          {/* 智能追问建议 (多轮全域上下文自适应引擎) */}
+          {/* 建议追问（证据锚定：空结果时整块隐藏） */}
           {!busy && lastAssistantMessage && (
             <FollowUpSuggestions
+              sessionId={sessionId}
               userQuestion={lastUserMessage}
               assistantAnswer={lastAssistantMessage}
-              allMessages={messages}
               onSelect={ask}
               busy={busy}
             />

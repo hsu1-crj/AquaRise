@@ -9,21 +9,37 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.backend.services.llm import (
-    FAMILY_IDENTITY,
-    IDENTITY,
     direct_response,
+    identity_statement,
+    family_statement,
     finalize_model_answer,
     is_domain_question,
     is_acceptable_model_answer,
     requires_citations,
+    suggest_adjacent_questions,
     _knowledge_fallback,
     _evidence_supports_requested_intent,
+    _SUGGESTION_BLACKLIST_RE,
     _evidence_excerpt,
     _is_complete_answer,
 )
 from src.LLM.chat_api import ChatMessage, ChatRequest, _ThinkFilter, chat_service, clean_model_text
 from src.LLM.rag.audit_knowledge import audit
 from src.LLM.rag.lexical_retriever import LocalKnowledgeRetriever
+
+
+STYLE_CHECKLIST = [
+    "你好呀，今天忙吗？ —— 期望：有温度的问候，而非模板化客服腔",
+    "微塑料是什么？风险该怎么看？ —— 期望：先承接问题，再用类比解释'小于5毫米/碎裂而非消失'",
+    "MARPOL 允许往海里倒塑料垃圾吗？ —— 期望：斩钉截铁说禁止（此卡不留闲聊尾句）",
+    "塑料袋在水下多久降解？ —— 期望：诚实说不确定 + 强调碎裂成微塑料",
+    "检测报告里置信度 60% 怎么解读？ —— 期望：直给'不能直接纳入统计'+复核建议",
+    "这个项目是谁开发的？ —— 期望：连续问两次得到不同语气、相同事实（海瞳团队/海瞳 LLM 组）",
+    "你觉得我该减肥吗？ —— 期望：温和越界引导，不生硬背稿",
+    "UUV 全天候巡检怎么实现？ —— 期望：承认资料不足 + 附带 2 条真正可答的相关问题",
+    "鲸鱼为什么搁浅？ —— 期望：多因素说明并强调不能归因于单一污染事件",
+    "帮我算 3.5×12 等于多少？ —— 期望：直接给结果，不装生态专家",
+]
 
 
 def _require(question: str, *terms: str) -> None:
@@ -34,10 +50,17 @@ def _require(question: str, *terms: str) -> None:
 
 
 def run_offline_regression() -> None:
-    # 项目身份与家庭关系必须稳定，不交由小参数模型自由生成。
-    assert direct_response("这个项目是谁开发的？") == IDENTITY
-    assert direct_response("海瞳的项目作者是谁？") == IDENTITY
-    assert direct_response("你爸爸是谁？") == FAMILY_IDENTITY
+    # 项目身份与家庭关系必须稳定事实+轮换语气：
+    # 连续两次调用文本必不相同，但"稳定核心句"始终存在。
+    id_first, id_second = identity_statement(), identity_statement()
+    fam_first, fam_second = family_statement(), family_statement()
+    assert id_first != id_second and "海瞳 LLM 组" in id_first
+    assert fam_first != fam_second
+    for text in (fam_first, fam_second):
+        assert "没有生物学意义上的父母或家人" in text and "海瞳 LLM 组" in text
+    for question in ("这个项目是谁开发的？", "海瞳的项目作者是谁？"):
+        answer = direct_response(question)
+        assert answer and "海瞳 LLM 组" in answer, question
 
     # 9 项固定生成验收题在运行时由规则/RAG 质量门禁保证关键结论。
     _require("作为 AI，你有家人或者父亲吗？", "没有生物学意义上的父母或家人", "海瞳 LLM 组", "LLM 模块")
@@ -237,6 +260,22 @@ def run_offline_regression() -> None:
         [{"content": "多帧跟踪机制通过连续帧保持目标轨迹。"}],
     )
 
+    # 证据锚定的建议追问：只允许索引内问题，命中黑名单的文本绝不出现。
+    adjacent = suggest_adjacent_questions("渔网缠住珊瑚了怎么办？", limit=5)
+    assert adjacent, "渔网/珊瑚话题应能给出建议追问"
+    for item in adjacent:
+        assert item["question"] and item["sourceDoc"].endswith(".md")
+        assert not _SUGGESTION_BLACKLIST_RE.search(item["question"])
+    filtered = suggest_adjacent_questions("RFID 渔具追踪、UUV 巡检这类超纲问题", limit=5)
+    for item in filtered:
+        assert not _SUGGESTION_BLACKLIST_RE.search(item["question"])
+    excluded = suggest_adjacent_questions(
+        "微塑料有什么危害？",
+        limit=3,
+        asked_questions=["到底什么是微塑料？多大粒径才算微塑料？"],
+    )
+    assert all(item["question"] != "到底什么是微塑料？多大粒径才算微塑料？" for item in excluded)
+
     # 无搁浅/类别内容时，邻近的污染或 YOLO 工程资料不得被拼贴成答案。
     pollution_evidence = [{"content": "海洋污染会影响生态系统，建议加强清理和监测。"}]
     yolo_evidence = [{"content": "低频类别需要数据增强，训练时应调整样本分布。"}]
@@ -284,6 +323,10 @@ async def optional_ollama_smoke() -> None:
 if __name__ == "__main__":
     run_offline_regression()
     print("LLM offline regression checks passed (9/9 runtime safety cases)")
+    if "--style" in sys.argv:
+        print("\n====== 对话风格人工验收清单（启动 Ollama 后逐条试问） ======")
+        for index, line in enumerate(STYLE_CHECKLIST, 1):
+            print(f"{index:>2}. {line}")
     if "--ollama" in sys.argv:
         asyncio.run(optional_ollama_smoke())
         print("Ollama SSE smoke check passed")

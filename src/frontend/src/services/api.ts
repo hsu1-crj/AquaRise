@@ -461,6 +461,30 @@ export async function getChatHistory(sessionId: string): Promise<ChatMessagePayl
   return Array.isArray(payload) ? payload : [];
 }
 
+export interface SuggestionItem {
+  /** 建议的问题文本（后端已保证知识库可答） */
+  question: string;
+  /** 证据来源文档名，用于悬浮提示 */
+  sourceDoc: string;
+}
+
+/**
+ * 证据锚定的"建议追问"：只展示知识库确实能答的问题。
+ * 后端会按当前话题检索加权、过滤超纲黑名单并排除本会话已问过的问题；
+ * 返回空数组表示本轮不展示追问区（宁缺毋滥，绝不用旧静态池凑数）。
+ */
+export async function getSuggestions(sessionId: string, context: string, limit = 3): Promise<SuggestionItem[]> {
+  // 演示/离线模式没有对话链路，直接不展示追问区
+  if (isDemoMode() || isMockMode()) return [];
+  const params = new URLSearchParams({
+    session_id: sessionId,
+    context: context.slice(0, 400),
+    limit: String(limit),
+  });
+  const payload = await request<SuggestionItem[]>(`/api/v1/chat/suggestions?${params.toString()}`, { timeoutMs: 8000 });
+  return Array.isArray(payload) ? payload : [];
+}
+
 export async function streamChat(
   messages: ChatMessagePayload[],
   sessionId: string,

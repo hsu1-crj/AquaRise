@@ -7,28 +7,98 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
 import os
 import re
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Any, AsyncGenerator, Optional, Sequence
 
-IDENTITY = (
-    '我是海瞳平台的海洋守护者，这个项目是海瞳团队共同开发的成果。'
-    'LLM 这块主要由海瞳 LLM 组负责，包括模型微调和对话能力升级。有什么海洋环保问题想了解吗？'
+# 身份/范围类固定文案过去是单条常量：同一问题连问三次得到一字不差的答案，
+# 是"机器人感"最强的来源之一。现在每个语义类别提供多个语气变体，
+# 由 pick_variant 保证同一类别连续两次调用不会返回同一句；
+# 每个变体都保留稳定的"核心事实句"（海瞳 LLM 组负责 LLM、专业范围描述等），
+# 便于测试用子串断言而不是全文相等断言。
+_IDENTITY_POOL = (
+    '我是海瞳平台的海洋守护者～这个项目是海瞳团队一起做的，LLM 这块主要由海瞳 LLM 组负责，'
+    '包括模型微调和对话能力升级。有什么海洋环保的问题想聊，随时来。',
+    '你好呀！我是海洋守护者，海瞳团队的成员之一——具体到对话这块，是海瞳 LLM 组在负责 LLM 的微调和升级。'
+    '想了解检测报告、垃圾分类还是污染治理？',
+    '这个问题问到我身上了。我是海瞳平台的 AI 助手"海洋守护者"，项目由海瞳团队开发，'
+    '其中 LLM 模块由海瞳 LLM 组负责。海洋环保相关的问题都可以找我聊聊。',
 )
-FAMILY_IDENTITY = (
-    '哈哈，我是 AI 助手，没有生物学意义上的父母或家人。'
-    '不过这个项目确实是海瞳团队一起搭建的，LLM 模块由海瞳 LLM 组负责开发。'
-    '要不聊聊海洋垃圾识别？这才是我擅长的领域。'
+_FAMILY_POOL = (
+    '哈哈，这个我可答不上——我是 AI 助手，没有生物学意义上的父母或家人。'
+    '不过这个项目确实是海瞳团队一起搭的，LLM 模块由海瞳 LLM 组负责。要不聊聊海洋垃圾？这才是我的主场。',
+    '被你问住了～我是 AI，没有生物学意义上的父母或家人。'
+    '不过海瞳这个"家"倒是有真实分工：团队一起搭建，LLM 模块由海瞳 LLM 组负责开发。有什么海洋环保的事想问吗？',
+    '哈哈我没有爸爸妈妈——AI 助手没有生物学意义上的父母或家人。'
+    '顺便说一句，这个项目是海瞳团队的成果，LLM 模块归海瞳 LLM 组管。聊聊微塑料或者渔网怎么处理？',
 )
-PLATFORM_IDENTITY = (
-    '我是海瞳平台的海洋守护者，主要帮你分析水下垃圾检测结果、解读污染风险、'
-    '回答海洋环保相关的问题。比如检测报告怎么看、不同垃圾该怎么处理、MARPOL 公约是什么等等。'
+_PLATFORM_POOL = (
+    '我是海瞳平台的海洋守护者，主要帮你分析水下垃圾检测结果、解读污染风险、回答海洋环保问题——'
+    '比如检测报告怎么看、不同垃圾该怎么处理、MARPOL 公约讲了什么。',
+    '简单说，我是海瞳平台的海洋守护者：检测结果交给我帮你研判，污染风险帮你解读，'
+    '海洋治理和环保知识也可以随时问我。',
+    '你可以把我当成海瞳平台的海洋环保顾问（代号"海洋守护者"）：识别结果解读、报告分析、'
+    '垃圾分类处置建议，还有微塑料这类科普话题都在我的能力范围内。',
 )
-SCOPE_RESPONSE = (
-    "这个问题超出我的专业范围了——我主要聚焦在海洋垃圾识别、污染分析和海洋环保政策这块。"
-    "如果你有检测结果需要解读，或者想了解海洋治理方面的内容，我会更有帮助。"
+_SCOPE_POOL = (
+    '这个问题超出我的专业范围了——我主要聚焦在海洋垃圾识别、污染分析和海洋环保政策这块。'
+    '换个方向问我检测报告或海洋治理的内容，我会更帮得上忙。',
+    '说实话这题我不是行家，我的主场是海洋垃圾、污染分析和海洋环保政策。'
+    '要不我们回到这片"海"？有检测数据或治理问题尽管抛过来。',
+    '这个我就不太懂了——毕竟我的知识主要泡在海水里：垃圾识别、污染分析、海洋环保政策。'
+    '换我擅长的领域问你随便挑。',
 )
+
+
+def pick_variant(key: str, pool: Sequence[str]) -> str:
+    """按类别轮换文案变体，保证同一类别连续两次调用拿到不同的句子。"""
+    cursor = _VARIANT_CURSOR.get(key, -1)
+    nxt = (cursor + 1) % max(1, len(pool))
+    _VARIANT_CURSOR[key] = nxt
+    return pool[nxt]
+
+
+_VARIANT_CURSOR: dict[str, int] = {}
+
+
+def identity_statement() -> str:
+    return pick_variant("identity", _IDENTITY_POOL)
+
+
+def family_statement() -> str:
+    return pick_variant("family", _FAMILY_POOL)
+
+
+def platform_intro() -> str:
+    return pick_variant("platform", _PLATFORM_POOL)
+
+
+def scope_response() -> str:
+    return pick_variant("scope", _SCOPE_POOL)
+
+
+# 领域知识卡的"语气壳"：卡片的结论、数字和边界表述是反幻觉资产，一字不动；
+# 只允许在整段末尾追加可轮换的收尾建议——不做开场白改写，
+# 因为"纠正前提""给出阈值"这类回答必须保持直给的开头（有回归测试锚定）。
+_CARD_CLOSINGS = {
+    "info": (
+        "还想深入哪一块？相关的来源、危害或处置方式都可以接着问。",
+        "如果你是想结合自己的检测数据看这个问题，把报告发我能讲得更具体。",
+        "这块知识库里有对应文档，想了解更多细节随时喊我。",
+    ),
+    "action": (
+        "如果你有具体的现场条件或数据，我可以帮你把方案再细化。",
+        "实际执行前记得结合海域环境、作业规范和装备条件做校准。",
+        "遇到拿不准的场景，先按保守口径处理并完整记录，再升级给专业人员确认。",
+    ),
+}
+
+
+def _card_close(kind: str = "info") -> str:
+    return pick_variant(f"close-{kind}", _CARD_CLOSINGS[kind])
 
 # 只有命中业务语境的复杂问题才交给小参数模型；其余问题明确收敛范围，
 # 避免模型把天气、编程、闲聊等内容硬套成海洋回答。
@@ -109,11 +179,15 @@ def is_near_duplicate_answer(answer: str, previous_answer: str, threshold: float
 
 
 def duplicate_follow_up_response(message: str) -> str:
-    """重复门禁后的确定性说明，避免把旧答案伪装成追问答案。"""
-    return (
-        "针对你补充的问题，当前知识库没有检索到比上一轮更细、可核验的新依据，"
-        "所以我不把上一段原样重复成新答案。你可以补充具体对象、海域或希望核对的条款，我再按这些条件回答。"
-    )
+    """重复门禁后的确定性说明：不把旧答案伪装成新答案，并给出可推进的追问方向。"""
+    return pick_variant("duplicate", (
+        "针对你补充的问题，知识库暂时没有检索到比上一轮更细、可核验的新依据——"
+        "与其把上一段换个说法再发一遍，不如我们往前走一步：你可以补充具体的对象、海域或想核对的条款，我按这些条件重新查。",
+        "这轮的答案和上一轮的核心内容是一致的，知识库里目前没有新的证据支撑出不同结论。"
+        "如果你觉得哪里没说清，指出来我再展开；或者换个角度问，比如具体到某种垃圾、某个海域。",
+        "我又核对了一遍知识库，得到的依据还是上一轮那些，没有更细的新材料。"
+        "硬要复述一遍对你没什么帮助——补充点约束条件（材质、地点、数量）再来一轮会更有收获。",
+    ))
 
 
 def _strip_think(text: str) -> str:
@@ -331,8 +405,10 @@ def is_acceptable_model_answer(
 
     # RAG 回答必须能追溯到实际检索结果，来源编号必须存在。
     if evidence is not None:
+        # 引用强制开关的默认值已放开：主链路由 requires_citations(question) 决定，
+        # 只有报告/法规/统计类问题才逐段要求 [S编号]；科普回答不再因格式被整段替换。
         require = (
-            os.getenv("LLM_REQUIRE_CITATIONS", "true").strip().lower() in {"1", "true", "yes", "on"}
+            os.getenv("LLM_REQUIRE_CITATIONS", "false").strip().lower() in {"1", "true", "yes", "on"}
             if require_citations is None else require_citations
         )
         if not _evidence_supports_requested_intent(question, evidence):
@@ -348,7 +424,8 @@ def is_acceptable_model_answer(
             return False
         if any(value < 1 or value > len(evidence) for value in citations):
             return False
-        if len(text) > 800:
+        # 篇幅上限从 800 放宽到 1100：这是形式层检查，误杀完整的长科普答案得不偿失。
+        if len(text) > 1100:
             return False
         if _has_unsupported_facts(raw, question, evidence):
             return False
@@ -386,9 +463,14 @@ def is_acceptable_model_answer(
         "传感器": ("传感器", "声呐", "深度计", "监测"),
     }
     q_lower = query_lower
+    # 必需要素表从"缺一项即整段否决"降级为分层处置：硬幻觉特征（编造数字/机构/事件）
+    # 仍然单独一票否决；这里只累计形式层缺失，缺 2 项以上才判定为答非所问走兜底。
+    missing_required = 0
     for topic, terms in critical_terms.items():
         if topic in q_lower and not any(term in text for term in terms):
-            return False
+            missing_required += 1
+    if missing_required >= 2:
+        return False
 
     # 拦截违反核心知识边界的结论
     if "marpol" in q_lower and re.search(r"(允许|可以|能够).{0,12}(塑料|垃圾).{0,12}(倒|排放).{0,8}(海|海里)", text):
@@ -397,16 +479,55 @@ def is_acceptable_model_answer(
     return True
 
 
+def _trim_to_complete_sentence(text: str, max_chars: int = 700) -> str:
+    """把可能停在不完整处的答案裁到最近的句末，保留可读性。"""
+    trimmed = text.strip()
+    if len(trimmed) <= max_chars:
+        return trimmed if re.search(r"[。！？!?；;]\s*$", trimmed) else trimmed
+    cut = trimmed[:max_chars]
+    ends = [m.end() for m in re.finditer(r"[。！？!?；;]", cut)]
+    return cut[:ends[-1]] if ends else cut
+
+
+def _patch_with_evidence(
+    question: str, model_answer: str, evidence: Optional[Sequence[dict[str, Any]]]
+) -> Optional[str]:
+    """门禁未通过但模型原文没有硬幻觉时的中间层：保留原文主体，
+    附上两条可直接核验的知识库要点，替代过去"整段替换为拼贴摘录"的做法。"""
+    raw = (model_answer or "").strip()
+    cleaned = _strip_think(raw)
+    if not evidence or len(_compact(cleaned)) < 60:
+        return None
+    # 硬幻觉（无依据数字/机构/事件）不适用拼接层——那种内容一个字都不能留。
+    if _has_unsupported_facts(cleaned, question, evidence):
+        return None
+    if not _has_substantive_evidence_overlap(question, evidence):
+        return None
+    excerpt, _sources = _evidence_excerpt(question, evidence)
+    if not excerpt:
+        return None
+    top_lines = [line for line in excerpt.splitlines()][:2]
+    supplement = "\n".join(top_lines)
+    return (
+        f"{_trim_to_complete_sentence(cleaned)}\n\n"
+        f"另外补充两点可以直接核验的要点：\n{supplement}"
+    )
+
+
 def finalize_model_answer(
     question: str,
     model_answer: str,
     evidence: Optional[Sequence[dict[str, Any]]] = None,
     report_context: Optional[str] = None,
 ) -> str:
-    """统一模型后处理：净化后须通过质量门禁，否则返回可追溯兜底。"""
+    """统一模型后处理：净化后须通过质量门禁；形式层擦伤优先走"原文+证据补丁"，
+    只有硬幻觉或完全跑题才落到可追溯兜底链。"""
     cleaned = _strip_think(model_answer)
     if is_acceptable_model_answer(cleaned, question, evidence, require_citations=requires_citations(question)):
         return cleaned
+    patched = _patch_with_evidence(question, model_answer, evidence)
+    if patched and is_acceptable_model_answer(patched, question, evidence, require_citations=False):
+        return patched
     return _fallback_response(question, evidence, report_context)
 
 
@@ -948,7 +1069,39 @@ def _deterministic_math_response(message: str) -> Optional[str]:
     )
 
 
+# 这些特征出现在卡片末段时，说明它自带免责/校准收尾（安全、法规类），不再叠第二层收尾句；
+# 兜底摘录(_knowledge_fallback)、报告快照等结构化输出也不二次包装。
+_CARD_TAIL_SKIP_RE = re.compile(
+    r"以[^。，]{0,12}为准|必须由现场负责人确认|不能(?:直接)?套[用固]|不得仅凭单帧"
+    r"|项目知识库目前没有这些参数|马上帮你查|随时来找我|有什么想了解的吗",
+)
+_STYLE_EXEMPT_MARKER = (
+    "根据项目知识库中与这个问题最相关的资料",
+    "根据当前绑定的报告/文档内容",
+)
+
+
+def _apply_card_style(text: str) -> str:
+    """给长领域知识卡追加可轮换的收尾建议；短句、话术池输出和带免责尾段的原文保持原样。"""
+    if not text or len(text) < 90 or any(marker in text for marker in _STYLE_EXEMPT_MARKER):
+        return text
+    # 身份/家人/平台/越界/重复拒答这些已经走各自的变体池，不再二次包装。
+    for pool in (_IDENTITY_POOL, _FAMILY_POOL, _PLATFORM_POOL, _SCOPE_POOL):
+        if text in pool:
+            return text
+    if _CARD_TAIL_SKIP_RE.search(text[-120:]):
+        return text
+    is_action = bool(re.search(r"建议|流程|步骤|方案|处理|清理|执行|作业|操作|复核|拍摄", text))
+    return f"{text}\n\n{_card_close('action' if is_action else 'info')}"
+
+
 def direct_response(message: str) -> Optional[str]:
+    """确定性直答的公开入口：核心命中后统一追加语气壳，让重复知识点的表达不完全相同。"""
+    answer = _direct_response_core(message)
+    return _apply_card_style(answer) if answer else None
+
+
+def _direct_response_core(message: str) -> Optional[str]:
     """为身份、证据边界和高风险海洋题提供稳定的确定性答案。
 
     这不是替代 RAG，而是防止 1.5B 基座在项目事实、法规禁令和检测阈值上自由发挥。
@@ -959,9 +1112,9 @@ def direct_response(message: str) -> Optional[str]:
         return "你好呀，有什么想了解的海洋环保话题吗？比如检测报告、垃圾分类或者污染治理。"
 
     if re.search(r"爸爸|父亲|母亲|妈妈|父母|家人|家长|你爸|你爹|老爸|老妈|亲爹", q):
-        return FAMILY_IDENTITY
+        return family_statement()
     if re.search(r"谁开发|开发者|项目作者|作者|谁做的|谁创建|项目是谁|谁制作|谁写的|谁设计|制作者|创始人|开发这个项目|aquarise.*作者", q):
-        return IDENTITY
+        return identity_statement()
     if re.search(r"^(?:(?:你好|您好|嗨|hello|hi)(?:呀|啊|哟)?[！!。．.、, ]*)+$", q):
         return "你好！我是海洋守护者，可以帮你分析检测结果、解答海洋环保问题。有什么想了解的吗？"
     if re.search(r"早上好|下午好|晚上好|还好吗|过得还好吗|在吗|有空吗", q):
@@ -1001,9 +1154,9 @@ def direct_response(message: str) -> Optional[str]:
     if platform_lookup and re.search(r"^(?:报告页|报告页面).{0,8}(?:是|做|干).{0,4}什么", q):
         return "报告页面用于查看检测任务生成的质量报告，并在导入或分析后查看关键发现、风险等级、处置方案和证据。"
     if platform_lookup and re.search(r"你是谁|你是什么|你是哪个平台|你是哪家|你属于|来自哪里|你叫什么|介绍一下你|你能做什么|有什么功能|海瞳", q):
-        return PLATFORM_IDENTITY
+        return platform_intro()
     if re.search(r"天气|股票|写代码|编程|写程序|游戏|小说|笑话|算命|新闻|影视|家庭作业|作业题|写作业", q):
-        return SCOPE_RESPONSE
+        return scope_response()
 
     # 以下是核心专业知识，需要保持权威性但可以更亲和
     if re.search(r"(?:你|您).{0,4}(?:刚才|前面|上一轮).{0,8}3\s*年.{0,8}(?:降解|分解).{0,4}(?:完|掉)", q) and re.search(r"对吗|是不是|没错吧|正确吗", q):
@@ -1214,7 +1367,7 @@ def direct_response(message: str) -> Optional[str]:
             "不过要注意，一张模糊图片 + 低置信度结果不能直接当成确定事实哦。"
         )
     if not is_domain_question(q):
-        return SCOPE_RESPONSE
+        return scope_response()
     return None
 
 
@@ -1294,14 +1447,117 @@ def _fallback_response(
     )
 
 
+# ==================== 建议追问（证据锚定） ====================
+# 此前前端写死的 34 条"建议追问"包含大量知识库覆盖不到的深水区问题
+# （RFID 渔具追踪、UUV 巡检、PLA 特定环境降解速率等），用户点过去必然得到
+# "资料不足"。现在唯一允许的追问来源是本仓库维护的证据锚定索引：
+# 每条问题都标注了来源文档与关键词，服务端按黑名单+历史去重后再下发。
+_SUGGESTION_BLACKLIST_RE = re.compile(
+    r"rfid|uuv|全天候|数值(?:模拟|同化|模式)|电化学|老化衰减|碎裂模型"
+    r"|光谱[^。]{0,8}(?:定性|定量)|(?:pla|pha)\s*/|(?:低温高盐|缺氧)"
+    r"|毒性权重|评分[^。]{0,6}算法|荧光检测法|内分泌干扰|实名制|减塑激励",
+    re.I,
+)
+_SUGGESTION_INDEX_CACHE: dict[str, Any] = {"mtime": None, "items": []}
+
+
+def _suggestion_index_path() -> str:
+    # services/llm.py -> backend -> src -> 仓库根
+    default = Path(__file__).resolve().parents[3] / "data" / "knowledge" / "suggestion_index.json"
+    return os.getenv("SUGGESTION_INDEX_FILE", str(default))
+
+
+def _load_suggestion_index() -> list[dict[str, Any]]:
+    path = Path(_suggestion_index_path())
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return []
+    if _SUGGESTION_INDEX_CACHE["mtime"] == mtime:
+        return _SUGGESTION_INDEX_CACHE["items"]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    items = [
+        {
+            "question": str(entry.get("question") or "").strip(),
+            "sourceDoc": str(entry.get("sourceDoc") or "").strip(),
+            "keywords": [str(k).lower() for k in (entry.get("keywords") or [])],
+        }
+        for entry in payload
+        if isinstance(payload, list) and isinstance(entry, dict)
+    ] if isinstance(payload, list) else []
+    _SUGGESTION_INDEX_CACHE["mtime"] = mtime
+    _SUGGESTION_INDEX_CACHE["items"] = items
+    return items
+
+
+def _is_usable_suggestion(question: str, asked_norms: set[str]) -> bool:
+    text = (question or "").strip()
+    if not text or len(text) < 8 or len(text) > 60:
+        return False
+    if _SUGGESTION_BLACKLIST_RE.search(text):
+        return False
+    compact = re.sub(r"[^\w\u4e00-\u9fff]+", "", text.lower())
+    return compact not in asked_norms
+
+
+def suggest_adjacent_questions(
+    context: str,
+    limit: int = 3,
+    asked_questions: Sequence[str] = (),
+    hit_docs: Sequence[str] = (),
+) -> list[dict[str, str]]:
+    """从证据锚定索引中挑出与当前话题相关且知识库确实能答的问题。
+
+    排序依据：命中文档匹配 > 关键词在上下文中的出现次数；凑不满就少给，
+    绝不用超纲问题凑数。
+    """
+    items = _load_suggestion_index()
+    if not items:
+        return []
+    asked_norms = {
+        re.sub(r"[^\w\u4e00-\u9fff]+", "", (q or "").lower()) for q in asked_questions
+    }
+    asked_norms.discard("")
+    context_lower = (context or "").lower()
+    hit_set = {str(doc) for doc in hit_docs}
+    scored: list[tuple[int, int, int, dict[str, str]]] = []
+    for order, entry in enumerate(items):
+        question = entry["question"]
+        if not _is_usable_suggestion(question, asked_norms):
+            continue
+        keywords = set(entry["keywords"])
+        keyword_hits = sum(1 for keyword in keywords if keyword and keyword in context_lower)
+        doc_bonus = 30 if entry.get("sourceDoc") in hit_set else 0
+        # 覆盖面兜底：文档标题与上下文的重叠也算弱信号
+        doc_name = re.sub(r"\.(md|markdown)$", "", entry.get("sourceDoc") or "")
+        topic_overlap = len(_query_terms(doc_name) & _substantive_query_terms(context))
+        score = doc_bonus + keyword_hits * 10 + min(topic_overlap, 5)
+        if score <= 0:
+            continue
+        scored.append((score, -keyword_hits, -order, {"question": question, "sourceDoc": entry.get("sourceDoc") or ""}))
+    scored.sort(reverse=True)
+    return [entry for _, _, _, entry in scored[: max(1, limit)]]
+
+
 def _friendly_unknown(message: str) -> str:
-    """资料不足时给出短、可行动的引导，避免固定句造成重复感。"""
+    """资料不足时给出短、可行动的引导：承认边界，并主动递上真正能答的问题。"""
     templates = (
-        "哎呀，这个问题我暂时还没找到靠谱的资料，不敢乱说误导你～你补充点信息（比如具体海域、时间、检测数据），我马上帮你查！",
-        "呜呜，这个我翻遍知识库也没找到依据，不能瞎编给你。要不试试上方的快捷问题？或者说说你具体想了解哪一块？",
-        "这个我目前还真不太确定呢～不过你要是告诉我检测任务编号或报告里的数据，我可以帮你做针对性分析！",
+        "这个问题我暂时还没找到足够靠谱的资料，不敢乱说误导你～你补充点信息（比如具体海域、时间、检测数据），我马上帮你查！",
+        "这个我翻了一圈知识库也没找到可核验的依据，不能瞎编给你。你要是能描述得更具体一点，我再找一轮。",
+        "这个话题目前超出我能确认的范围了～说说你的具体场景？有报告编号或检测数据的话我可以做针对性分析。",
+        "这题我手头的资料答不扎实——不想拿半懂的知识糊弄你。换个角度问或者补充背景信息，我们再试一次。",
+        "这块我真的还在学习中，暂时给不出负责任的答案。如果你愿意说明具体想解决什么问题，也许我能从别的角度帮上忙。",
+        "这题超纲了哈哈。我的档案库里海洋垃圾、污染治理这块存货最足，相关的问题尽管来！",
     )
-    return templates[sum(ord(ch) for ch in (message or "")) % len(templates)]
+    base = templates[sum(ord(ch) for ch in (message or "")) % len(templates)]
+    adjacent = suggest_adjacent_questions(message, limit=2)
+    if adjacent:
+        listed = "、".join(f"「{item['question']}」" for item in adjacent)
+        return f"{base}\n\n要不先聊这两个我更有把握的话题：{listed}"
+    return base
 
 
 async def generate_chat_stream(
