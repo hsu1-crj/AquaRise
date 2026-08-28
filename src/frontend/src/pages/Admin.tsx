@@ -412,9 +412,17 @@ function GroupsTab() {
     setEditDraft({ name: group.name, description: group.description ?? '', modules: [...group.modules] });
   };
 
-  const toggleModule = (draft: { modules: string[] }, key: string) => {
-    draft.modules = draft.modules.includes(key) ? draft.modules.filter((m) => m !== key) : [...draft.modules, key];
-  };
+  const toggleEditModule = (key: string) =>
+    setEditDraft((prev) => ({
+      ...prev,
+      modules: prev.modules.includes(key) ? prev.modules.filter((m) => m !== key) : [...prev.modules, key],
+    }));
+
+  const toggleCreateModule = (key: string) =>
+    setCreateDraft((prev) => ({
+      ...prev,
+      modules: prev.modules.includes(key) ? prev.modules.filter((m) => m !== key) : [...prev.modules, key],
+    }));
 
   const saveEdit = async (groupId: number) => {
     setBusy(true);
@@ -498,7 +506,7 @@ function GroupsTab() {
             <label>职能说明<input value={createDraft.description} onChange={(event) => setCreateDraft({ ...createDraft, description: event.target.value })} placeholder="该组的定位与职责（选填）" /></label>
           </div>
           <div className="admin-matrix-label">功能模块（勾选即下放）</div>
-          {moduleMatrix(createDraft.modules, (key) => toggleModule(createDraft, key))}
+          {moduleMatrix(createDraft.modules, toggleCreateModule)}
           <footer>
             <span className="admin-form-error">{error && creating ? error : ''}</span>
             <button className="primary-button" onClick={submitCreate} disabled={busy}>{busy ? '创建中…' : <><Save size={14} />创建用户组</>}</button>
@@ -544,7 +552,7 @@ function GroupsTab() {
                       <label>职能说明<input value={editDraft.description} onChange={(event) => setEditDraft({ ...editDraft, description: event.target.value })} /></label>
                     </div>
                     <div className="admin-matrix-label">功能模块（勾选即下放）</div>
-                    {moduleMatrix(editDraft.modules, (key) => toggleModule(editDraft, key))}
+                    {moduleMatrix(editDraft.modules, toggleEditModule)}
                     <footer>
                       <button className="ghost-button" onClick={() => setEditingId(null)} disabled={busy}>取消</button>
                       <button className="primary-button" onClick={() => saveEdit(group.id)} disabled={busy}>{busy ? '保存中…' : <><Save size={14} />保存</>}</button>
