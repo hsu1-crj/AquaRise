@@ -673,20 +673,38 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 0 18px rgba(27,231,255,0.14);
   }
   .gbif-toggle {
-    display: none; align-items: center; justify-content: center; gap: 7px; flex: 0 0 auto;
-    min-height: 40px; padding: 0 15px; border-radius: 13px; cursor: pointer;
-    border: 1px solid rgba(135,222,255,0.25); color: #b7dbea;
-    background: rgba(5,24,42,0.70); font: 700 11px/1 var(--font-mono); letter-spacing: 0.05em;
-    transition: all 0.24s cubic-bezier(0.2,0.8,0.2,1);
+    display: none; align-items: center; justify-content: center; gap: 9px; flex: 0 0 auto;
+    min-height: 46px; padding: 0 15px 0 7px; border-radius: 14px; cursor: pointer;
+    border: 1px solid rgba(56,248,212,.34); color: #b7dbea;
+    background: linear-gradient(150deg,rgba(6,26,44,.88),rgba(4,16,30,.82));
+    box-shadow: 0 6px 18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
+    transition: all .24s cubic-bezier(.2,.8,.2,1);
   }
   #filterHub.planet-mode .gbif-toggle,
   #filterHub.species-mode .gbif-toggle { display: inline-flex; }
   .gbif-toggle:hover, .gbif-toggle:focus-visible { color: #fff; border-color: rgba(56,248,212,0.65); background: rgba(56,248,212,0.16); }
   .gbif-toggle.on { color: #031a1b; border-color: var(--cyan); background: linear-gradient(135deg,#38f8d4,#1be7ff); box-shadow: 0 0 18px rgba(56,248,212,0.42); }
-  .gbif-toggle.loading .gbif-toggle-dot { animation: gbifLoading 0.9s linear infinite; }
-  .gbif-toggle-dot { font-size: 15px; line-height: 1; }
+  .gbif-toggle-emblem{flex:none;width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(140deg,rgba(56,248,212,.16),rgba(27,231,255,.05) 58%,rgba(10,37,64,.5));border:1px solid rgba(56,248,212,.38);box-shadow:0 0 14px rgba(56,248,212,.14),inset 0 0 10px rgba(56,248,212,.08)}
+  .gbif-toggle-emblem svg{width:17px;height:17px;fill:none;stroke:var(--cyan);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 4px rgba(56,248,212,.5))}
+  .gbif-toggle-copy{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;text-align:left}
+  .gbif-toggle-copy strong{font:700 12px/1 var(--font-sans);color:inherit;letter-spacing:.02em}
+  .gbif-toggle-copy small{font:600 9px/1 var(--font-mono);color:var(--ink-dim);letter-spacing:.06em}
+  .gbif-toggle:hover,.gbif-toggle:focus-visible{border-color:rgba(56,248,212,.65);background:linear-gradient(160deg,rgba(56,248,212,.16),rgba(27,231,255,.06));box-shadow:0 0 22px rgba(56,248,212,.2),inset 0 1px 0 rgba(255,255,255,.06)}
+  .gbif-toggle:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+  .gbif-toggle.on .gbif-toggle-copy small{color:rgba(3,26,27,.78)}
+  .gbif-toggle.on .gbif-toggle-emblem{border-color:rgba(3,26,27,.4);background:rgba(3,26,27,.12);box-shadow:none}
+  .gbif-toggle.on .gbif-toggle-emblem svg{stroke:#032028;filter:none}
+  .gbif-toggle.on .gbif-sat-dot{fill:#032028}
+  .gbif-toggle.loading .gbif-toggle-emblem svg{animation:gbifLoading .9s linear infinite}
+  .gbif-toggle.on:hover,.gbif-toggle.on:focus-visible{color:#031a1b;border-color:var(--cyan);background:linear-gradient(135deg,#38f8d4,#1be7ff);box-shadow:0 0 26px rgba(56,248,212,.55)}
   .gbif-attribution { color: #75dacc; border-left: 1px solid rgba(56,248,212,0.22); padding-left: 9px; white-space: nowrap; }
   @keyframes gbifLoading { to { transform: rotate(360deg); } }
+  @media (max-width:768px){
+   .gbif-toggle{min-height:40px;padding:0 10px 0 5px;gap:6px}
+   .gbif-toggle-emblem{width:26px;height:26px;border-radius:8px}
+   .gbif-toggle-emblem svg{width:14px;height:14px}
+   .gbif-toggle-copy small{display:none}
+  }
   @media (min-width: 769px) and (max-width: 1500px) {
     #filterHub.planet-mode { top: 88px; }
   }
@@ -1541,36 +1559,53 @@
  @media (prefers-reduced-motion: reduce){.boot-ring,.boot-bar i{animation:none}}
 
  /* ===== 生命图谱使用指南（首次自动显示，顶部入口可随时重开）===== */
- #coachMarks{position:fixed;inset:0;z-index:390;display:none;align-items:center;justify-content:center;background:rgba(1,5,12,.7);backdrop-filter:blur(8px);opacity:0;transition:opacity .32s ease}
+ #coachMarks{position:fixed;inset:0;z-index:390;display:none;align-items:center;justify-content:center;background:rgba(1,5,12,.72);backdrop-filter:blur(10px);opacity:0;transition:opacity .32s ease}
  #coachMarks.show{display:flex}
  #coachMarks.visible{opacity:1}
- .coach-panel{width:min(880px,calc(100vw - 72px));max-height:calc(100vh - 64px);overflow:auto;border-radius:24px;padding:0;background:linear-gradient(155deg,rgba(5,24,39,.97),rgba(2,12,24,.98));border:1px solid rgba(92,229,255,.28);backdrop-filter:blur(24px);box-shadow:0 34px 100px rgba(0,0,0,.62),inset 0 1px rgba(255,255,255,.08);text-align:left;transform:translateY(12px) scale(.985);transition:transform .38s cubic-bezier(.22,.8,.36,1)}
+ .coach-panel{position:relative;width:min(920px,calc(100vw - 72px));max-height:calc(100vh - 64px);overflow:auto;border-radius:26px;padding:0;background:linear-gradient(168deg,rgba(8,30,50,.97) 0%,rgba(3,15,28,.98) 46%,rgba(2,10,20,.99) 100%);border:1px solid rgba(92,229,255,.3);backdrop-filter:blur(28px);box-shadow:0 40px 120px rgba(0,0,0,.7),0 0 70px rgba(27,231,255,.1),inset 0 1px 0 rgba(255,255,255,.1);text-align:left;transform:translateY(14px) scale(.985);transition:transform .38s cubic-bezier(.22,.8,.36,1)}
  #coachMarks.visible .coach-panel{transform:none}
- .coach-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding:25px 28px 17px;border-bottom:1px solid rgba(135,222,255,.12);background:radial-gradient(circle at 10% -30%,rgba(56,248,212,.16),transparent 55%)}
- .coach-kicker{display:block;font-size:9px;letter-spacing:.34em;color:var(--cyan);margin-bottom:8px}
- .coach-panel h2{margin:0;font-size:21px;color:var(--ink);font-weight:600;letter-spacing:.025em}
- .coach-close{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid rgba(135,222,255,.25);background:rgba(4,18,31,.7);color:var(--ink-dim);font-size:20px;line-height:1;cursor:pointer;transition:.2s ease}
- .coach-close:hover,.coach-close:focus-visible{color:var(--cyan);border-color:rgba(56,248,212,.62);box-shadow:0 0 18px rgba(56,248,212,.13);outline:none}
- .coach-body{padding:20px 28px 23px}
- .coach-lead{margin:0 0 16px;color:var(--ink-dim);font-size:12px;line-height:1.7}
+ .coach-panel::before{content:"";position:absolute;inset:0 0 auto 0;height:1px;background:linear-gradient(90deg,transparent 6%,rgba(56,248,212,.75) 30%,rgba(27,231,255,.75) 70%,transparent 94%);pointer-events:none}
+ .coach-head{position:relative;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:27px 30px 21px;border-bottom:1px solid rgba(135,222,255,.14);background:radial-gradient(ellipse 55% 130% at 12% -42%,rgba(56,248,212,.2),transparent 62%),radial-gradient(ellipse 40% 110% at 85% -55%,rgba(27,231,255,.1),transparent 60%);overflow:hidden}
+ .coach-emblem{flex:none;width:58px;height:58px;border-radius:16px;display:grid;place-items:center;background:linear-gradient(140deg,rgba(56,248,212,.16),rgba(27,231,255,.05) 58%,rgba(10,37,64,.5));border:1px solid rgba(56,248,212,.42);box-shadow:0 0 26px rgba(56,248,212,.2),inset 0 0 18px rgba(56,248,212,.1)}
+ .coach-emblem svg{width:34px;height:34px;fill:none;stroke:var(--cyan);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 6px rgba(56,248,212,.55));animation:coachEmblemGlow 3.2s ease-in-out infinite}
+ @keyframes coachEmblemGlow{0%,100%{filter:drop-shadow(0 0 4px rgba(56,248,212,.4))}50%{filter:drop-shadow(0 0 10px rgba(56,248,212,.85)) drop-shadow(0 0 20px rgba(27,231,255,.45))}}
+ .coach-head-copy{min-width:0}
+ .coach-kicker{display:block;font:700 9.5px/1 var(--font-mono);letter-spacing:.34em;color:var(--cyan);margin-bottom:9px;text-shadow:0 0 12px rgba(56,248,212,.4)}
+ .coach-panel h2{margin:0;font-family:var(--font-serif);font-size:24px;color:#fff;font-weight:700;letter-spacing:.06em;text-shadow:0 2px 18px rgba(0,0,0,.5)}
+ .coach-close{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid rgba(135,222,255,.28);background:rgba(4,18,31,.75);color:var(--ink-dim);font-size:20px;line-height:1;cursor:pointer;transition:.22s ease}
+ .coach-close:hover,.coach-close:focus-visible{color:#fff;border-color:rgba(56,248,212,.65);background:rgba(56,248,212,.14);box-shadow:0 0 20px rgba(56,248,212,.25);transform:rotate(90deg);outline:none}
+ .coach-body{position:relative;padding:22px 30px 26px}
+ .coach-lead{margin:0 0 18px;color:var(--ink-dim);font-size:12.5px;line-height:1.75}
  .coach-lead strong{color:var(--ink);font-weight:600}
- .coach-steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
- .coach-steps li{display:flex;align-items:flex-start;gap:12px;min-height:88px;padding:14px 15px;border-radius:14px;background:rgba(3,15,27,.64);border:1px solid rgba(135,222,255,.12)}
- .coach-steps li i{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-style:normal;font-size:10px;font-weight:700;letter-spacing:.06em;color:#032028;background:linear-gradient(135deg,var(--cyan),#1be7ff);box-shadow:0 0 16px rgba(56,248,212,.16)}
+ .coach-steps{position:relative;list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+ /* 深度光柱：穿过两列卡片之间的中央缝隙，自上而下由亮渐暗，如海面沉入深海 */
+ .coach-steps::before{content:"";position:absolute;top:14px;bottom:14px;left:50%;width:2px;transform:translateX(-50%);background:linear-gradient(180deg,rgba(56,248,212,.65) 0%,rgba(27,231,255,.4) 38%,rgba(27,231,255,.18) 68%,rgba(27,231,255,.04) 100%);box-shadow:0 0 12px rgba(56,248,212,.3);pointer-events:none}
+ .coach-steps li{position:relative;display:flex;align-items:flex-start;gap:14px;min-height:96px;padding:16px 17px;border-radius:16px;background:linear-gradient(160deg,rgba(6,22,38,.85),rgba(3,13,24,.78));border:1px solid rgba(135,222,255,.15);box-shadow:0 6px 22px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.05);transition:border-color .26s ease,box-shadow .26s ease,transform .26s cubic-bezier(.2,.8,.2,1),background .26s ease;animation:coachRise .55s cubic-bezier(.22,.8,.36,1) both}
+ .coach-steps li:nth-child(1){animation-delay:.05s}
+ .coach-steps li:nth-child(2){animation-delay:.14s}
+ .coach-steps li:nth-child(3){animation-delay:.23s}
+ .coach-steps li:nth-child(4){animation-delay:.32s}
+ @keyframes coachRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+ .coach-steps li::after{content:"";position:absolute;inset:0;border-radius:16px;background:radial-gradient(circle at 24% 22%,rgba(56,248,212,.14),transparent 62%);opacity:0;transition:opacity .3s ease;pointer-events:none}
+ .coach-steps li:hover{border-color:rgba(56,248,212,.5);background:linear-gradient(160deg,rgba(8,28,48,.92),rgba(4,17,30,.85));transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.5),0 0 24px rgba(56,248,212,.16)}
+ .coach-steps li:hover::after{opacity:1}
+ .coach-steps li i{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-style:normal;font:700 11px/1 var(--font-mono);letter-spacing:.08em;color:#032028;background:linear-gradient(140deg,#4dffd9,#1be7ff);box-shadow:0 0 0 4px rgba(56,248,212,.14),0 0 18px rgba(56,248,212,.4),0 4px 12px rgba(0,0,0,.4);position:relative;z-index:1}
+ .coach-steps li:hover i{box-shadow:0 0 0 5px rgba(56,248,212,.22),0 0 26px rgba(56,248,212,.6),0 4px 12px rgba(0,0,0,.4)}
  .coach-step-copy{min-width:0}
- .coach-steps li b{display:block;margin:1px 0 5px;font-size:12.5px;color:var(--ink);font-weight:600}
- .coach-steps li span{display:block;font-size:10.5px;line-height:1.6;color:var(--ink-dim)}
- .coach-steps li em{display:block;margin-top:6px;font-style:normal;font-size:9.5px;color:rgba(92,229,255,.72)}
- .coach-more{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center;margin-top:12px;padding:13px 15px;border-radius:14px;border:1px solid rgba(56,248,212,.16);background:linear-gradient(90deg,rgba(56,248,212,.07),rgba(27,231,255,.025))}
- .coach-more-title{font-size:10px;letter-spacing:.18em;color:var(--cyan);white-space:nowrap}
- .coach-more-list{display:flex;flex-wrap:wrap;gap:7px}
- .coach-more-list span{padding:5px 9px;border-radius:999px;border:1px solid rgba(135,222,255,.14);background:rgba(2,12,22,.48);font-size:9.5px;color:var(--ink-dim)}
- .coach-actions{display:flex;align-items:center;gap:10px;margin-top:16px}
- .coach-actions .pill-btn.primary{background:linear-gradient(135deg,rgba(56,248,212,.2),rgba(27,231,255,.16));border-color:rgba(56,248,212,.5);color:var(--ink)}
- .coach-actions .pill-btn.primary:hover{background:linear-gradient(135deg,rgba(56,248,212,.32),rgba(27,231,255,.26));box-shadow:0 0 18px rgba(56,248,212,.25)}
+ .coach-steps li b{display:block;margin:2px 0 6px;font-size:13.5px;color:var(--ink);font-weight:600;letter-spacing:.02em}
+ .coach-steps li span{display:block;font-size:11px;line-height:1.65;color:var(--ink-dim)}
+ .coach-steps li em{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-style:normal;font:600 9.5px/1.4 var(--font-mono);letter-spacing:.05em;color:rgba(92,229,255,.85);padding:4px 9px;border-radius:999px;border:1px solid rgba(92,229,255,.22);background:rgba(27,231,255,.07)}
+ .coach-more{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin-top:14px;padding:14px 17px;border-radius:16px;border:1px solid rgba(56,248,212,.2);background:linear-gradient(90deg,rgba(56,248,212,.08),rgba(27,231,255,.03) 70%);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+ .coach-more-title{font:700 10px/1.5 var(--font-mono);letter-spacing:.2em;color:var(--cyan);white-space:nowrap;text-shadow:0 0 10px rgba(56,248,212,.35)}
+ .coach-more-list{display:flex;flex-wrap:wrap;gap:8px}
+ .coach-more-list span{padding:6px 11px;border-radius:999px;border:1px solid rgba(135,222,255,.16);background:rgba(2,12,22,.55);font-size:10px;color:var(--ink-dim);transition:border-color .2s ease,color .2s ease,box-shadow .2s ease;cursor:default}
+ .coach-more-list span:hover{border-color:rgba(56,248,212,.45);color:var(--ink);box-shadow:0 0 12px rgba(56,248,212,.15)}
+ .coach-actions{display:flex;align-items:center;gap:11px;margin-top:18px;padding-top:16px;border-top:1px solid rgba(135,222,255,.1);flex-wrap:wrap}
+ .coach-actions .pill-btn.primary{background:linear-gradient(135deg,rgba(56,248,212,.28),rgba(27,231,255,.2));border-color:rgba(56,248,212,.6);color:#fff;font-weight:600;box-shadow:0 0 20px rgba(56,248,212,.2),inset 0 1px 0 rgba(255,255,255,.15)}
+ .coach-actions .pill-btn.primary:hover{background:linear-gradient(135deg,rgba(56,248,212,.4),rgba(27,231,255,.3));box-shadow:0 0 28px rgba(56,248,212,.4)}
  .coach-reopen{margin:0 0 0 auto;font-size:9.5px;color:var(--ink-ghost)}
- @media(max-width:900px){.coach-panel{width:calc(100vw - 36px)}.coach-steps{grid-template-columns:1fr}.coach-reopen{display:none}}
- @media (prefers-reduced-motion: reduce){#coachMarks,.coach-panel{transition:none}}
+ @media(max-width:900px){.coach-panel{width:calc(100vw - 36px)}.coach-head{padding:22px 20px 16px}.coach-body{padding:18px 20px 22px}.coach-steps{grid-template-columns:1fr}.coach-steps::before{display:none}.coach-reopen{display:none}}
+ @media (prefers-reduced-motion: reduce){#coachMarks,.coach-panel{transition:none}.coach-steps li{animation:none}.coach-emblem svg{animation:none}.gbif-toggle-emblem svg{animation:none}}
 
  </style>
 </head>
@@ -1655,7 +1690,19 @@
  <span class="search-trigger-arrow" aria-hidden="true">↗</span>
  </button>
  <button class="gbif-toggle" id="gbifToggle" type="button" aria-pressed="false" title="显示当前物种的全球观测记录">
-  <span class="gbif-toggle-dot" aria-hidden="true">◉</span><span id="gbifToggleText">观测分布</span>
+  <span class="gbif-toggle-emblem" aria-hidden="true">
+   <svg viewBox="0 0 24 24">
+    <!-- 轨道扫描徽标：地球 + 卫星轨道 + 生物荧光卫星点 -->
+    <circle cx="12" cy="12" r="4.1"/>
+    <ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-16 12 12)" opacity=".85"/>
+    <circle class="gbif-sat-dot" cx="20.2" cy="8.9" r="1.15" fill="#38f8d4" stroke="none"/>
+    <path d="M2.6 13.6a9.6 9.6 0 0 0 3.4 5" opacity=".5"/>
+   </svg>
+  </span>
+  <span class="gbif-toggle-copy">
+   <strong id="gbifToggleText">观测分布</strong>
+   <small>全球物种记录</small>
+  </span>
  </button>
  </div>
  </div>
@@ -2141,21 +2188,36 @@
  <div id="coachMarks" aria-hidden="true">
   <div class="coach-panel" role="dialog" aria-modal="true" aria-labelledby="coachTitle">
    <div class="coach-head">
-    <div><span class="coach-kicker">FIRST DIVE · DESKTOP GUIDE</span><h2 id="coachTitle">四步看懂海瞳生命图谱</h2></div>
+    <div class="coach-head-copy" style="display:flex;align-items:center;gap:18px">
+     <span class="coach-emblem" aria-hidden="true">
+      <svg viewBox="0 0 48 48">
+       <!-- 深潜指南徽标：罗盘环 + 潜航轨迹 + 生物荧光浮标 -->
+       <circle cx="24" cy="24" r="19" stroke-dasharray="3.5 3.5" opacity=".55"/>
+       <circle cx="24" cy="24" r="13" opacity=".85"/>
+       <path d="M24 5v6M24 37v6M5 24h6M37 24h6" opacity=".7"/>
+       <path d="M24 13c5 4.5 5 9.5 0 15-5-5.5-5-10.5 0-15z" fill="rgba(56,248,212,.28)"/>
+       <circle cx="24" cy="24" r="3.2" fill="#38f8d4" stroke="none"/>
+      </svg>
+     </span>
+     <div>
+      <span class="coach-kicker">FIRST DIVE · DESKTOP GUIDE</span><h2 id="coachTitle">四步看懂海瞳生命图谱</h2>
+     </div>
+    </div>
     <button class="coach-close" id="coachClose" type="button" aria-label="关闭使用指南">×</button>
    </div>
    <div class="coach-body">
-    <p class="coach-lead"><strong>第一次来会自动看到这里。</strong> 不需要开启摄像头，鼠标就能完成全部核心浏览；以后可从顶部“使用指南”随时重开。</p>
+    <p class="coach-lead"><strong>第一次来会自动看到这里。</strong> 不需要开启摄像头，鼠标就能完成全部核心浏览；想体验 AI 手势，可直接点下方“开启摄像头手势”。以后可从顶部“使用指南”随时重开。</p>
     <ol class="coach-steps">
      <li><i>01</i><div class="coach-step-copy"><b>先找到想看的物种</b><span>按 CR / EN / VU / EX 或生物类群筛选，也可点击“检索物种”按名称、学名和威胁搜索。</span><em>快捷键 / 可直接打开检索</em></div></li>
      <li><i>02</i><div class="coach-step-copy"><b>进入并切换物种档案</b><span>拖拽旋转地球，滚轮下潜或点击物种；进入档案后用左右箭头、底部圆点继续浏览。</span><em>ESC 可关闭当前面板或返回工作台</em></div></li>
-     <li><i>03</i><div class="coach-step-copy"><b>看分布、来源和保护信息</b><span>在物种档案中开启“观测分布”，查看全球记录；还可查看权威档案、声纹和科普分享海报。</span><em>观测点不可用时会保留档案栖息地</em></div></li>
+     <li><i>03</i><div class="coach-step-copy"><b>看分布、来源和保护信息</b><span>点击顶部“观测分布”按钮，查看该物种的 GBIF 全球观测记录；还可查看权威档案、声纹和科普分享海报。</span><em>观测点不可用时会保留档案栖息地</em></div></li>
      <li><i>04</i><div class="coach-step-copy"><b>直接问当前物种</b><span>点击“问问海瞳助手”会自动带上当前档案；可追问濒危原因、垃圾威胁和保护行动，支持清空对话。</span><em>助手使用平台当前登录状态</em></div></li>
     </ol>
     <div class="coach-more"><span class="coach-more-title">更多玩法</span><div class="coach-more-list"><span>自动演示 · 无操作也能看懂</span><span>手势图鉴 · 摄像头需主动开启</span><span>背景音与动物独白</span><span>生成并保存物种海报</span></div></div>
     <div class="coach-actions">
      <button class="pill-btn primary" id="coachExplore" type="button">开始探索</button>
      <button class="pill-btn" id="coachOpenGesture" type="button">查看手势图鉴</button>
+     <button class="pill-btn" id="coachStartCamera" type="button">开启摄像头手势</button>
      <p class="coach-reopen">关闭后仍可从顶部“使用指南”重新打开</p>
     </div>
    </div>
@@ -7603,6 +7665,17 @@ $("#coachOpenGesture")?.addEventListener("click", () => {
  dismissUsageGuide({ restoreFocus: false });
  setTimeout(openGestureGuide, 380);
 });
+$("#coachStartCamera")?.addEventListener("click", () => {
+  dismissUsageGuide({ restoreFocus: false });
+  setTimeout(toggleGesture, 380);
+});
+const coachStartCameraBtn = $("#coachStartCamera");
+const syncCoachStartCameraLabel = () => {
+  if (coachStartCameraBtn) coachStartCameraBtn.textContent = gestureRunning ? "关闭摄像头手势" : "开启摄像头手势";
+};
+if ($("#coachMarks")) {
+  new MutationObserver(syncCoachStartCameraLabel).observe($("#coachMarks"), { attributes: true, attributeFilter: ["class"] });
+}
 $("#coachMarks")?.addEventListener("pointerdown", event => {
  if (event.target === $("#coachMarks")) dismissUsageGuide();
 });

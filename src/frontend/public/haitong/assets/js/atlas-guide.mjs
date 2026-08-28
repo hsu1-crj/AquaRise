@@ -3,7 +3,10 @@ const DEFAULT_GUIDE_SEEN_KEY = 'haitong-guide-seen-v2';
 export function createAtlasGuideVisitTracker(
   storage,
   key = DEFAULT_GUIDE_SEEN_KEY,
-  timers = { setTimeout, clearTimeout },
+  // 必须绑定到全局：shorthand 裸引用在调用时 this 变成 timers 对象，
+  // 新版 Chrome 对未绑定的 window.setTimeout 抛 "Illegal invocation"，
+  // 导致首次进入自动弹出指南失效。
+  timers = { setTimeout: setTimeout.bind(globalThis), clearTimeout: clearTimeout.bind(globalThis) },
 ) {
   let pendingAutoOpen = null;
   const shouldAutoOpen = () => {
