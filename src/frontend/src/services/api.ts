@@ -21,22 +21,9 @@ function readImageSize(file: File): Promise<{ width: number; height: number }> {
   });
 }
 
-/** 演示模式标记 key（免认证进入项目演示时写入；随 clearStoredAuth 一并清除） */
-export const DEMO_FLAG_KEY = 'aquarise-demo';
-
-/** 是否处于演示模式：免认证进入，全站使用 mock 数据 */
-export function isDemoMode(): boolean {
-  return window.sessionStorage.getItem(DEMO_FLAG_KEY) === '1';
-}
-
-/** 使用 mock 数据：构建期 VITE_API_MODE=mock，或运行时进入演示模式 */
+/** 使用 mock 数据：构建期 VITE_API_MODE=mock */
 export function isMockMode(): boolean {
-  return API_MODE === 'mock' || isDemoMode();
-}
-
-/** 进入演示模式：会话级标记，仅当前标签页有效 */
-export function enterDemoMode(): void {
-  window.sessionStorage.setItem(DEMO_FLAG_KEY, '1');
+  return API_MODE === 'mock';
 }
 
 export const AUTH_TOKEN_KEY = 'aquarise-token';
@@ -64,7 +51,6 @@ export function storeToken(token: string, remember: boolean): void {
 /** 清空全部本地登录态（退出登录 / token 失效时调用） */
 export function clearStoredAuth(): void {
   window.sessionStorage.removeItem('aquarise-session');
-  window.sessionStorage.removeItem(DEMO_FLAG_KEY);
   window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(REMEMBER_FLAG_KEY);
@@ -77,10 +63,9 @@ function authHeaders(init?: RequestInit): Headers {
   return headers;
 }
 
-/** 401 说明 token 已失效（被踢下线 / 过期 / 服务端不认）：清空本地会话并回登录页。
- *  演示模式无 token、不请求真实接口，豁免此处理避免被弹回登录页。 */
+/** 401 说明 token 已失效（被踢下线 / 过期 / 服务端不认）：清空本地会话并回登录页。 */
 function handleUnauthorized(response: Response): void {
-  if (response.status !== 401 || isDemoMode()) return;
+  if (response.status !== 401) return;
   clearStoredAuth();
   window.location.reload();
 }
@@ -496,7 +481,7 @@ export interface SuggestionItem {
  */
 export async function getSuggestions(sessionId: string, context: string, limit = 3): Promise<SuggestionItem[]> {
   // 演示/离线模式没有对话链路，直接不展示追问区
-  if (isDemoMode() || isMockMode()) return [];
+  if (isMockMode()) return [];
   const params = new URLSearchParams({
     session_id: sessionId,
     context: context.slice(0, 400),
