@@ -254,3 +254,131 @@ def test_suggestion_index_tool_validates_clean():
 def test_suggest_index_file_exists_with_schema():
     data_file = ROOT / "data" / "knowledge" / "suggestion_index.json"
     assert data_file.exists()
+
+
+# ---------- 5. 引用口径收窄与答非所问修复（2026-08-28） ----------
+
+def test_citation_requirement_no_longer_hijacks_concept_questions():
+    """概念问法不再被引用强制口径绑架；操作语境仍强制。"""
+    assert not llm.requires_citations("ROV是什么东西？")
+    assert not llm.requires_citations("海洋温度现在多少度？")
+    assert not llm.requires_citations("一吨海洋塑料垃圾回收能产生多少经济效益？")
+    assert not llm.requires_citations("怎么区分PET和HDPE塑料？")
+    assert llm.requires_citations("检测报告里置信度 60% 怎么解读？")
+    assert llm.requires_citations("幽灵渔网缠绕珊瑚礁时微创切割标准作业指引")
+    assert llm.requires_citations("MARPOL 附则 V 允许塑料排海吗？")
+
+
+def test_concept_cards_answer_definition_questions_directly():
+    confidence = llm.direct_response("检测报告里的置信度是什么意思？")
+    assert confidence and "把握程度" in confidence and "不是准确率" in confidence
+
+    deep_sea = llm.direct_response("水深超过多少米算深海？")
+    assert deep_sea and "200米" in deep_sea.replace(" ", "") and "知识库" in deep_sea
+
+    rov = llm.direct_response("ROV是什么东西？")
+    assert rov and "遥控水下机器人" in rov and "系缆" in rov
+
+
+def test_comparison_cards_refuse_to_invent_ranking():
+    bottle_bag = llm.direct_response("塑料瓶和塑料袋哪个先降解？")
+    assert bottle_bag and "没有" in bottle_bag and "排序结论" in bottle_bag
+    assert "450年" in bottle_bag and "微塑料" in bottle_bag
+
+    oil_plastic = llm.direct_response("石油泄漏对海洋的危害大还是塑料危害大？")
+    assert oil_plastic
+    assert "急性" in oil_plastic or "油膜" in oil_plastic
+    assert "微塑料" in oil_plastic or "持久" in oil_plastic
+    assert "排序结论" in oil_plastic or "没有统一" in oil_plastic
+
+
+def test_live_data_and_economics_cards_admit_knowledge_boundary():
+    temperature = llm.direct_response("海洋温度现在多少度？")
+    assert temperature and "没有实时" in temperature and "CTD" in temperature
+
+    economics = llm.direct_response("一吨海洋塑料垃圾回收能产生多少经济效益？")
+    assert economics and "没有" in economics and "编一个数" in economics
+    assert "押金返还" in economics or "生产者责任延伸" in economics
+
+
+def test_material_pairing_error_is_rejected_by_gate():
+    """聚丙烯（PC）这类张冠李戴的配对属于硬幻觉，门禁必须拦下。"""
+    evidence = [{"source": "常见塑料材质与回收利用知识.md", "content": "PET 是1号回收代码，HDPE 是2号。"}]
+    assert llm._has_material_pairing_error("常见的垃圾瓶是聚丙烯（PC）制成的")
+    assert llm._has_material_pairing_error("塑料袋主要是聚乙烯（PC）材料")
+    assert not llm._has_material_pairing_error("饮料瓶多为PET（聚对苯二甲酸乙二醇酯）材质")
+    assert not llm.is_acceptable_model_answer(
+        "常见的垃圾瓶是聚丙烯（PC）制成的，需要回收处理后再利用。",
+        "垃圾瓶是什么材质的？",
+        evidence,
+    )
+
+
+def test_comparison_answer_missing_one_side_is_rejected():
+    question = "石油泄漏对海洋的危害大还是塑料危害大？"
+    assert not llm._comparison_answer_covers_both_sides(
+        question,
+        "石油泄漏会阻断气体交换并黏住海鸟羽毛，短期危害更大，所以石油泄漏更严重。",
+    )
+    assert llm._comparison_answer_covers_both_sides(
+        question,
+        "油污伤在当下，塑料伤在长远：油膜阻断气体交换，微塑料长期留在食物链里。",
+    )
+    # 单边作答但声明知识边界也算合规
+    assert llm._comparison_answer_covers_both_sides(
+        question,
+        "我对石油泄漏只了解一些，对塑料污染的了解有限，知识库没有统一排序。",
+    )
+
+
+def test_evidence_excerpt_strips_myth_prefixes():
+    lines, _ = llm._evidence_excerpt(
+        "海洋垃圾一般要多久才能降解？",
+        [{
+            "source": "海洋环保常见误区与事实核查.md",
+            "content": "核查：不存在适用于所有地点的统一降解年限。正确表述：塑料首先老化和碎裂为微塑料，碎裂不等于消失。",
+        }],
+    )
+    assert lines
+    for _source_id, sentence in lines:
+        assert not sentence.startswith(("核查", "正确表述", "误区"))
+
+
+def test_query_echo_strip_salvages_correct_answers():
+    answer = (
+        "ROV是什么东西？\n\n"
+        "ROV是遥控水下机器人，通过母船系缆供电与回传数据，能够完成水下航行、取样和监测等任务，"
+        "广泛应用于海底调查与生态监测领域，是重要的水下作业平台。"
+    )
+    cleaned = llm._strip_query_echo("ROV是什么东西？", answer)
+    assert not cleaned.startswith("ROV是什么")
+    assert cleaned.startswith("ROV是遥控水下机器人")
+
+    # 首行不是问题回声时必须原样返回——不能剥掉正文前几个字
+    normal = "海洋温度影响溶解氧、生物代谢与层化等参数，需要用CTD测量并注明深度。"
+    assert llm._strip_query_echo("ROV是什么东西？", normal) == normal
+    assert llm._strip_query_echo("海洋温度现在多少度？", normal) == normal
+
+
+def test_document_self_reference_and_markdown_echo_are_cleaned():
+    docish = (
+        "本文介绍深海环境特征与深海垃圾研究要点，供识别与作业类问答使用。"
+        "深海通常指水深大于200米的海域，低温低氧环境下塑料老化碎裂更慢。"
+    )
+    cleaned = llm._strip_document_self_reference(docish)
+    assert "本文介绍" not in cleaned and "问答使用" not in cleaned
+    assert "200米" in cleaned.replace(" ", "")
+
+    # "## 标题"开头的文档复述必须被门禁整段拒绝
+    assert not llm.is_acceptable_model_answer(
+        "## 海洋污染类型与生态影响\n\n塑料污染是长期持留问题，需要源头减量和及时清理。",
+        "为什么海洋塑料污染这么难治理？",
+    )
+
+
+def test_hard_cards_are_not_stolen_by_operation_questions():
+    """ROV 概念卡不得抢走切割 SOP 等作业问题。"""
+    assert llm.direct_response("ROV 微创切割的标准作业指引是什么？") is not None
+    answer = llm.direct_response("水下幽灵渔网缠绕珊瑚礁时，潜水员或 ROV 进行微创切割的标准作业指引是什么？")
+    assert answer and "分段" in answer and "ROV" in answer
+    assert "遥控水下机器人是本系统" not in answer

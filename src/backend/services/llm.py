@@ -113,6 +113,7 @@ DOMAIN_TERMS = (
     "pet", "hdpe", "聚合物", "材料", "紫外", "紫外老化", "光氧化", "水解", "耐候", "耐老化", "性能对比",
     "图像", "多帧", "时序", "跟踪", "追踪", "机制", "方法", "去散射", "超分辨率", "类别",
     "生命图谱", "指挥大屏", "污染分析", "检测历史", "报告页", "海洋守护者",
+    "深海", "水深", "降解", "降解周期", "石油泄漏", "溢油", "油污",
 )
 
 THINK_TRACE_RE = re.compile(
@@ -293,6 +294,29 @@ def _has_material_microplastic_confusion(text: str) -> bool:
     return False
 
 
+# 中文材质名与回收代码缩写的正确配对；模型常把"聚丙烯（PC）""聚乙烯（HDPE 写成 PC）"
+# 这类张冠李戴直接说出口，属于硬幻觉，必须在门禁层拦下。
+_MATERIAL_NAME_TO_CODES = {
+    "聚丙烯": {"pp"},
+    "聚乙烯": {"pe", "hdpe", "ldpe", "高密度聚乙烯", "低密度聚乙烯"},
+    "聚苯乙烯": {"ps"},
+    "聚碳酸酯": {"pc"},
+    "聚氯乙烯": {"pvc"},
+    "聚对苯二甲酸乙二醇酯": {"pet"},
+}
+_MATERIAL_PAIRING_ERROR_RE = re.compile(
+    r"(聚丙烯|聚乙烯|聚苯乙烯|聚碳酸酯|聚氯乙烯|聚对苯二甲酸乙二醇酯)\s*[（(]\s*([A-Za-z]{2,4})\s*[）)]"
+)
+
+
+def _has_material_pairing_error(text: str) -> bool:
+    for name, abbreviation in _MATERIAL_PAIRING_ERROR_RE.findall((text or "").lower()):
+        expected = _MATERIAL_NAME_TO_CODES.get(name, set())
+        if expected and abbreviation.lower() not in expected:
+            return True
+    return False
+
+
 def _has_counterfactual_uncertainty_structure(text: str) -> bool:
     compact = _compact(text)
     return (
@@ -351,13 +375,23 @@ def _claims_have_citations(answer: str, evidence: Sequence[dict[str, Any]]) -> b
 
 
 def requires_citations(question: str) -> bool:
-    """只有需要可核验事实的问法强制引用，科普问法允许模型组织通识回答。"""
-    q = (question or "").lower()
+    """只有需要可核验事实的问法强制引用，科普问法允许模型组织通识回答。
+
+    三层口径：第一层强事实语境（法规/统计/报告硬指标）；第二层概念问法豁免
+    （"是什么/什么意思"属于科普，不因命中领域词而被绑架成审稿排版）；
+    第三层保留检测/作业操作语境的强命中。
+    """
+    q = (question or "").lower().replace(" ", "")
+    if not q:
+        return False
+    if re.search(r"marpol|附则|法规|公约|条款|污染等级|污染指数|任务编号|监测数据|评分|统计|正式|纳入", q):
+        return True
+    if re.search(r"是什么|什么是|什么意思|啥意思|的含义|的概念|的定义|简单解释|解释一下|介绍一下", q):
+        return False
     return bool(re.search(
-        r"检测报告|报告|污染等级|污染指数|置信度|统计|正式|纳入|m arpol|marpol|附则|法规|公约|"
-        r"任务编号|点位|监测数据|多少|数量|评分|结论|条款|切割|微创|rov|潜水员|"
-        r"去散射|超分辨率|多帧|时序|跟踪|追踪|机制|方法|标准作业|sop|流程|步骤|操作",
-        q.replace(" ", ""),
+        r"检测报告|置信度|点位|标准作业|sop|"
+        r"去散射|超分辨率|多帧|时序|跟踪|追踪|潜水员|切割|微创",
+        q,
     ))
 
 
@@ -391,6 +425,12 @@ def is_acceptable_model_answer(
     if not _is_complete_answer(raw):
         return False
     if _has_material_microplastic_confusion(raw):
+        return False
+    if _has_material_pairing_error(raw):
+        return False
+    # "## 标题"开头说明模型在复述知识库文档结构而非回答问题（实测出现在
+    # "为什么海洋塑料污染这么难治理"），整段退回兜底链。
+    if raw.lstrip().startswith("#"):
         return False
     if is_counterfactual_question(question) and not _has_counterfactual_uncertainty_structure(raw):
         return False
@@ -476,7 +516,59 @@ def is_acceptable_model_answer(
     if "marpol" in q_lower and re.search(r"(允许|可以|能够).{0,12}(塑料|垃圾).{0,12}(倒|排放).{0,8}(海|海里)", text):
         return False
 
+    # 对比类问题（"A 还是 B 更 X"）：答案必须覆盖双方，或声明只了解其中一方；
+    # 只谈单边就下排序结论属于答一半，退回兜底链。
+    if not _comparison_answer_covers_both_sides(question, text):
+        return False
+
+    # 类型列举问题必须落到具体类别词上，不能拿"来源/路径"等其他维度顶替。
+    if re.search(r"(?:主要)?有哪些类型|类型有哪些", question):
+        category_terms = ("瓶", "袋", "渔网", "绳", "罐", "杯", "包装", "纤维", "金属", "玻璃", "橡胶", "渔具")
+        if not any(term in text for term in category_terms):
+            return False
+
     return True
+
+
+_COMPARISON_QUERY_RE = re.compile(r"(.{2,24}?)\s*(?:还是)\s*(.{2,24}?)[，,。？?！!]")
+_COMPARISON_SIDE_SIGNALS = {
+    "石油泄漏": ("石油", "油膜", "溢油", "油污"),
+    "塑料": ("塑料", "微塑料", "瓶", "袋", "渔网"),
+}
+_COMPARISON_SIDEBYSIDE_RE = re.compile(r"(石油泄漏|溢油|油污|石油).{0,40}(塑料|微塑料)|(塑料|微塑料).{0,40}(石油泄漏|溢油|油污|石油)")
+
+
+def _comparison_answer_covers_both_sides(question: str, answer_text: str) -> bool:
+    """问句出现"A还是B"对比结构时校验答案覆盖面。仅限知识库可支持的
+    石油/塑料对比场景，避免对未知句式误伤。"""
+    match = _COMPARISON_QUERY_RE.search(question or "")
+    if not match:
+        return True
+    left, right = match.group(1), match.group(2)
+
+    def _side_key(fragment: str) -> Optional[str]:
+        for key, signals in _COMPARISON_SIDE_SIGNALS.items():
+            if any(signal in fragment for signal in signals):
+                return key
+        return None
+
+    left_key, right_key = _side_key(left), _side_key(right)
+    if not left_key or not right_key or left_key == right_key:
+        return True
+    if not re.search(r"更|危害|危险|严重|好|坏|强|大|哪个|谁", question):
+        return True
+    text_lower = answer_text.lower()
+    if re.search(r"没有.{0,12}(?:排序|比较|结论)|不好直接(?:比较|排序)|难以简单(?:比较|排序|断定)|(?:只能|只能先).{0,8}(?:分|说)(?:别)?(?:说明|讨论)", text_lower):
+        return True
+    if _COMPARISON_SIDEBYSIDE_RE.search(answer_text):
+        return True
+    # 单边深度作答且声明知识边界（"只了解…对…了解有限"）也算合规。
+    if re.search(r"只.{0,6}(?:了解|熟悉|掌握)", text_lower) and re.search(r"有限|不够|不足", text_lower):
+        return True
+    left_signals, right_signals = _COMPARISON_SIDE_SIGNALS[left_key], _COMPARISON_SIDE_SIGNALS[right_key]
+    has_left = any(signal in text_lower for signal in left_signals)
+    has_right = any(signal in text_lower for signal in right_signals)
+    return has_left and has_right
 
 
 def _trim_to_complete_sentence(text: str, max_chars: int = 700) -> str:
@@ -514,6 +606,69 @@ def _patch_with_evidence(
     )
 
 
+_STRIP_ECHO_SKIP_RE = re.compile(r"[\s，。！？!?：:、.·]+")
+
+
+def _strip_query_echo(question: str, text: str) -> str:
+    """剥掉模型照抄问题的首行（如"ROV是什么东西？\nROV是…"）。
+
+    首行归一化后与问题一致且剩余内容完整时，剥掉首行让正确答案不被
+    复述检查整段否决。"""
+    cleaned = (text or "").strip()
+    if not cleaned or not question:
+        return cleaned
+    query_norm = _STRIP_ECHO_SKIP_RE.sub("", question.strip().lower())
+    if not query_norm:
+        return cleaned
+
+    def _strip_prefix_from_line(line: str) -> Optional[str]:
+        """若该行以问题的归一化形态开头，返回剥掉该前缀后的原文；否则 None。"""
+        stripped = line.strip()
+        query_index = 0
+        for index, char in enumerate(stripped):
+            if _STRIP_ECHO_SKIP_RE.fullmatch(char):
+                continue
+            if char.lower() != query_norm[query_index]:
+                return None
+            query_index += 1
+            if query_index == len(query_norm):
+                return stripped[index + 1:].strip()
+        return None
+
+    lines = cleaned.splitlines()
+    # 首行整体就是问题 → 弹掉；首行以问题开头且还带正文 → 只剥前缀
+    first_norm = _STRIP_ECHO_SKIP_RE.sub("", lines[0].strip().lower()) if lines else ""
+    if first_norm == query_norm:
+        lines.pop(0)
+    else:
+        rest = _strip_prefix_from_line(lines[0]) if lines else None
+        if rest is None:
+            return cleaned
+        if rest:
+            lines[0] = rest
+        else:
+            lines.pop(0)
+    remainder = "\n".join(lines).strip()
+    if len(_STRIP_ECHO_SKIP_RE.sub("", remainder.lower())) >= 24:
+        return remainder
+    return cleaned
+
+
+_DOCUMENT_SELF_REFERENCE_RE = re.compile(
+    r"(?:本文|本节|本章|以下内容|下文)(?:主要)?(?:介绍|讲述|说明|描述)[^。！？\n]{0,60}[。！？]?"
+    r"|[^。！？\n]{0,24}(?:供|用于)[^。！？\n]{0,20}(?:问答|检索|问答系统|知识库)[^。！？\n]{0,24}[。！？]?",
+)
+
+
+def _strip_document_self_reference(text: str) -> str:
+    """剥掉知识库文档腔自指句（"本文介绍…""供…问答使用"），不误伤正文。"""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return cleaned
+    cleaned = _DOCUMENT_SELF_REFERENCE_RE.sub("", cleaned)
+    return cleaned.strip() or (text or "").strip()
+
+
 def finalize_model_answer(
     question: str,
     model_answer: str,
@@ -522,10 +677,11 @@ def finalize_model_answer(
 ) -> str:
     """统一模型后处理：净化后须通过质量门禁；形式层擦伤优先走"原文+证据补丁"，
     只有硬幻觉或完全跑题才落到可追溯兜底链。"""
-    cleaned = _strip_think(model_answer)
+    cleaned = _strip_document_self_reference(_strip_think(model_answer))
+    cleaned = _strip_query_echo(question, cleaned)
     if is_acceptable_model_answer(cleaned, question, evidence, require_citations=requires_citations(question)):
         return cleaned
-    patched = _patch_with_evidence(question, model_answer, evidence)
+    patched = _patch_with_evidence(question, cleaned, evidence)
     if patched and is_acceptable_model_answer(patched, question, evidence, require_citations=False):
         return patched
     return _fallback_response(question, evidence, report_context)
@@ -693,6 +849,12 @@ def _evidence_excerpt(
                 continue
             sentence = re.sub(r"^#{1,6}\s*", "", part).strip(" -*\t")
             sentence = re.sub(r"^\d+[.、)]\s*", "", sentence)
+            # 误区核查类文档句首带"核查：/正确表述："等编辑标记，直接摘录会泄漏文档腔。
+            sentence = re.sub(
+                r"^(?:核查|正确表述|误区|事实|结论|说明|提醒|注意)\s*[:：]\s*",
+                "",
+                sentence,
+            )
             if len(sentence) < 18:
                 continue
             if hash_artifact_re.search(sentence):
@@ -773,6 +935,14 @@ def _knowledge_fallback(
         re.I,
     ):
         return None
+    # 机制类问题（为什么/原理/成因）的兜底摘录必须真的含机制词，
+    # 否则输出的是"主题擦边"的碎片——宁可承认资料不足也不硬凑。
+    if _MECHANISM_INTENT_RE.search(message) and not re.search(
+        r"机制|原理|成因|导致|因为|由于|原因|从而|使得|促使|传递|富集|效应|影响",
+        excerpt_text,
+        re.I,
+    ):
+        return None
     # 多帧跟踪是组合机制，摘录也必须保留组合句，不能只摘 ROV/置信度等邻近背景。
     if re.search(r"多帧|时序|跨帧", message, re.I) and re.search(r"跟踪|追踪|关联", message, re.I):
         sentences = re.split(r"(?<=[。！？；.!?;])|\n+", excerpt_text)
@@ -809,7 +979,7 @@ def _knowledge_fallback(
         ) or "项目知识库"
         opening = pick_variant(
             "kb-cite-open",
-            ("根据项目知识库中与这个问题最相关的资料，可以确认：", "知识库里能直接支撑回答的依据如下："),
+            ("这几条依据直接来自项目知识库，逐条列给你核对：", "知识库里有对应的记录，按条目列出："),
         )
         return (
             f"{opening}\n\n{cite_body}\n\n"
@@ -1132,7 +1302,8 @@ _CARD_TAIL_SKIP_RE = re.compile(
     r"|检出.{0,8}不等于.{0,12}(?:伤害|危害)|基于当前物种档案|当前档案给出的核心原因",
 )
 _STYLE_EXEMPT_MARKER = (
-    "根据项目知识库中与这个问题最相关的资料",
+    "这几条依据直接来自项目知识库",
+    "知识库里有对应的记录",
     "根据当前绑定的报告/文档内容",
     "基于当前物种档案",
     "当前档案给出的核心原因",
@@ -1283,6 +1454,17 @@ def _direct_response_core(message: str) -> Optional[str]:
     confidence_response = _low_confidence_direct_response(message)
     if confidence_response:
         return confidence_response
+    # "置信度是什么"是概念科普，不能和"0.6怎么处理"的处置卡混在一起；
+    # 概念卡不要求具体数值，也不触发处置话术。
+    if "置信度" in q and re.search(
+        r"是什么|什么是|什么意思|啥意思|的含义|的概念|的定义|简单解释|解释一下",
+        q,
+    ):
+        return (
+            "置信度是检测模型对自己每一次识别结果给出的把握程度，用百分比表示。"
+            "它不是准确率：数值高只说明模型觉得这个目标像垃圾，不等于一定识别对了。"
+            "低置信度的结果需要先人工复核，确认类别和目标框无误后才能纳入正式统计。"
+        )
     percentage_response = _deterministic_percentage_response(message)
     if percentage_response:
         return percentage_response
@@ -1348,6 +1530,17 @@ def _direct_response_core(message: str) -> Optional[str]:
             "发现后先记录位置和周边情况，别直接拖拽——容易造成二次伤害。"
             "正确做法是通知专业团队评估风险，再分段解缠、安全打捞。"
         )
+    if re.search(r"塑料瓶|饮料瓶|塑料袋", q) and re.search(
+        r"哪个.{0,6}(?:先|快).{0,6}(?:降解|分解|消失)|降解.{0,8}(?:对比|比较|更快)|(?:塑料瓶|塑料袋).{0,6}(?:先|更快)",
+        q,
+    ):
+        return (
+            "知识库里没有’塑料瓶和塑料袋谁先降解’的可靠排序结论，我不替档案编一个。"
+            "可以确认的是：塑料袋多为 PE 材质，长期持留、逐步老化碎裂；常见科普材料给塑料饮料瓶"
+            "（PET）的估算约450年，但那只是数量级参考，不代表到期无害化。两者通常都不是真正消失，"
+            "而是先碎裂成微塑料继续留在环境里，真正的差别主要体现在回收路径上——瓶子按当地体系"
+            "完整回收的价值更高，袋子薄膜易污染、回收难度大。"
+        )
     if "塑料袋" in q and re.search(r"多久|几年|降解|消失", q):
         return (
             "塑料袋在海洋中的’降解时间’其实很难给出准确数字——受温度、光照、材质影响太大了。"
@@ -1397,8 +1590,16 @@ def _direct_response_core(message: str) -> Optional[str]:
             "把垃圾引导到收集舱，达到载荷或安全阈值后返航卸载。靠近人员、珊瑚区和航道时应限速并启用人工接管，"
             "每次任务记录航迹、拦截量、漏拦原因和影像，装置尺寸与吃水需按渤海现场试验确定。"
         )
-    if all(term in q for term in ("pet", "hdpe")) and re.search(r"紫外|uv|老化|耐候|更耐|对比|比较", q):
+    if all(term in q for term in ("pet", "hdpe")) and re.search(r"区分|区别|分辨|怎么分|如何分|不同|哪里不一样", q):
         return (
+            "凭肉眼区分 PET 和 HDPE，可以看这几点：\n"
+            "1. 外观：PET 通常透明、较硬、有弹性，常见于饮料瓶，瓶底常有凸起点；"
+            "HDPE 手感硬而韧、通常不透明（乳白或彩色），常见于洗发水瓶、洗涤剂瓶。\n"
+            "2. 回收代码：PET 是1号，HDPE 是2号，看瓶底三角标志最直接。\n"
+            "3. 用途：PET 以透明包装瓶为主；HDPE 偏硬质容器和管道。\n"
+            "回收代码只标识主要树脂类型，实际能不能回收还要看清洗程度和当地回收设施，以当地体系为准。"
+        )
+    if all(term in q for term in ("pet", "hdpe")) and re.search(r"紫外|uv|老化|耐候|更耐|对比|比较", q):        return (
             "以下为通识判断：在都未使用耐候添加剂（尤其是紫外稳定剂）、厚度和加工条件相近时，PET 通常比 HDPE 更耐紫外线老化。"
             "PET 主链中的芳香环让结构相对刚性、耐候性通常更好；HDPE 的碳氢链在紫外照射和氧气共同作用下更容易发生光氧化，"
             "随后出现表面粉化、脆化和强度下降。不过这不是所有制品都适用的固定结论：添加剂、颜料、结晶度、厚度、"
@@ -1486,6 +1687,82 @@ def _direct_response_core(message: str) -> Optional[str]:
             "未粉碎的食物垃圾通常须超过12海里。特殊区域和极地水域要求更严，未粉碎食物垃圾通常禁止排放，"
             "粉碎后的也通常须超过12海里并满足附加条件。最稳妥的做法仍是分类暂存并交岸接收；具体操作应以现行附则、"
             "船旗国和港口国规定为准。"
+        )
+    if re.search(r"深海|深水", q) and re.search(r"多深|多少米|几米|多深才|深度.{0,6}(?:定义|标准|算)", q):
+        return (
+            "按项目知识库的口径，深海通常指水深大于200米的海域。不同文献对分层的阈值有差异，"
+            "有的资料会再细分半深海、深渊带等层次，但'大于200米'是常见的通用门槛。"
+            "深海环境无光、高压、低温（深水层普遍2~4℃左右），塑料在这些条件下老化碎裂更慢，"
+            "持留时间比浅海更长。"
+        )
+    if re.search(r"温度|水温|盐度", q) and re.search(r"现在|当前|今天|目前|多少度|几度|最新", q):
+        return (
+            "我手头没有实时海洋温度数据，不能给你一个当前读数。"
+            "如果你要查的是项目监测数据，可以在检测报告或历史记录里按时间和点位看 CTD 测量值；"
+            "把具体海域、深度和时间发给我，我可以帮你解读这份记录里温度的合理性。"
+        )
+    if re.search(r"石油泄漏|溢油|油污|油类泄漏", q) and re.search(r"塑料", q) and re.search(r"还是|比较|更|哪个|危害", q):
+        return (
+            "这两类污染的机制不同，知识库里没有统一的危害排序结论，我不替它编一个。"
+            "石油泄漏的特点是急性冲击：油膜阻断海水气体交换，黏住海鸟羽毛破坏防水隔热，"
+            "对潮间带生物有直接毒性，短期内可见大量死亡，但会随蒸发、扩散和降解逐步缓解。"
+            "塑料污染的特点是慢性持久：缠绕和误食持续威胁生物，碎裂成微塑料后长期留在"
+            "食物链和环境里，清理几乎不可能彻底。简单说：油污伤在当下，塑料伤在长远，"
+            "两者都要从源头减量和入海前拦截做起。"
+        )
+    if re.search(r"为什么|原因|成因", q) and re.search(r"难治理|难解决|治理难|难清理|这么难", q) and re.search(r"海洋|塑料|垃圾|污染", q):
+        return (
+            "海洋塑料污染难治理，主要卡在三个环节：\n"
+            "1. 持留性强：塑料的'降解'多是老化和碎裂，不等于消失，微塑料会长期留在环境里。\n"
+            "2. 分布太广：从海面、水体到海底和生物体内都有，深海和远海的垃圾收集成本极高。\n"
+            "3. 来源分散：城市径流、船舶丢弃、渔业活动、河流输入都在持续补入，只捞不堵源头永远追不上。\n"
+            "所以治理重心在源头减量和入海前拦截，清理只是补救手段。"
+        )
+    if (
+        re.search(r"^rov\b|什么是rov|rov是什么|介绍一下rov|rov（", q)
+        and re.search(r"是什么|什么东西|什么设备|介绍|解释|定义", q)
+        # 作业类问题（切割 SOP 等）必须留给专用操作卡，不能被概念卡抢答
+        and not re.search(r"切割|微创|sop|标准作业|指引|流程|步骤|打捞|解缠", q, re.I)
+    ):
+        return (
+            "ROV 是 Remotely Operated Vehicle 的缩写，中文叫遥控水下机器人，"
+            "是本系统主要的数据采集与作业平台。它由母船通过电缆（系缆）供电并回传数据，"
+            "也可能用电池加声学通信的组合；本体一般包含载体框架、推进器、深度计与声呐等传感器、"
+            "照明和机械手。作业流程大致是：确认海况和水深后缓慢下潜，用声呐定位目标并记录母船 GPS，"
+            "再执行观察、取样或打捞辅助等任务。与 AUV（自主水下机器人）的区别是 ROV 靠系缆实时"
+            "操控、能即时干预，AUV 按预设航线自主航行、适合大范围普查。"
+        )
+    if re.search(r"海洋(?:里的)?(?:塑料)?垃圾|塑料垃圾", q) and re.search(r"(?:主要)?有哪些类型|类型有哪些|都包括哪些|分为哪几类", q):
+        return (
+            "按项目数据集和分类口径，海洋垃圾常见类型有这些：\n"
+            "1. 塑料类：瓶子、塑料袋、零食包装、杯子、容器、防水布、管道——占大头，也是微塑料的主要来源。\n"
+            "2. 渔具类：废弃渔网、绳索、鱼线，'幽灵渔网'会持续缠绕生物和珊瑚。\n"
+            "3. 金属类：金属罐、残骸碎片。\n"
+            "4. 其他：衣物纺织品、玻璃瓶、处理木材等。\n"
+            "其中塑料袋、渔网、绳索和零食包装危害最高，可直接导致海洋生物死亡。"
+        )
+    if re.search(r"经济|效益|收益|赚|值多少|卖", q) and re.search(r"回收|再生|循环", q) and re.search(r"垃圾|塑料|渔网", q):
+        return (
+            "知识库里没有'一吨海洋塑料垃圾能卖多少钱'的具体数据，不能给你编一个数。"
+            "可以确认的框架是：再生价值主要取决于材质纯度和当地回收体系——纯净的 PET 瓶、"
+            "尼龙渔网经分类、清洗、造粒后价值较高；混杂污染的塑料和多层复合材料机械回收价值很低。"
+            "海洋打捞垃圾还要额外扣除打捞、运输和清洗成本，所以很多项目实际是'环保收益大于经济收益'。"
+            "政策工具（押金返还、生产者责任延伸）比市场价格更能决定回收是否划算。"
+        )
+    if re.search(r"海洋垃圾|垃圾|塑料", q) and re.search(r"多久.{0,6}(?:降解|分解|消失)|(?:降解|分解).{0,6}(?:需要|时间|多久)", q) and "微塑料" not in q:
+        return (
+            "海洋垃圾的降解时间没有一个统一数字——温度、光照、材质、磨损条件差异太大，"
+            "知识库明确提醒不要用单一'几年'来回答。可以给的数量级参考：常见科普材料估算塑料"
+            "饮料瓶（PET）约450年，但这只是环境持留的数量级，不代表到期无害化；塑料袋等 PE "
+            "制品同样长期持留，逐步老化碎裂成微塑料。更可靠的口径是：塑料在海洋里主要是'碎裂'"
+            "而不是'消失'，治理重点应放在源头减量和及时清理上。"
+        )
+    if re.search(r"海龟|乌龟", q) and re.search(r"为什么|原因|误食|误认|吃", q) and re.search(r"塑料袋|塑料|袋", q):
+        return (
+            "海龟容易误食塑料袋，核心原因是形状和动态太像它们的主食水母：塑料袋半透明、"
+            "薄膜状、在水里飘动的姿态和水母几乎重合，海龟靠视觉觅食就分不出来。"
+            "吞下去的塑料袋会堵塞食道、造成窒息，也会让海龟产生'吃饱了'的错觉而停止进食。"
+            "这也是塑料袋被列为危害等级最高的海洋垃圾之一的原因。"
         )
     if re.search(r"marpol|船舶.*垃圾|船.*塑料|附则\s*v|塑料垃圾.*(倒|排放).*(海|海里)", q):
         return (

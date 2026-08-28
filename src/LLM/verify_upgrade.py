@@ -120,7 +120,13 @@ def run_offline_regression() -> None:
     assert not _is_complete_answer("- 快速定位：")
     assert _is_complete_answer("请先复核原始图像，再决定是否纳入正式统计。")
     assert requires_citations("幽灵渔网缠绕珊瑚礁时微创切割标准作业指引")
-    assert requires_citations("图像去散射方法是什么？")
+    # 概念问法不再被强制引用口径绑架（2026-08-28 收窄后"是什么"走科普豁免）；
+    # 操作语境的强事实问法仍然强制。
+    assert requires_citations("水下图像去散射的作业方案？")
+    assert requires_citations("检测报告里置信度 60% 怎么解读？")
+    assert not requires_citations("图像去散射是什么？")
+    assert not requires_citations("ROV是什么东西？")
+    assert not requires_citations("海洋温度现在多少度？")
     assert "3D" in direct_response("生命图谱是干什么的？")
     assert "全生命周期" in direct_response("海洋垃圾和气候变化有什么关系？")
     assert "导航失误" in direct_response("鲸鱼为什么会搁浅？")
