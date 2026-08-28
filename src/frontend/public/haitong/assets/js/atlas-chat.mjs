@@ -135,7 +135,10 @@ export async function streamAtlasChat({
       buffer = events.pop() ?? '';
       for (const event of events) {
         const parsed = parseSseEvent(event);
-        if (parsed.done) return;
+        if (parsed.done) {
+          if (!receivedContent) throw new AtlasChatError('AI 助手未返回有效内容');
+          return;
+        }
         if (!parsed.content) continue;
         if (!receivedContent) {
           receivedContent = true;

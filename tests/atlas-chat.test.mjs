@@ -117,6 +117,28 @@ test('流式请求复刻平台契约并按 SSE 到达顺序输出', async () => 
   });
 });
 
+test('流式请求只有 DONE 而没有正文时按空回答失败，允许首问重试', async () => {
+  const encoder = new TextEncoder();
+
+  await assert.rejects(
+    streamAtlasChat({
+      messages: [{ role: 'user', content: '介绍当前物种' }],
+      sessionId: 'session-empty',
+      token: 'token-1',
+      signal: new AbortController().signal,
+      onChunk() {},
+      fetchImpl: async () => new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      }), { status: 200 }),
+      firstByteTimeoutMs: 100,
+    }),
+    /未返回有效内容/,
+  );
+});
+
 test('流式请求将非 200 响应转为带状态码的明确错误', async () => {
   await assert.rejects(
     streamAtlasChat({

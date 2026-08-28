@@ -324,3 +324,17 @@ def test_atlas_protection_actions_follow_each_species_archive_threat():
     assert "减速" in whale_answer and "安全距离" in whale_answer
     for answer in (vaquita_answer, whale_answer):
         assert "检测报告" not in answer and "知识库" not in answer
+
+
+def test_atlas_whale_shark_actions_cover_propeller_strike_and_illegal_killing():
+    message = (
+        "【当前浏览物种】鲸鲨 / Whale shark / Rhincodon typus｜IUCN：EN·濒危｜简介："
+        "迁徙途中可能遭货轮螺旋桨重创，也面临非法捕杀威胁。\n"
+        "我的问题：普通人能为保护它做什么？"
+    )
+
+    answer = llm.direct_response(message)
+
+    assert answer and "货轮螺旋桨重创" in answer and "非法捕杀" in answer
+    assert "减速" in answer and "安全距离" in answer
+    assert "拒绝购买" in answer and "非法贸易" in answer

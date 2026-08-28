@@ -1187,11 +1187,11 @@ def _atlas_species_context_response(message: str) -> Optional[str]:
             "选择来源可追溯、采用减缓兼捕措施的海产品，不购买与非法捕捞相关的野生动物制品，"
             "并妥善处置钓线和渔具"
         )
-    if re.search(r"船舶|撞击|航运|航道", story):
+    if re.search(r"船舶|货轮|螺旋桨|撞击|船撞|航运|航道", story):
         actions.append("参与观鲸或近海航行时遵守减速要求和安全距离，并支持船舶预警与避让措施")
     if re.search(r"塑料|垃圾|误食|污染", story):
         actions.append("减少一次性塑料，分类回收并阻止垃圾进入河流和海岸")
-    if re.search(r"猎杀|捕鲸|贸易|鱼翅|制品", story):
+    if re.search(r"猎杀|捕杀|猎捕|捕鲸|贸易|鱼翅|制品", story):
         actions.append("拒绝购买相关野生动物制品，不为非法贸易提供需求")
     if re.search(r"栖息地|珊瑚|红树林|海草|繁殖地", story):
         actions.append("减少对栖息地的踩踏和干扰，参与来源可靠的海岸与栖息地保护行动")
