@@ -33,6 +33,7 @@ from schemas import (
     ReportSolution,
     pollution_level_zh,
 )
+from services.notification_hub import notify
 
 # 污染等级严重度（用于多图批量报告取"综合最差等级"）
 LEVEL_SEVERITY = {"excellent": 0, "good": 1, "moderate": 2, "poor": 3, "severe": 4}
@@ -619,6 +620,7 @@ def _generate_report_for_task(db: Session, task: DetectionTask, user_id: int, re
     db.add(report)
     db.commit()
     db.refresh(report)
+    notify(db, user_id, "report_ready", "质量报告已生成", (report.summary or "")[:200], "reports", report.id)
     return report
 
 
@@ -749,6 +751,7 @@ def _generate_batch_report(db: Session, tasks: list[DetectionTask], user_id: int
     db.add(report)
     db.commit()
     db.refresh(report)
+    notify(db, user_id, "report_ready", "批量质量报告已生成", (report.summary or "")[:200], "reports", report.id)
     return report
 
 
@@ -913,6 +916,7 @@ def _generate_comprehensive_report(db: Session, reports: list[Report], user_id: 
     db.add(report)
     db.commit()
     db.refresh(report)
+    notify(db, user_id, "report_ready", "综合质量报告已生成", (report.summary or "")[:200], "reports", report.id)
     return report
 
 

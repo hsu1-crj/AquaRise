@@ -562,3 +562,36 @@ class SpaChatRequest(BaseModel):
     message: Optional[str] = None  # 旧格式兼容
     report_id: Optional[int] = Field(default=None, ge=1, description="当前追问绑定的系统质量报告 ID")
     document_id: Optional[int] = Field(default=None, ge=1, description="当前追问绑定的导入知识库文档 ID")
+
+
+# ============ 通知中心（铃铛） ============
+class FrontendNotification(BaseModel):
+    """单条通知（camelCase，与 api.ts 前端契约一致）"""
+    id: int
+    type: str
+    title: str
+    body: Optional[str] = None
+    linkPage: Optional[str] = None  # history / reports
+    refId: Optional[int] = None
+    isRead: bool = False
+    createdAt: str
+
+
+class NotificationListResponse(BaseModel):
+    """通知列表 + 未读数（供 SSE init 快照与 GET 列表复用）"""
+    items: list[FrontendNotification]
+    unreadCount: int
+
+
+def to_frontend_notification(row) -> FrontendNotification:
+    """把 ORM Notification 行转成前端形状（created_at 序列化为字符串）。"""
+    return FrontendNotification(
+        id=row.id,
+        type=row.type.value if hasattr(row.type, "value") else str(row.type),
+        title=row.title,
+        body=row.body,
+        linkPage=row.link_page,
+        refId=row.ref_id,
+        isRead=row.is_read,
+        createdAt=row.created_at.strftime("%Y-%m-%d %H:%M:%S") if row.created_at else "",
+    )

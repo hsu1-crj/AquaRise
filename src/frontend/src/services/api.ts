@@ -56,7 +56,8 @@ export function clearStoredAuth(): void {
   window.localStorage.removeItem(REMEMBER_FLAG_KEY);
 }
 
-function authHeaders(init?: RequestInit): Headers {
+/** 鉴权头构造：普通请求与 SSE 流式读取共用（EventSource 无法带 Authorization 头，故统一用 fetch）。 */
+export function authHeaders(init?: RequestInit): Headers {
   const headers = new Headers(init?.headers);
   const token = getStoredToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);

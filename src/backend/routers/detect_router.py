@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 import config
 from auth import require_permission
 from database import get_db
-from models import DetectionResult, DetectionTask, SeaArea, TaskStatus, TaskType, User
+from models import DetectionResult, DetectionTask, PollutionLevel, SeaArea, TaskStatus, TaskType, User
 from schemas import (
     DetectionResultItem,
     FrontendDetectionBox,
@@ -38,6 +38,7 @@ from schemas import (
 )
 from services import detector
 from services.detector import GARBAGE_CLASSES
+from services.notification_hub import notify
 
 router = APIRouter(prefix="/api/v1", tags=["detection"])
 
@@ -129,6 +130,28 @@ def _process_single_image(file: UploadFile, current_user: User, db: Session,
     task.status = TaskStatus.completed
     task.completed_at = datetime.now()
     db.commit()
+
+    # 通知：任务完成 + 污染等级告警（poor/severe 时追加）
+    notify(
+        db,
+        current_user.id,
+        "task_completed",
+        f"检测任务 #{task.id} 完成",
+        f"「{task.file_name}」检出 {task.total_objects} 个垃圾目标",
+        "history",
+        task.id,
+    )
+    if level in (PollutionLevel.poor, PollutionLevel.severe):
+        zl = pollution_level_zh(level)
+        notify(
+            db,
+            current_user.id,
+            "pollution_warning",
+            f"⚠ 污染告警：{zl}污染",
+            f"「{task.file_name}」综合污染等级为{zl}，建议及时处理",
+            "history",
+            task.id,
+        )
 
     objects: list[FrontendDetectionBox] = []
     for index, d in enumerate(detections, start=1):

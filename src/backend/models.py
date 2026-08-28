@@ -24,6 +24,7 @@ from sqlalchemy import (
     Enum as SAEnum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -122,6 +123,13 @@ class DHStatus(str, enum.Enum):
     speaking = "speaking"
     completed = "completed"
     failed = "failed"
+
+
+class NotificationType(str, enum.Enum):
+    task_completed = "task_completed"      # 检测任务完成
+    task_failed = "task_failed"            # 检测任务失败
+    report_ready = "report_ready"          # 质量报告生成完成
+    pollution_warning = "pollution_warning"  # 污染等级告警（poor/severe）
 
 
 # ============ 1. 用户表 ============
@@ -432,3 +440,32 @@ class ReportAnalysis(Base):
 
     def __repr__(self):
         return f"<ReportAnalysis id={self.id} report={self.report_id} status={self.status}>"
+
+
+# ============ 9. 通知表（铃铛通知中心） ============
+class Notification(Base):
+    """用户通知：检测任务完成/失败、报告生成完成、污染等级告警。
+
+    只推给触发者本人（user_id 归属）；link_page 供前端跳转到 history/reports 页，
+    ref_id 指回对应任务/报告 id。复合索引(user_id, is_read, created_at)
+    同时服务「未读数 COUNT」与「最新 20 条」两类查询。"""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_read", "user_id", "is_read", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    type = Column(SAEnum(NotificationType), nullable=False)
+    title = Column(String(120), nullable=False)
+    body = Column(String(255), nullable=True)
+    link_page = Column(String(16), nullable=True)  # history / reports
+    ref_id = Column(Integer, nullable=True)         # 关联任务/报告 id
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<Notification id={self.id} user={self.user_id} type={self.type.value} read={self.is_read}>"

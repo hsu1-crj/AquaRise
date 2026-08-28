@@ -13,6 +13,7 @@ SSR 管理页面由 React SPA 取代，故不再挂载 pages_router / templates�
     http://127.0.0.1:5173        React 前端（npm run dev，/api 代理到 8000）
 """
 
+import asyncio
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -51,6 +52,7 @@ from routers import (  # noqa: E402
     face_router,
     knowledge_router,
     marine_router,
+    notifications_router,
     reports_router,
     stats_router,
 )
@@ -199,6 +201,10 @@ async def lifespan(app: FastAPI):
 
     # 重建视频媒体索引：预览帧/标注视频文件已落盘，从磁盘恢复 URL（进程重启不丢）
     from services import detector
+    from services.notification_hub import hub
+
+    # 通知发布中枢绑定主事件循环：视频 worker 等线程池线程借此 call_soon_threadsafe 投递 SSE
+    hub.set_loop(asyncio.get_running_loop())
 
     try:
         detector.restore_video_indexes()
@@ -344,6 +350,7 @@ app.include_router(reports_router.router)        # /api/v1/reports/*
 app.include_router(knowledge_router.router)      # /api/v1/knowledge/*
 app.include_router(digital_human_router.router)  # /api/v1/digital-human/*
 app.include_router(admin_router.router)          # /api/v1/admin/*（后台管理：用户/用户组/概览）
+app.include_router(notifications_router.router)  # /api/v1/notifications/*（铃铛通知中心，SSE）
 
 # ============ 静态文件：上传产物（图片/视频/视频预览帧）同源访问 ============
 # 挂载 /uploads → config.UPLOAD_DIR（默认 uploads/，相对 cwd=src/backend），

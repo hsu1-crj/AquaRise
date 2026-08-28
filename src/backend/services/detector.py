@@ -441,7 +441,8 @@ def process_video_background(task_id: int, file_path: str):
     """
     # 延迟导入，避免模块加载时依赖数据库
     from database import SessionLocal
-    from models import DetectionResult, DetectionTask, TaskStatus
+    from models import DetectionResult, DetectionTask, PollutionLevel, TaskStatus
+    from services.notification_hub import notify
 
     import cv2
 
@@ -566,6 +567,27 @@ def process_video_background(task_id: int, file_path: str):
         task.status = TaskStatus.completed
         task.completed_at = datetime.now()
         db.commit()
+
+        # 通知：任务完成 + 污染等级告警（poor/severe 时追加）
+        notify(
+            db,
+            task.user_id,
+            "task_completed",
+            f"检测任务 #{task.id} 完成",
+            f"「{task.file_name}」检出 {task.total_objects} 个垃圾目标",
+            "history",
+            task.id,
+        )
+        if task.pollution_level in (PollutionLevel.poor, PollutionLevel.severe):
+            notify(
+                db,
+                task.user_id,
+                "pollution_warning",
+                "⚠ 污染告警",
+                f"「{task.file_name}」综合污染等级为 {task.pollution_level.value}，建议及时处理",
+                "history",
+                task.id,
+            )
     except Exception:
         # 异常时标记任务失败，避免卡在 processing
         db.rollback()
@@ -573,5 +595,14 @@ def process_video_background(task_id: int, file_path: str):
         if task:
             task.status = TaskStatus.failed
             db.commit()
+            notify(
+                db,
+                task.user_id,
+                "task_failed",
+                f"检测任务 #{task.id} 失败",
+                f"「{task.file_name}」处理失败，请检查文件后重试",
+                "history",
+                task.id,
+            )
     finally:
         db.close()
