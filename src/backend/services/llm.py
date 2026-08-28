@@ -109,7 +109,7 @@ DOMAIN_TERMS = (
     "检测", "识别", "置信度", "检测报告", "污染等级", "yolo", "环保", "trashcan", "数据集",
     "鲸鱼", "海豚", "鲨鱼", "洋流", "潮汐", "海平面", "气候变化", "生态", "珊瑚礁", "生物多样性",
     "样方", "样带", "声呐", "传感器", "无人艇", "usv", "rov", "rfid", "pops", "富集", "食物链",
-    "碳汇", "监测方法", "监测", "微创", "切割", "指引", "清滩", "尼龙", "聚乙烯", "pe",
+    "蓝碳", "碳汇", "监测方法", "监测", "微创", "切割", "指引", "清滩", "尼龙", "聚乙烯", "pe",
     "pet", "hdpe", "聚合物", "材料", "紫外", "紫外老化", "光氧化", "水解", "耐候", "耐老化", "性能对比",
     "图像", "多帧", "时序", "跟踪", "追踪", "机制", "方法", "去散射", "超分辨率", "类别",
     "生命图谱", "指挥大屏", "污染分析", "检测历史", "报告页", "海洋守护者",
@@ -198,8 +198,40 @@ def _strip_think(text: str) -> str:
     return THINK_TRACE_RE.sub("\n", cleaned).strip()
 
 
+_REPETITION_SEGMENT_SPLIT_RE = re.compile(
+    r"(?:\r?\n\s*){2,}|\r?\n(?=\s*(?:[-*•]|\d+[.、)]|[一二三四五六七八九十]+[.、]"
+    r"|[（(](?:\d+|[一二三四五六七八九十]+)[）)]))"
+)
+_REPETITION_SEGMENT_PREFIX_RE = re.compile(
+    r"^\s*(?:[-*•]+|\d+[.、)]|[一二三四五六七八九十]+[.、]"
+    r"|[（(](?:\d+|[一二三四五六七八九十]+)[）)])\s*"
+)
+
+
+def _has_near_duplicate_segments(text: str, threshold: float = 0.70) -> bool:
+    """识别长答案中换少量词后重复出现的段落或列表项。"""
+    if len(_compact(text)) < 200:
+        return False
+
+    segments: list[str] = []
+    for raw_segment in _REPETITION_SEGMENT_SPLIT_RE.split(text or ""):
+        raw_segment = _REPETITION_SEGMENT_PREFIX_RE.sub("", raw_segment)
+        normalized = re.sub(r"[^\w\u4e00-\u9fff]+", "", raw_segment.lower())
+        if len(normalized) >= 40:
+            segments.append(normalized)
+
+    for index, left in enumerate(segments):
+        for right in segments[index + 1:]:
+            if min(len(left), len(right)) / max(len(left), len(right)) < 0.60:
+                continue
+            similarity = SequenceMatcher(None, left, right, autojunk=False).ratio()
+            if similarity > threshold:
+                return True
+    return False
+
+
 def _has_obvious_repetition(text: str) -> bool:
-    """拦截小模型常见的短句/短语循环，不因正常的项目符号而误伤。"""
+    """拦截小模型的短语循环与长段落近义复读，不误伤正常项目符号。"""
     compact = _compact(text)
     if len(compact) < 40:
         return False
@@ -208,7 +240,7 @@ def _has_obvious_repetition(text: str) -> bool:
             fragment = compact[index:index + size]
             if fragment and compact.count(fragment) >= 4:
                 return True
-    return False
+    return _has_near_duplicate_segments(text)
 
 
 def _evidence_text(evidence: Sequence[dict[str, Any]]) -> str:
@@ -1514,11 +1546,11 @@ def _direct_response_core(message: str) -> Optional[str]:
             "建议先回看原始图像，核对类别和目标框是否合理，结合采集时间、地点判断，必要时人工复核或补拍确认后再录入正式记录。"
         )
     net_operation_intent = re.search(
-        r"切割|微创|rov|潜水员|操作|指引|标准作业|程序|步骤|方案|sop|细节|怎么做|如何做|怎么处理|如何处理|方法",
+        r"切割|微创|rov|潜水员|操作|指引|标准作业|程序|步骤|方案|sop|细节",
         q,
         re.I,
     )
-    net_disposal_intent = re.search(r"处置|注意|怎么办|危害|发现|看到|现场|缠绕|打捞", q)
+    net_disposal_intent = re.search(r"处置|注意|怎么办|怎么处理|如何处理|危害|发现|看到|现场|缠绕|打捞", q)
     if (
         not net_operation_intent
         and not re.search(r"清洗|脱盐|再生|利用|回收", q)

@@ -382,3 +382,75 @@ def test_hard_cards_are_not_stolen_by_operation_questions():
     answer = llm.direct_response("水下幽灵渔网缠绕珊瑚礁时，潜水员或 ROV 进行微创切割的标准作业指引是什么？")
     assert answer and "分段" in answer and "ROV" in answer
     assert "遥控水下机器人是本系统" not in answer
+
+
+# ---------- 6. 渔网处置卡路由与答案内复读门禁（2026-08-28） ----------
+
+def test_ghost_net_disposal_questions_use_direct_safety_card():
+    """普通发现/处置问法应命中安全处置卡，不再掉进小模型自由生成。"""
+    for question in (
+        "发现幽灵渔网怎么处理？",
+        "幽灵渔网发现了该怎么办？",
+        "渔网怎么处理？",
+    ):
+        answer = llm.direct_response(question)
+        assert answer
+        assert "记录位置" in answer and "专业团队" in answer
+        assert "别直接拖拽" in answer
+
+
+def test_ghost_net_disposal_route_preserves_operation_and_recycling_guards():
+    """ROV 切割作业与回收问法不得被普通安全处置卡抢答。"""
+    operation = llm.direct_response("ROV切割缠绕渔网的步骤")
+    assert operation and "ROV" in operation and "分段" in operation
+    assert "别直接拖拽" not in operation
+
+    recycling = llm.direct_response("渔网怎么回收？")
+    assert recycling is None or "别直接拖拽" not in recycling
+
+    # 蓝碳属于海洋领域，但没有确定性卡，应继续交给 RAG + 本地模型。
+    assert llm.is_domain_question("什么是蓝碳？")
+    assert llm.direct_response("什么是蓝碳？") is None
+
+
+def test_model_answer_gate_rejects_near_duplicate_paragraphs():
+    first = (
+        "第一，发现废弃渔网后先划定警戒范围，记录坐标、水深、缠绕对象和现场影像。"
+        "不要贸然拖拽或下水切割，应由专业团队评估海况、生物受困程度和作业风险，"
+        "再确定分段解缠、安全打捞以及后续转运方案，整个过程保留复核记录。"
+    )
+    second = (
+        "第二，发现废弃渔网后要先划出警戒区域，记录位置、水深、缠绕目标和现场照片。"
+        "不要擅自拖动或入水切割，应让专业人员评估海况、生物受困情况和操作风险，"
+        "再决定分段解缠、安全打捞以及后续运输方案，并为全过程留下复核记录。"
+    )
+    repeated = f"{first}\n\n{second}"
+
+    assert len(llm._compact(repeated)) >= 200
+    assert llm._has_obvious_repetition(repeated)
+    assert not llm.is_acceptable_model_answer(repeated, "发现幽灵渔网后应该如何安全处置？")
+
+    parenthesized = f"（一）{first}\n（二）{second}"
+    assert llm._has_obvious_repetition(parenthesized)
+
+    short_repetition = "（一）先记录位置并保持距离。\n（二）先记录坐标并留出距离。"
+    assert len(llm._compact(short_repetition)) < 200
+    assert not llm._has_near_duplicate_segments(short_repetition)
+
+
+def test_model_answer_gate_allows_normal_long_enumeration():
+    normal = (
+        "海洋垃圾可以先按材质和来源分成几类。\n\n"
+        "塑料类常见饮料瓶、包装袋、泡沫和破碎塑料片，长期留存后还可能继续碎裂成微塑料，"
+        "调查时应分别记录完整物与碎片。\n\n"
+        "废弃渔具包括渔网、绳索、钓线和浮标，主要风险是缠绕海龟、鱼类或珊瑚，"
+        "现场发现后需要标注位置并交给专业人员评估。\n\n"
+        "金属与玻璃类包括罐体、瓶体和器具残片，前者可能锈蚀，后者可能造成割伤，"
+        "清理时要使用合适的防护和收纳容器。\n\n"
+        "橡胶、织物及其他复合材料也应单独登记，因为混合材质的回收路径不同，"
+        "最终分类仍要结合当地接收和处置条件。"
+    )
+
+    assert len(llm._compact(normal)) >= 200
+    assert not llm._has_obvious_repetition(normal)
+    assert llm.is_acceptable_model_answer(normal, "海洋垃圾主要有哪些类型？")
