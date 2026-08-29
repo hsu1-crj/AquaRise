@@ -73,7 +73,7 @@ export function useCamera(): CameraController {
   }, []);
 
   // 组件卸载时释放摄像头
-  useEffect(() => stop, [stop]);
+  useEffect(() => stop, [stop]); 
 
   return { ready, open, stop, capture, videoRef: videoRef as React.RefObject<HTMLVideoElement> };
 }
