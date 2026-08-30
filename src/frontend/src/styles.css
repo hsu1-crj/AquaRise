@@ -3070,3 +3070,111 @@
 .notif-del{flex-shrink:0;align-self:center;width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:var(--muted);border:1px solid transparent;background:transparent;opacity:0;transition:all .15s ease}
 .notif-li:hover .notif-del,.notif-del:focus-visible{opacity:1}
 .notif-del:hover{color:#ff8ba0;background:rgba(255,109,136,.12);border-color:rgba(255,109,136,.28)}
+
+/* 用户消息携带的报告附件卡片（文件与文字一同发送） */
+.og-msg-attachment {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(27, 231, 255, 0.08);
+  border: 1px solid rgba(43, 220, 255, 0.35);
+  color: #d9f6ff;
+}
+.og-msg-attachment svg { flex: none; color: var(--cyan); }
+.og-msg-attachment-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.og-msg-attachment-copy b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.og-msg-attachment-copy small {
+  font-size: 10.5px;
+  color: rgba(217, 246, 255, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+.og-msg-attachment-tag {
+  flex: none;
+  margin-left: auto;
+  font-size: 10px;
+  color: rgba(217, 246, 255, 0.55);
+  border: 1px solid rgba(43, 220, 255, 0.25);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+/* 导入按钮的绑定态：状态收进按钮，不再悬浮在聊天框上方 */
+.og-import-btn .og-import-bound-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(56, 248, 212, 0.14);
+  border: 1px solid rgba(56, 248, 212, 0.4);
+  color: #7dffdf;
+  font-size: 11px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.og-import-btn .og-import-bound-name:hover {
+  background: rgba(255, 104, 133, 0.15);
+  border-color: rgba(255, 104, 133, 0.5);
+  color: #ff9db1;
+}
+
+/* 回答排版：关键事实高亮（数字+单位/法规专名/等级评分/优先级/警示词） */
+.og-markdown-body mark.og-hl {
+  background: linear-gradient(transparent 58%, rgba(27, 231, 255, 0.3) 58%);
+  color: #f2feff;
+  font-weight: 600;
+  padding: 0 1px;
+  border-radius: 2px;
+  text-shadow: 0 0 12px rgba(27, 231, 255, 0.35);
+}
+.og-markdown-body strong { color: #ffffff; }
+
+/* 回答排版：结论卡 / 小节卡片 / 优先级徽标 */
+.og-markdown-body .og-ans-conclusion {
+  background: linear-gradient(135deg, rgba(56, 248, 212, 0.14), rgba(27, 231, 255, 0.06));
+  border: 1px solid rgba(56, 248, 212, 0.4);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin: 0 0 10px;
+  font-weight: 600;
+  color: #eafffe;
+}
+.og-markdown-body .og-ans-card {
+  background: rgba(6, 24, 40, 0.55);
+  border: 1px solid rgba(135, 222, 255, 0.18);
+  border-left: 3px solid var(--cyan);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin: 0 0 10px;
+}
+.og-markdown-body .og-ans-card-head {
+  color: var(--cyan);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0 0 6px;
+}
+.og-markdown-body .og-ans-card-list { margin: 0; padding-left: 18px; }
+.og-markdown-body .og-ans-list { padding-left: 18px; }
+.og-markdown-body .og-ans-list li,
+.og-markdown-body .og-ans-card-list li { margin: 4px 0; }
+.og-markdown-body .og-pri-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 11px;
+}
+.og-pri-badge.pri-p0 { background: rgba(255, 104, 133, 0.2); color: #ff8ba0; border: 1px solid rgba(255, 104, 133, 0.5); }
+.og-pri-badge.pri-p1 { background: rgba(255, 181, 71, 0.18); color: #ffc97e; border: 1px solid rgba(255, 181, 71, 0.5); }
+.og-pri-badge.pri-p2 { background: rgba(27, 231, 255, 0.16); color: #7fe8ff; border: 1px solid rgba(27, 231, 255, 0.5); }

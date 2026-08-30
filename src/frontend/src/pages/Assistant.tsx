@@ -51,6 +51,8 @@ interface UiMessage {
   content: string;
   timestamp?: string;
   liked?: boolean;
+  /** 随消息一同发送的绑定报告/文档（聊天里以附件卡片展示） */
+  attachment?: { label: string; meta?: string };
 }
 
 interface ActiveReportContext {
@@ -325,6 +327,91 @@ function ThinkingOverlay({ visible }: { visible: boolean }) {
 
 // ---------- 消息气泡组件 ----------
 
+// ---------- 回答排版：关键事实自动强调 ----------
+// 数字+单位、法规专名、污染等级/评分、P0-P3 优先级与警示词统一加高亮标记，
+// 由渲染层确定性生成（不依赖 1.5B 模型自己输出 markdown 强调）。
+const KEY_FACT_RE =
+  /(《[^》]{1,40}》|\d+(?:\.\d+)?\s*(?:吨|千克|公斤|克|公里|千米|米|海里|节|年|个月|天|小时|分钟|件|个目标|分|%)|(?:污染等级|风险等级|评分)[：:]?\s*[高中低优良差严重]{1,2}|P[0-3](?=[：：，。、\s])|禁止|严禁|必须)/g;
+
+function highlightKeyFacts(root: HTMLElement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const targets: Text[] = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    const value = node.nodeValue ?? '';
+    if (!value.trim()) continue;
+    const parent = node.parentElement;
+    if (!parent || parent.closest('pre, code, mark, .code-copy-btn')) continue;
+    targets.push(node);
+  }
+  for (const node of targets) {
+    const raw = node.nodeValue ?? '';
+    KEY_FACT_RE.lastIndex = 0;
+    if (!KEY_FACT_RE.test(raw)) continue;
+    KEY_FACT_RE.lastIndex = 0;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    let match: RegExpExecArray | null;
+    while ((match = KEY_FACT_RE.exec(raw))) {
+      if (match.index > last) frag.appendChild(document.createTextNode(raw.slice(last, match.index)));
+      const mark = document.createElement('mark');
+      mark.className = 'og-hl';
+      mark.textContent = match[0];
+      frag.appendChild(mark);
+      last = match.index + match[0].length;
+    }
+    if (last < raw.length) frag.appendChild(document.createTextNode(raw.slice(last)));
+    node.parentNode?.replaceChild(frag, node);
+  }
+}
+
+// ---------- 回答排版：结构卡片化 ----------
+// 结论段 → 结论卡；"关键发现/处置方案/后续监测建议"等小节标题+列表 → 小节卡片；
+// 普通列表轻卡片化；P0/P1/P2 项加彩色优先级徽标。全部渲染层确定性完成，对所有回答生效。
+const SECTION_LABEL_RE =
+  /^(概况|关键发现|可能来源|处置方案|后续监测建议|后续监测|分析摘要|优先做什么)[:：]?\s*$/;
+
+function cardifyAnswer(root: HTMLElement) {
+  const body = root.querySelector('.og-markdown-body');
+  if (!body) return;
+  const children = [...body.children] as HTMLElement[];
+  for (let i = 0; i < children.length; i += 1) {
+    const node = children[i];
+    const text = (node.textContent || '').trim();
+    if (node.tagName === 'P' && /^(先给结论|结论)[:：]/.test(text)) {
+      node.classList.add('og-ans-conclusion');
+      continue;
+    }
+    if (node.tagName === 'P' && SECTION_LABEL_RE.test(text)) {
+      const next = children[i + 1];
+      if (next && (next.tagName === 'UL' || next.tagName === 'OL')) {
+        const card = document.createElement('div');
+        card.className = 'og-ans-card';
+        node.classList.add('og-ans-card-head');
+        next.classList.add('og-ans-card-list');
+        node.parentNode?.insertBefore(card, node);
+        card.appendChild(node);
+        card.appendChild(next);
+      }
+      continue;
+    }
+    if (node.tagName === 'UL' || node.tagName === 'OL') {
+      node.classList.add('og-ans-list');
+      [...node.children].forEach((li) => {
+        const liEl = li as HTMLElement;
+        const badge = /^(P[0-3])[：:]/.exec(liEl.textContent || '');
+        if (badge) {
+          liEl.classList.add('og-li-priority');
+          const tag = document.createElement('span');
+          tag.className = `og-pri-badge pri-${badge[1].toLowerCase()}`;
+          tag.textContent = badge[1];
+          liEl.insertBefore(tag, liEl.firstChild);
+        }
+      });
+    }
+  }
+}
+
 function MessageBubble({
   message,
   streaming,
@@ -365,11 +452,13 @@ function MessageBubble({
     });
   }, [message.content]);
 
-  // 监听并为代码块增加一键复制按钮
+  // 监听并为代码块增加一键复制按钮；同时对正文做统一的关键词强调排版
   const bubbleRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = bubbleRef.current;
     if (!el) return;
+    highlightKeyFacts(el);
+    cardifyAnswer(el);
     const preBlocks = el.querySelectorAll('pre');
     preBlocks.forEach((pre) => {
       if (pre.querySelector('.code-copy-btn')) return;
@@ -409,6 +498,19 @@ function MessageBubble({
         </div>
 
         <div className="og-mbub" ref={bubbleRef}>
+          {!isAssistant && message.attachment && (
+            <div
+              className="og-msg-attachment"
+              title={message.attachment.meta || message.attachment.label}
+            >
+              <FileBarChart size={15} />
+              <div className="og-msg-attachment-copy">
+                <b>{message.attachment.label}</b>
+                {message.attachment.meta && <small>{message.attachment.meta}</small>}
+              </div>
+              <span className="og-msg-attachment-tag">已随消息发送</span>
+            </div>
+          )}
           {message.content ? (
             <div
               className="og-markdown-body"
@@ -686,6 +788,64 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     }
   }, []);
 
+  // ===== 舞台打字机字幕（纯文本/拟态模式）：与流式回答同步逐字揭示 =====
+  // 真数字人模式仍走 startSubtitleQueue 队列；此路径让没有云端数字人时舞台也能"开口说话"。
+  const stageTextRef = useRef('');
+  const stageShownRef = useRef(0);
+  const stageDoneRef = useRef(true);
+  const stageTyperRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stageHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [stageSubtitleLive, setStageSubtitleLive] = useState(false);
+
+  const stopStageSubtitle = useCallback(() => {
+    if (stageTyperRef.current) clearTimeout(stageTyperRef.current);
+    if (stageHoldRef.current) clearTimeout(stageHoldRef.current);
+    stageTyperRef.current = null;
+    stageHoldRef.current = null;
+    stageTextRef.current = '';
+    stageShownRef.current = 0;
+    stageDoneRef.current = true;
+    setStageSubtitleLive(false);
+    setDhSubtitle('');
+  }, []);
+
+  const endStageStream = useCallback(() => {
+    stageDoneRef.current = true;
+    if (!stageTyperRef.current) {
+      // 打字机已追平缓冲：停留片刻让用户读完最后一句，再自动淡出
+      if (stageHoldRef.current) clearTimeout(stageHoldRef.current);
+      stageHoldRef.current = setTimeout(() => stopStageSubtitle(), 2600);
+    }
+  }, [stopStageSubtitle]);
+
+  const pushStageChunk = useCallback((delta: string) => {
+    if (!delta) return;
+    if (stageHoldRef.current) {
+      clearTimeout(stageHoldRef.current);
+      stageHoldRef.current = null;
+    }
+    stageDoneRef.current = false;
+    stageTextRef.current += delta;
+    setStageSubtitleLive(true);
+  }, []);
+
+  const runStageTyper = useCallback(() => {
+    const tick = () => {
+      const buffer = stageTextRef.current;
+      if (stageShownRef.current >= buffer.length) {
+        stageTyperRef.current = null;
+        if (stageDoneRef.current) endStageStream();
+        return;
+      }
+      // ~55ms 揭示 3 字 ≈ 55 字/秒，略快于朗读语速；只显示最近 150 字窗口，长回答始终聚焦最新内容
+      stageShownRef.current = Math.min(buffer.length, stageShownRef.current + 3);
+      const revealed = stageTextRef.current.slice(0, stageShownRef.current).replace(/[*#`_~[\]()]/g, '');
+      setDhSubtitle(revealed.slice(-150));
+      stageTyperRef.current = setTimeout(tick, 55);
+    };
+    tick();
+  }, [endStageStream]);
+
   // 智能吸底滚动：用户上滚阅读时不再被流式输出拽回底部
   const stickToBottomRef = useRef(true);
 
@@ -714,6 +874,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   useEffect(() => {
     return () => {
       stopSubtitleQueue();
+      stopStageSubtitle();
       dhRef.current?.destroy();
       // 停止语音识别（内联实现，避免依赖后定义的 stopListening）
       listeningRef.current = false;
@@ -725,7 +886,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         try { rec.stop(); } catch { /* 已停止 */ }
       }
     };
-  }, [stopSubtitleQueue]);
+  }, [stopSubtitleQueue, stopStageSubtitle]);
 
   // 导出菜单：点击外部或 Esc 关闭
   useEffect(() => {
@@ -975,11 +1136,15 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       stickToBottomRef.current = true;
 
       const currentTime = formatCurrentTime();
+      const reportContextUsed = reportContextOverride ?? activeReportContext;
       const userMessage: UiMessage = {
         id: uuid(),
         role: 'user',
         content: text,
         timestamp: currentTime,
+        attachment: reportContextUsed
+          ? { label: reportContextUsed.title, meta: reportContextUsed.summary }
+          : undefined,
       };
       const assistantId = uuid();
       const nextMessages = [...messages, userMessage];
@@ -1012,6 +1177,17 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         ];
 
         let fullContent = '';
+        // 纯文本/拟态模式：开启舞台打字机字幕（真数字人模式仍由队列驱动）
+        if (!(dhOn && dhReady)) {
+          stageTextRef.current = '';
+          stageShownRef.current = 0;
+          stageDoneRef.current = false;
+          if (stageHoldRef.current) {
+            clearTimeout(stageHoldRef.current);
+            stageHoldRef.current = null;
+          }
+          setStageSubtitleLive(true);
+        }
         await streamChat(
           payload,
           sessionId,
@@ -1031,12 +1207,15 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               const last = parts.length ? parts[parts.length - 1] : fullContent;
               const lines = splitIntoLines(last);
               setDhSubtitle(lines[lines.length - 1]);
+            } else {
+              pushStageChunk(chunk);
+              if (!stageTyperRef.current) runStageTyper();
             }
           },
           abortController.signal,
           {
-            reportId: (reportContextOverride ?? activeReportContext)?.reportId ?? null,
-            documentId: (reportContextOverride ?? activeReportContext)?.documentId ?? null,
+            reportId: reportContextUsed?.reportId ?? null,
+            documentId: reportContextUsed?.documentId ?? null,
           },
         );
 
@@ -1051,8 +1230,9 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           }
           dhRef.current.speak(fullContent, { isStart: true, isEnd: true });
         } else {
-          setDhSubtitle('');
           setDhStatus(dhOn && dhReady ? 'idle' : 'offline');
+          if (dhOn && dhReady) setDhSubtitle('');
+          else endStageStream();
         }
       } catch (reason) {
         // A stopped request can finish after a newer request has started. Do not
@@ -1062,7 +1242,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           setError(reason instanceof Error ? reason.message : '对话生成中断或服务响应超时');
         }
         setDhStatus(dhOn && dhReady ? 'idle' : 'offline');
-        setDhSubtitle('');
+        if (dhOn && dhReady) setDhSubtitle('');
+        else stopStageSubtitle();
       } finally {
         // streamChat resolves normally after the SSE [DONE]/reader completion.
         // Always release the busy lock, while preserving a newer request's lock.
@@ -1077,7 +1258,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         if (!ae || ae === document.body) textareaRef.current?.focus();
       }
     },
-    [busy, messages, dhOn, dhReady, dhMuted, sessionId, activeReportContext, startSubtitleQueue],
+    [busy, messages, dhOn, dhReady, dhMuted, sessionId, activeReportContext, startSubtitleQueue, pushStageChunk, runStageTyper, endStageStream, stopStageSubtitle],
   );
 
   const submit = (event: FormEvent) => {
@@ -1240,6 +1421,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const stop = () => {
     controller.current?.abort();
     stopSubtitleQueue();
+    stopStageSubtitle();
     busyRef.current = false;
     setBusy(false);
     setDhSubtitle('');
@@ -1366,7 +1548,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   }, [messages]);
 
   const showThinking = dhOn && dhReady && dhStatus === 'thinking';
-  const showSubtitle = Boolean(dhOn && dhSubtitle && (dhStatus === 'speaking' || dhStatus === 'thinking'));
+  // 真数字人模式：仅在播报/思考时显示队列字幕；纯文本/拟态模式：打字机字幕随流式回答常驻
+  const showSubtitle = dhOn
+    ? Boolean(dhSubtitle && (dhStatus === 'speaking' || dhStatus === 'thinking'))
+    : Boolean(stageSubtitleLive && dhSubtitle);
 
   return (
     <div className={`ocean-guardian-v2-layout ${!dhOn ? 'pure-text-mode' : ''}`}>
@@ -1529,24 +1714,6 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         >
           {messages.length === 0 && <WelcomeHero userName={userName} busy={busy} onAsk={(q) => void ask(q)} />}
 
-          {messages.length > 0 && activeReportContext && (
-            <div className="og-context-banner" role="status">
-              <span className="og-context-icon"><FileBarChart size={14} /></span>
-              <span className="og-context-text">
-                已绑定 <b>{activeReportContext.title}</b>，回答将结合该报告内容
-              </span>
-              <button
-                type="button"
-                className="og-context-unbind"
-                onClick={() => setActiveReportContext(null)}
-                aria-label="解除报告绑定"
-                title="解除报告绑定"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          )}
-
           {messages.map((msg) => (
             <MessageBubble
               key={msg.id}
@@ -1616,12 +1783,28 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           <div className="og-import-bar">
             <button
               type="button"
-              className="og-import-btn"
+              className={`og-import-btn ${activeReportContext ? 'bound' : ''}`}
               onClick={() => void openImportModal()}
               disabled={busy}
-              title="导入质量分析报告至知识库，可向海洋守护者咨询报告内容"
+              title={activeReportContext
+                ? `已绑定：${activeReportContext.title}——后续消息自动携带该报告；点击可更换`
+                : '导入质量分析报告至知识库，可向海洋守护者咨询报告内容'}
             >
-              <FileUp size={13} /> 导入质量分析报告
+              <FileUp size={13} /> {activeReportContext ? '更换报告' : '导入质量分析报告'}
+              {activeReportContext && (
+                <span
+                  className="og-import-bound-name"
+                  role="button"
+                  aria-label="解除报告绑定"
+                  title="点击解除绑定（消息不再携带报告）"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveReportContext(null);
+                  }}
+                >
+                  {activeReportContext.title} <X size={11} />
+                </span>
+              )}
             </button>
             {importedDocs.length > 0 && (
               <div className="og-import-chips">
