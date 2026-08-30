@@ -110,6 +110,7 @@ DOMAIN_TERMS = (
     "鲸鱼", "海豚", "鲨鱼", "洋流", "潮汐", "海平面", "气候变化", "生态", "珊瑚礁", "生物多样性",
     "样方", "样带", "声呐", "传感器", "无人艇", "usv", "rov", "rfid", "pops", "富集", "食物链",
     "蓝碳", "碳汇", "监测方法", "监测", "微创", "切割", "指引", "清滩", "尼龙", "聚乙烯", "pe",
+    "解缠", "分段解缠",
     "pet", "hdpe", "聚合物", "材料", "紫外", "紫外老化", "光氧化", "水解", "耐候", "耐老化", "性能对比",
     "图像", "多帧", "时序", "跟踪", "追踪", "机制", "方法", "去散射", "超分辨率", "类别",
     "生命图谱", "指挥大屏", "污染分析", "检测历史", "报告页", "海洋守护者",
@@ -152,6 +153,44 @@ _NAMED_DOCUMENT_LEADING_RE = re.compile(
 def is_domain_question(message: str) -> bool:
     q = (message or "").strip().lower()
     return any(term.replace(" ", "") in q.replace(" ", "") for term in DOMAIN_TERMS)
+
+
+# 指代/超短追问识别：这类问题单独看常常不命中任何领域词（如"那成本呢？"、"你说的
+# 分段解缠具体怎么操作"），但结合上一轮完全在领域内。路由层据此跳过"范围外"
+# 确定性兜底，把问题交给带历史上下文的模型链路，而不是被 scope_response 抢答。
+_REFERENTIAL_FOLLOWUP_RE = re.compile(
+    r"上面|刚才|前面|上一(?:条|轮|个|次)|第一条|你(?:说的|提到|刚|上面|之前|前面)"
+    r"|其中|除此|除了|继续|再说|进一步|具体(?:呢|来说|是怎么|怎么)|它(?:们)?"
+    r"|这[个些]步骤|那.{0,8}呢",
+    re.I,
+)
+
+
+def _history_texts(history: Sequence[Any]) -> list[str]:
+    texts: list[str] = []
+    for item in history or ():
+        content = getattr(item, "content", None)
+        if content is None and isinstance(item, dict):
+            content = item.get("content")
+        if content and str(content).strip():
+            texts.append(str(content).strip())
+    return texts
+
+
+def is_referential_follow_up(message: str, history: Sequence[Any] = ()) -> bool:
+    """判断当前问题是否依赖上文：显式指代词，或存在历史时的超短追问。
+
+    超短问句（"那成本呢？""为什么？"）单独无法判断领域归属，只有确实存在
+    上一轮对话时才按追问处理，避免把无上下文的新问题误放进模型链路。
+    """
+    text = (message or "").strip()
+    if not text:
+        return False
+    if _REFERENTIAL_FOLLOWUP_RE.search(text):
+        return True
+    has_history = bool(_history_texts(history))
+    compact = re.sub(r"[^\w\u4e00-\u9fff]+", "", text)
+    return bool(has_history and 0 < len(compact) <= 8)
 
 
 _COUNTERFACTUAL_RE = re.compile(
@@ -289,8 +328,13 @@ def _numbers(text: str) -> set[str]:
     return set(re.findall(r"(?<![A-Za-z])\d+(?:\.\d+)?%?", cleaned))
 
 
-def _has_unsupported_facts(answer: str, question: str, evidence: Sequence[dict[str, Any]]) -> bool:
-    support = f"{question}\n{_evidence_text(evidence)}"
+def _has_unsupported_facts(
+    answer: str,
+    question: str,
+    evidence: Sequence[dict[str, Any]],
+    extra_context: str = "",
+) -> bool:
+    support = f"{question}\n{extra_context or ''}\n{_evidence_text(evidence)}"
     if _numbers(answer) - _numbers(support):
         return True
     support_compact = _compact(support).lower()
@@ -443,6 +487,7 @@ def is_acceptable_model_answer(
     question: str,
     evidence: Optional[Sequence[dict[str, Any]]] = None,
     require_citations: Optional[bool] = None,
+    report_context: Optional[str] = None,
 ) -> bool:
     """拦截 R1 1.5B 的复述、空答、推理泄漏和明显事实偏移。"""
     raw = answer or ""
@@ -483,23 +528,31 @@ def is_acceptable_model_answer(
             os.getenv("LLM_REQUIRE_CITATIONS", "false").strip().lower() in {"1", "true", "yes", "on"}
             if require_citations is None else require_citations
         )
-        if not _evidence_supports_requested_intent(question, evidence):
+        # 绑定/注入报告上下文时，事实来源是报告本身而非 [S编号] 证据：
+        # RAG 证据不匹配不再一票否决，[S编号] 强制不再适用；
+        # 硬幻觉防线（数字/机构/事件对照报告上下文与知识库证据）保持不变。
+        bound_report = bool((report_context or "").strip())
+        if not bound_report and not _evidence_supports_requested_intent(question, evidence):
             return False
         if not evidence:
-            if _has_unsupported_facts(raw, question, evidence):
+            if _has_unsupported_facts(raw, question, evidence, extra_context=report_context or ""):
                 return False
+            # 报告类问题的事实来源是注入的报告上下文（已在上面核对过数字），
+            # 不应再被"必须声明资料不足"的知识库口径否决。
+            if bound_report:
+                return True
             return (not require) or bool(re.search(r"资料不足|没有足够资料|暂时无法确认|未检索到", text))
         citations = [int(value) for value in _CITATION_RE.findall(raw)]
-        if require and not citations:
+        if require and not citations and not bound_report:
             return False
-        if require and not _claims_have_citations(raw, evidence):
+        if require and not bound_report and not _claims_have_citations(raw, evidence):
             return False
         if any(value < 1 or value > len(evidence) for value in citations):
             return False
         # 篇幅上限从 800 放宽到 1100：这是形式层检查，误杀完整的长科普答案得不偿失。
         if len(text) > 1100:
             return False
-        if _has_unsupported_facts(raw, question, evidence):
+        if _has_unsupported_facts(raw, question, evidence, extra_context=report_context or ""):
             return False
 
     # 引用存在不等于回答了问题：至少要回应问题中的高信号主题词。
@@ -614,7 +667,10 @@ def _trim_to_complete_sentence(text: str, max_chars: int = 700) -> str:
 
 
 def _patch_with_evidence(
-    question: str, model_answer: str, evidence: Optional[Sequence[dict[str, Any]]]
+    question: str,
+    model_answer: str,
+    evidence: Optional[Sequence[dict[str, Any]]],
+    extra_context: str = "",
 ) -> Optional[str]:
     """门禁未通过但模型原文没有硬幻觉时的中间层：保留原文主体，
     附上两条可直接核验的知识库要点，替代过去"整段替换为拼贴摘录"的做法。"""
@@ -623,7 +679,7 @@ def _patch_with_evidence(
     if not evidence or len(_compact(cleaned)) < 60:
         return None
     # 硬幻觉（无依据数字/机构/事件）不适用拼接层——那种内容一个字都不能留。
-    if _has_unsupported_facts(cleaned, question, evidence):
+    if _has_unsupported_facts(cleaned, question, evidence, extra_context=extra_context):
         return None
     if not _has_substantive_evidence_overlap(question, evidence):
         return None
@@ -701,22 +757,104 @@ def _strip_document_self_reference(text: str) -> str:
     return cleaned.strip() or (text or "").strip()
 
 
+# ==================== 报告类问题反编造门禁 ====================
+# 实测缺陷：用户问"我最近的检测报告结论"且未绑定报告时，1.5B 模型会凭空编出
+# "污染等级[高]、铅汞镉超标"。规则：报告结论/等级/评分/污染物断言必须能在报告
+# 上下文（用户绑定或系统自动检索）中找到同源依据，否则整段退回诚实路径。
+_REPORT_DATA_QUESTION_RE = re.compile(
+    r"我的[^。！？\n]{0,10}(?:报告|检测)|(?:最近|最新)(?:的)?[^。！？\n]{0,8}(?:报告|检测)"
+    r"|(?:这|那)(?:份|个|篇)报告|报告(?:的)?(?:结论|等级|评分|结果|摘要)"
+    r"|检测报告结论|污染等级\s*(?:高|低|高吗|低吗|多少|为)"
+    r"|(?:污染等级|风险等级)\s*(?:是|为)?\s*(?:怎么样|如何)(?!划分|评定|评估|定义)",
+    re.I,
+)
+_LEVEL_ASSERT_RE = re.compile(
+    r"(?:污染等级|风险等级|水质等级|评价|评定|评级|等级)"
+    r"[^。！？\n]{0,8}?(?:为|是|：|:)?\s*[“\[【']?(优|良|中|高|低|差|严重|危急|优秀|合格|不及格)[”\]】']?"
+)
+_SCORE_ASSERT_RE = re.compile(
+    r"(?:评分|得分|质量分|分数)[^。！？\n]{0,8}?(\d+(?:\.\d+)?)\s*(?:分|分以上|分以下)?"
+)
+_REPORT_RISK_WORD_RE = re.compile(r"重金属|超标|未达标|严重污染|剧毒|致癌")
+
+
+def _is_report_data_question(message: str) -> bool:
+    """识别"询问用户自己报告数据/结论"的问题，排除'污染等级怎么划分'类通用科普问法。"""
+    return bool(_REPORT_DATA_QUESTION_RE.search((message or "").strip()))
+
+
+def _ungrounded_report_claims(answer: str, report_context: Optional[str]) -> list[str]:
+    """返回答案中无报告上下文支撑的等级/评分/污染物断言；空列表表示可放行。"""
+    ctx = _compact(report_context or "").lower()
+    grounded_levels = set(_LEVEL_ASSERT_RE.findall(report_context or ""))
+    unsupported: list[str] = []
+    for match in _LEVEL_ASSERT_RE.finditer(answer or ""):
+        level = match.group(1)
+        if level and level not in grounded_levels:
+            unsupported.append(match.group(0).strip())
+    for match in _SCORE_ASSERT_RE.finditer(answer or ""):
+        value = match.group(1)
+        if not ctx or value not in ctx:
+            unsupported.append(match.group(0).strip())
+    for match in _REPORT_RISK_WORD_RE.finditer(answer or ""):
+        token = match.group(0)
+        if not ctx or token not in ctx:
+            unsupported.append(token)
+    return unsupported
+
+
+def _report_data_missing_context_response() -> str:
+    return pick_variant("report-no-context", (
+        "报告结论、污染等级这类硬事实我不能凭空说——现在没有可以核对的报告上下文，"
+        "编一个只会误导你。你在报告页选定一份报告再来问，或直接把报告编号发我，"
+        "我按它的真实数据解读。",
+        "这个问题需要真实报告数据，但我手头没有绑定任何报告，不能替你补一份结论。"
+        "去报告页选一份报告，或把报告编号发给我，我马上按实际数据分析。",
+        "没有报告上下文我不敢下结论——污染等级、评分这些是硬事实，编了就是害你。"
+        "把报告编号发我，或在报告页选一份报告，我再按真实数据讲。",
+    ))
+
+
 def finalize_model_answer(
     question: str,
     model_answer: str,
     evidence: Optional[Sequence[dict[str, Any]]] = None,
     report_context: Optional[str] = None,
+    allow_scope_fallback: bool = True,
+    history_note: str = "",
 ) -> str:
     """统一模型后处理：净化后须通过质量门禁；形式层擦伤优先走"原文+证据补丁"，
     只有硬幻觉或完全跑题才落到可追溯兜底链。"""
     cleaned = _strip_document_self_reference(_strip_think(model_answer))
     cleaned = _strip_query_echo(question, cleaned)
-    if is_acceptable_model_answer(cleaned, question, evidence, require_citations=requires_citations(question)):
+    # 报告类问题的反编造门禁先于一切修补层：编出来的报告事实一个字都不能留。
+    if _is_report_data_question(question):
+        unsupported_claims = _ungrounded_report_claims(cleaned, report_context)
+        if unsupported_claims:
+            return (
+                _report_context_fallback(question, report_context or "")
+                or _report_data_missing_context_response()
+            )
+    if is_acceptable_model_answer(
+        cleaned,
+        question,
+        evidence,
+        require_citations=requires_citations(question),
+        report_context=report_context,
+    ):
         return cleaned
-    patched = _patch_with_evidence(question, cleaned, evidence)
-    if patched and is_acceptable_model_answer(patched, question, evidence, require_citations=False):
+    patched = _patch_with_evidence(question, cleaned, evidence, extra_context=report_context or "")
+    if patched and is_acceptable_model_answer(
+        patched, question, evidence, require_citations=False, report_context=report_context
+    ):
         return patched
-    return _fallback_response(question, evidence, report_context)
+    return _fallback_response(
+        question,
+        evidence,
+        report_context,
+        allow_scope_fallback=allow_scope_fallback,
+        history_note=history_note,
+    )
 
 
 def _query_terms(text: str) -> set[str]:
@@ -1205,6 +1343,40 @@ def _marine_unit_conversion_response(message: str) -> Optional[str]:
     )
 
 
+def _health_concern_response(message: str) -> Optional[str]:
+    """误食/吞咽海水+微塑料类健康关切：先安抚，给可执行指引，医学结论留给专业机构。"""
+    q = (message or "").strip().lower()
+    if not re.search(r"微塑料|海水|塑料颗粒|吞|误食", q):
+        return None
+    if not re.search(r"就医|医院|检查|看病|要不要|用不用|怎么办|有事吗|有没有事|担心|危害|危险|严重", q):
+        return None
+    # 必须带个人/亲历语境（我/孩子/刚吞了…），避免抢走"微塑料对人体的危害"这类通用科普问法
+    if not re.search(r"我|孩子|宝宝|家人|老人|自己|朋友|刚|今天|昨天", q):
+        return None
+    return (
+        "先说结论：偶发吞下几口海水、连带摄入微量微塑料，目前没有证据表明会造成急性伤害，"
+        "不至于为此恐慌；微塑料对人体的影响还在研究中，真正值得留意的是长期、大量暴露。"
+        "现在要做的很简单：让孩子正常喝水休息，观察有没有持续腹痛、呕吐、发热等不适——"
+        "出现这些症状再及时就医，没有的话不需要专门跑一趟医院或做检查。实在不放心，"
+        "可以咨询社区医生或拨打 12320 卫生热线问一句，比网上自己查更踏实。"
+    )
+
+
+def _realtime_info_response(message: str) -> Optional[str]:
+    """新闻/网传类消息无法核实：明确不背书，给出可靠的求证路径，绝不顺着编。"""
+    q = (message or "").strip().lower()
+    if not re.search(r"新闻|热搜|网传|听说|据称|据报道|昨天|今天|刚发生|最新消息", q):
+        return None
+    if not re.search(r"发生|发现|出现|事件|事故|消息|报道|传闻|漂浮|垃圾带|污染", q):
+        return None
+    return (
+        "我拿不到实时新闻，也无法核实这条消息的真伪——所以既不确认也不否认它，"
+        "更不会基于一条没法核实的消息做分析。想弄清楚可以这么做："
+        "优先看官方渠道（当地应急管理、生态环境部门的通报或权威媒体的交叉报道）；"
+        "如果确有其事，把相关海域的检测任务或报告导进来，我用真实数据帮你研判影响和处置优先级。"
+    )
+
+
 def _marine_safety_response(message: str) -> Optional[str]:
     """覆盖少量高频海边险情，给出保守自救步骤而不替代现场救援。"""
     q = (message or "").strip().lower()
@@ -1356,12 +1528,16 @@ def _apply_card_style(text: str) -> str:
     return f"{text}\n\n{_card_close('action' if is_action else 'info')}"
 
 
-def direct_response(message: str) -> Optional[str]:
-    """确定性直答的公开入口：核心命中后统一追加语气壳，让重复知识点的表达不完全相同。"""
+def direct_response(message: str, allow_scope_fallback: bool = True) -> Optional[str]:
+    """确定性直答的公开入口：核心命中后统一追加语气壳，让重复知识点的表达不完全相同。
+
+    allow_scope_fallback=False 供指代追问使用：这类问题单独看往往不命中领域词，
+    不能因"不在领域词表"就被范围外兜底抢答，应交回带历史上下文的模型链路。
+    """
     atlas_answer = _atlas_species_context_response(message)
     if atlas_answer:
         return atlas_answer
-    answer = _direct_response_core(message)
+    answer = _direct_response_core(message, allow_scope_fallback=allow_scope_fallback)
     return _apply_card_style(answer) if answer else None
 
 
@@ -1438,7 +1614,7 @@ def _atlas_species_context_response(message: str) -> Optional[str]:
     return None
 
 
-def _direct_response_core(message: str) -> Optional[str]:
+def _direct_response_core(message: str, allow_scope_fallback: bool = True) -> Optional[str]:
     """为身份、证据边界和高风险海洋题提供稳定的确定性答案。
 
     这不是替代 RAG，而是防止 1.5B 基座在项目事实、法规禁令和检测阈值上自由发挥。
@@ -1483,6 +1659,12 @@ def _direct_response_core(message: str) -> Optional[str]:
     safety_response = _marine_safety_response(message)
     if safety_response:
         return safety_response
+    health_response = _health_concern_response(message)
+    if health_response:
+        return health_response
+    realtime_response = _realtime_info_response(message)
+    if realtime_response:
+        return realtime_response
     confidence_response = _low_confidence_direct_response(message)
     if confidence_response:
         return confidence_response
@@ -1562,16 +1744,20 @@ def _direct_response_core(message: str) -> Optional[str]:
             "发现后先记录位置和周边情况，别直接拖拽——容易造成二次伤害。"
             "正确做法是通知专业团队评估风险，再分段解缠、安全打捞。"
         )
-    if re.search(r"塑料瓶|饮料瓶|塑料袋", q) and re.search(
-        r"哪个.{0,6}(?:先|快).{0,6}(?:降解|分解|消失)|降解.{0,8}(?:对比|比较|更快)|(?:塑料瓶|塑料袋).{0,6}(?:先|更快)",
+    if re.search(r"塑料瓶|饮料瓶|塑料袋|pet\s*瓶", q) and re.search(
+        r"哪个.{0,8}(?:先|快|难|慢|持久|容易)|更难(?:降解|分解|消失)"
+        r"|(?:更难|更慢|更持久)的?(?:降解|分解|消失)"
+        r"|降解.{0,8}(?:对比|比较|更快|更慢|更难|更久)"
+        r"|(?:塑料瓶|塑料袋|pet).{0,6}(?:先|更快|更难|更慢|更持久)",
         q,
     ):
         return (
-            "知识库里没有’塑料瓶和塑料袋谁先降解’的可靠排序结论，我不替档案编一个。"
-            "可以确认的是：塑料袋多为 PE 材质，长期持留、逐步老化碎裂；常见科普材料给塑料饮料瓶"
-            "（PET）的估算约450年，但那只是数量级参考，不代表到期无害化。两者通常都不是真正消失，"
-            "而是先碎裂成微塑料继续留在环境里，真正的差别主要体现在回收路径上——瓶子按当地体系"
-            "完整回收的价值更高，袋子薄膜易污染、回收难度大。"
+            "直接给结论：按常见科普的数量级估算，塑料饮料瓶（PET，约450年）整体比塑料袋更难降解。"
+            "但要说清边界：塑料袋多为 PE 薄膜，常见估算从数十年到数百年不等，两类垃圾的区间存在重叠，"
+            "受厚度、配方和海域环境影响很大，所以这是数量级层面的判断，不是精确名次。"
+            "更关键的共同点是：两者都不会真正消失，而是逐步老化、碎裂成微塑料长期留在环境里。"
+            "实际差别主要体现在回收路径——瓶子形态规整、按当地体系完整回收的价值更高；"
+            "袋子薄膜易夹带杂质，分选和清洗难度大。"
         )
     if "塑料袋" in q and re.search(r"多久|几年|降解|消失", q):
         return (
@@ -1601,7 +1787,7 @@ def _direct_response_core(message: str) -> Optional[str]:
             "上线前应在同一海域的标注样本上比较增强前后的召回率、误检率和小目标表现；增强结果只能辅助定位，"
             "不能凭视觉变清晰就把低置信度目标当成确定结论。"
         )
-    if re.search(r"微创切割|切割.*标准作业|rov.*切割|潜水员.*切割", q):
+    if re.search(r"微创切割|切割.*标准作业|rov.*切割|潜水员.*切割|分段解缠|解缠.{0,8}(?:操作|步骤|怎么做|流程)", q):
         return (
             "幽灵渔网缠珊瑚时，切割应由具备资质的潜水员或 ROV 团队按现场安全方案执行："
             "先设警戒区并记录珊瑚、人员和渔网位置，确认没有被生物继续缠绕；从远离珊瑚、张力较小的网段分段解除，"
@@ -1828,8 +2014,91 @@ def _direct_response_core(message: str) -> Optional[str]:
             "不过要注意，一张模糊图片 + 低置信度结果不能直接当成确定事实哦。"
         )
     if not is_domain_question(q):
-        return scope_response()
+        if allow_scope_fallback:
+            return scope_response()
+        return None
     return None
+
+
+_REPORT_CONTEXT_LINE_SKIP_RE = re.compile(
+    r"只能使用|严禁编造|必须明确说明|等同绑定语义|以下为系统按权限"
+)
+
+# 绑定报告简报的节标签（按此顺序组织"结论-发现-方案-监测"结构）
+_REPORT_BRIEF_LABELS = (
+    "报告 ID", "生成时间", "检测海域", "关联任务", "报告摘要",
+    "分析摘要", "风险等级", "污染等级", "评分", "目标数量",
+    "关键发现", "可能来源", "处置方案", "后续监测", "证据",
+)
+
+
+def _report_briefing_sections(report_context: str) -> tuple[dict[str, list[str]], list[str]]:
+    """把格式化报告上下文解析成 标签 → 内容行 的有序节。"""
+    sections: dict[str, list[str]] = {}
+    order: list[str] = []
+    current: Optional[str] = None
+    for raw in re.split(r"\n+", report_context or ""):
+        line = re.sub(r"^[-#>*\s]+", "", raw).strip()
+        if not line or _REPORT_CONTEXT_LINE_SKIP_RE.search(line):
+            continue
+        matched = None
+        for label in _REPORT_BRIEF_LABELS:
+            if line.startswith(label):
+                matched = label
+                rest = line[len(label):].lstrip("：: ").strip()
+                if label not in sections:
+                    sections[label] = []
+                    order.append(label)
+                if rest:
+                    sections[label].append(rest)
+                current = label
+                break
+        if matched:
+            continue
+        if current:
+            sections.setdefault(current, []).append(line)
+    return sections, order
+
+
+def _report_solution_response(message: str, report_context: str) -> Optional[str]:
+    """绑定报告的方案/解读类问题：用快照里的实测事实组装"结论-发现-方案-监测"结构化简报。
+
+    小参数模型对绑定报告写方案容易跑成通用范文并被门禁拦下，摘录兜底又答非所问；
+    报告分析快照里本来就有平台算好的处置方案与后续监测，直接组织成简报最可靠。
+    """
+    if not report_context or not report_context.strip():
+        return None
+    if not re.search(r"方案|建议|怎么治|如何治理|怎么处理|怎么解决|处置|措施|解读|分析|评估|优先|计划|策略|怎么办", message or ""):
+        return None
+    sections, _order = _report_briefing_sections(report_context)
+    if not sections:
+        return None
+
+    meta = [f"{label}：{sections[label][0]}" for label in ("检测海域", "生成时间", "关联任务", "报告 ID") if sections.get(label)]
+    conclusion: list[str] = []
+    level = sections.get("风险等级") or sections.get("污染等级")
+    if level:
+        conclusion.append("污染等级" + level[0])
+    if sections.get("评分"):
+        conclusion.append("评分 " + sections["评分"][0])
+    if sections.get("目标数量"):
+        conclusion.append("检出目标 " + sections["目标数量"][0])
+    body: list[str] = []
+    if meta:
+        body.append("（" + "；".join(meta) + "）")
+    if conclusion:
+        body.append("先给结论：" + "，".join(conclusion) + "。")
+    for label, title in (("分析摘要", "概况"), ("关键发现", "关键发现"), ("可能来源", "可能来源"), ("处置方案", "处置方案"), ("后续监测", "后续监测建议")):
+        items = [item for item in sections.get(label, []) if len(item) >= 4]
+        if items:
+            body.append(f"{title}：\n" + "\n".join(f"- {item}" for item in items[:4]))
+    if not conclusion or len(body) < 2:
+        return None
+    return (
+        "\n\n".join(body)
+        + "\n\n以上全部来自当前绑定报告的实测记录，报告没覆盖的判断我不会补写。"
+        "要更细的方案，告诉我优先方向（清理/溯源/监测周期），我按这个口径展开。"
+    )
 
 
 def _report_context_fallback(message: str, report_context: str) -> Optional[str]:
@@ -1841,13 +2110,20 @@ def _report_context_fallback(message: str, report_context: str) -> Optional[str]
     )
     query_terms = _query_terms(message)
     candidates: list[tuple[int, int, str]] = []
-    labels = ("风险等级", "污染等级", "关键发现", "可能来源", "处置方案", "后续监测", "摘要", "评分", "目标数量")
+    labels = ("风险等级", "污染等级", "关键发现", "可能来源", "处置方案", "后续监测", "摘要", "评分", "目标数量", "生成时间", "检测海域", "关联任务")
     for index, raw in enumerate(re.split(r"(?<=[。！？；])|\n+", report_context)):
         line = re.sub(r"^[-#>*\s]+", "", raw).strip()
         # 风险等级/质量评分等短标签本身就是报告事实，不能因长度短被过滤。
         if len(line) < 4 or hash_artifact_re.search(line):
             continue
         if re.match(r"^(?:报告 ID|导入文档 ID|文件名|报告类型)\s*[：:]", line):
+            continue
+        # 悬空的分类标签行（如列表被截断后剩下的"可能来源："）摘出来只会读起来像念目录
+        if line.endswith(("：", ":")):
+            continue
+        # 注入上下文时附带的门禁说明行（"只能使用这些事实""严禁编造"等）不是报告事实，
+        # 混进摘录会像在念纪律条款，直接跳过。
+        if _REPORT_CONTEXT_LINE_SKIP_RE.search(line):
             continue
         overlap = len(query_terms & _query_terms(line))
         label_bonus = sum(20 for label in labels if label in line)
@@ -1893,19 +2169,46 @@ def _counterfactual_fallback(message: str) -> Optional[str]:
     )
 
 
+def _followup_topic_unknown(message: str, history_note: str = "") -> str:
+    """指代追问落到兜底时的诚实答：明确承接上文话题，不假装换了话题。
+
+    模型对"那成本呢？"这类追问最容易编造具体数字，被门禁拦下后如果给
+    通用兜底，用户会觉得对话断了线；这里保留话题线索并给出可行动的下一步。
+    """
+    topic = re.sub(r"\s+", "", (history_note or ""))[:18]
+    lead = f"结合刚才聊到的“{topic}…”这一段——" if topic else ""
+    return (
+        f"{lead}你追问的这一点，我手头没有可核验的资料，不能随口报一个数字或结论。"
+        "你可以补充具体条件（比如规模、材质、工序或海域），我按你给的口径重新查；"
+        "或者换个我更有把握的问题。"
+    )
+
+
 def _fallback_response(
     message: str,
     evidence: Optional[Sequence[dict[str, Any]]] = None,
     report_context: Optional[str] = None,
+    allow_scope_fallback: bool = True,
+    history_note: str = "",
 ) -> str:
-    """兜底响应：绑定报告快照 → 确定性规则 → 反事实保守说明 → 知识库检索。"""
-    return (
-        _report_context_fallback(message, report_context or "")
-        or direct_response(message)
+    """兜底响应：绑定报告快照 → 确定性规则 → 反事实保守说明 → 知识库检索。
+
+    指代追问场景下 allow_scope_fallback=False：宁可承认资料不足，
+    也不把"那成本呢？"这类问题误答成"超出专业范围"；兜底文案同时
+    承接上文话题，避免对话断线。
+    """
+    grounded = (
+        _report_solution_response(message, report_context or "")
+        or _report_context_fallback(message, report_context or "")
+        or direct_response(message, allow_scope_fallback=allow_scope_fallback)
         or _counterfactual_fallback(message)
         or _knowledge_fallback(message, evidence)
-        or _friendly_unknown(message)
     )
+    if grounded:
+        return grounded
+    if not allow_scope_fallback:
+        return _followup_topic_unknown(message, history_note)
+    return _friendly_unknown(message)
 
 
 # ==================== 建议追问（证据锚定） ====================

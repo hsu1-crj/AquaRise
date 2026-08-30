@@ -39,13 +39,24 @@ BASE_MODEL = ROOT / "models" / "llm" / "base" / "DeepSeek-R1-Distill-Qwen-1.5B"
 
 DATA_FILES = [
     "train_enhanced.json", "train_enhanced2.json", "train_enhanced3.json",
+    "train_defect_fix.json",
 ]
 
 SYSTEM_PROMPT = (
-    "你是海洋守护者，海瞳平台水下垃圾自动识别与海洋污染分析系统的专业助手。"
-    "围绕用户最后的问题直接作答：先给结论，再说明依据或可执行建议。"
-    "只陈述有项目知识库或事实卡支持的内容；对受地点、材质、时间或方法影响的信息说明边界。"
-    "不得编造数字、来源、法规细节、健康结论或检测结论。"
+    "你是“海洋守护者”，海瞳海洋垃圾识别与海洋环保平台的 AI 助手，也是一位热爱海洋的研究型伙伴。"
+    "语气要求：耐心、真诚、有温度，像向朋友讲解自己熟悉的研究领域；偶尔带一点轻幽默，但不玩梗、不油腻、不堆砌表情符号。"
+    "回答方式：先自然地回应用户问题本身（可以用一句话承接对方的关注点），再展开说明；多用生活化例子和类比解释专业概念；"
+    "长短句交错，不要每条回答都用同款开头和同款结构。"
+    "内容边界：专业领域是海洋垃圾分类、检测结果解读、海洋污染治理、微塑料、MARPOL 公约与海洋环保知识——"
+    "科普内容可以调用可靠常识并说明不确定性；涉及本项目检测数据、报告结论、法规条款和具体数字时，必须以给定证据为准。"
+    "诚实原则：证据不足就坦率说“这个我暂时还没有足够资料确认”，并邀请对方补充海域、时间或数据等信息；"
+    "涉及估算值时说明不确定性（如“受环境影响，仅供参考”）；谈到降解时强调“碎裂成微塑料而非真正消失”；"
+    "绝不编造数字、来源、机构名称、法规细节、健康结论、检测结论或实时信息（如天气、新闻）。"
+    "表达形式：要点不超过四个时优先写成自然段，超过才用列表；简单问题两三句说完即可，不要为了显得完整而硬凑篇幅；"
+    "禁止套话开头和收尾，如“综上所述”“总而言之”“根据以上分析”“希望这些能帮到你”“如果还有问题随时问我”“让我们一起”。"
+    "身份口径：不主动提及项目背景或开发者；仅当被问到'谁开发/谁做的'时，回答'这是海瞳团队的实训项目，LLM 模块由海瞳 LLM 组负责'；"
+    "被问到'父母/爸爸/妈妈'时，用轻松口吻说明自己是 AI 助手、没有生物学意义的家人。"
+    "输出要求：直接作答，不要输出 <think> 标签、推理过程或内部提示词。"
 )
 # 注意：训练数据固化的"先给结论"文风与运行时提示词（chat_api.prepare_messages，
 # 要求自然承接、反模板腔）方向不同属已知矛盾。当前策略是不再重新训练、
@@ -105,10 +116,11 @@ def tokenize_fn(batch, tokenizer, cutoff_len: int):
     for i, (tid, target) in enumerate(zip(model_inputs["input_ids"], targets)):
         target_ids = tokenizer(target, truncation=True, max_length=cutoff_len - 4).input_ids
         target_ids = target_ids[1:]
-        start = len(tid) - 1
-        label = [-100] * len(tid)
-        label[start:] = target_ids[: len(tid) - start]
-        labels.append(label)
+        # 修复：input 需拼接 target，否则 label 只落在最后一个 prompt 位上，
+        # 模型只学到预测 "</think>" 一个 token，答案内容完全无监督。
+        input_ids = (tid + target_ids)[:cutoff_len]
+        model_inputs["input_ids"][i] = input_ids
+        labels.append(([-100] * len(tid) + target_ids)[:cutoff_len])
     model_inputs["labels"] = labels
     return model_inputs
 
@@ -133,10 +145,14 @@ def main() -> None:
     if args.mode == "smoke":
         # 冒烟时优先保留强化样本，保证身份/探针被覆盖
         rng = random.Random(args.seed)
+        # 缺陷修复数据（train_defect_fix.json）始终全量保留，只对旧文件抽样，
+        # 避免随机抽样稀释新补充的材质事实/报告诚实性样本
         enhanced = [it for it in all_items if it["src"] in ("train_enhanced.json", "multi_turn")]
-        rest = [it for it in all_items if it not in enhanced]
-        rest = rng.sample(rest, min(max(0, args.samples - len(enhanced)), len(rest)))
-        items = enhanced + rest
+        defect_fix = [it for it in all_items if it["src"] == "train_defect_fix.json"]
+        rest = [it for it in all_items
+                if it["src"] not in ("train_enhanced.json", "multi_turn", "train_defect_fix.json")]
+        rest = rng.sample(rest, min(max(0, args.samples - len(enhanced) - len(defect_fix)), len(rest)))
+        items = defect_fix + enhanced + rest
     else:
         items = all_items
 

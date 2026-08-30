@@ -134,8 +134,28 @@ def _build_report_context(body: SpaChatRequest, current_user: User, db: Session)
         analysis_text = ""
         if latest and latest.result_json:
             analysis_text = _format_analysis_snapshot(latest.result_json)
+        created = report.created_at.strftime("%Y-%m-%d %H:%M") if report.created_at else "未知时间"
+        area = "近岸监测点"
+        try:
+            if report.task and report.task.sea_area_id:
+                from models import SeaArea
+
+                sea = db.query(SeaArea).filter(SeaArea.id == report.task.sea_area_id).first()
+                if sea and getattr(sea, "name", None):
+                    area = sea.name
+        except Exception:
+            logger.debug("报告海域解析失败，使用默认值", exc_info=True)
+        if report.task and report.task.file_name:
+            task_hint = f"任务 {report.task_id}（{report.task.file_name}）"
+        elif report.task_id:
+            task_hint = f"任务 {report.task_id}"
+        else:
+            task_hint = "未关联检测任务"
         parts.append(
             f"报告 ID：RPT-{report.id}\n"
+            f"生成时间：{created}\n"
+            f"检测海域：{area}\n"
+            f"关联任务：{task_hint}\n"
             f"报告摘要：{report.summary or '暂无摘要'}\n"
             f"报告类型：{getattr(report.report_type, 'value', report.report_type) or 'unknown'}\n"
             f"结构化分析快照：\n{analysis_text or '该报告尚未完成结构化分析，请明确说明。'}"
@@ -160,6 +180,48 @@ def _build_report_context(body: SpaChatRequest, current_user: User, db: Session)
     return "\n\n".join(parts)[:12000] if parts else None
 
 
+def _build_recent_reports_context(current_user: User, db: Session, limit: int = 3) -> str:
+    """报告类问题未绑定具体报告时，按权限自动检索最近报告事实。
+
+    实测缺陷：用户问"我最近的检测报告结论"时没有 report_id，模型此前拿不到任何
+    真实报告数据，凭空编出"污染等级[高]、重金属超标"。这里把最近几份报告的
+    真实快照注入上下文（无报告则注入"暂无报告"事实），配合 finalize 的反编造
+    门禁，保证报告结论只能来自数据库。
+    """
+    query = db.query(Report)
+    if not is_privileged(db, current_user):
+        query = query.filter(Report.user_id == current_user.id)
+    reports = query.order_by(Report.id.desc()).limit(max(1, limit)).all()
+    if not reports:
+        return (
+            "系统按权限检索后确认：当前用户名下暂无已生成的质量报告。"
+            "若用户询问报告结论、污染等级或评分，必须明确说明目前没有可核对的报告，"
+            "并引导其在报告页生成或导入报告；严禁编造等级、评分或污染物数据。"
+        )
+    parts: list[str] = []
+    for report in reports:
+        latest = (
+            db.query(ReportAnalysis)
+            .filter(ReportAnalysis.report_id == report.id)
+            .order_by(ReportAnalysis.id.desc())
+            .first()
+        )
+        analysis_text = ""
+        if latest and latest.result_json:
+            analysis_text = _format_analysis_snapshot(latest.result_json)
+        created = report.created_at.strftime("%Y-%m-%d %H:%M") if report.created_at else "未知时间"
+        parts.append(
+            f"报告 ID：RPT-{report.id}（生成时间：{created}）\n"
+            f"报告摘要：{report.summary or '暂无摘要'}\n"
+            f"结构化分析快照：\n{analysis_text or '该报告尚未完成结构化分析，请明确说明。'}"
+        )
+    return (
+        "以下为系统按权限自动检索到的用户最近报告事实清单（用户未手动绑定报告，等同绑定语义）。"
+        "回答报告结论、污染等级、评分时只能使用这些事实；若用户所问的报告不在此列，"
+        "必须明确说明未找到，严禁编造。\n\n" + "\n\n".join(parts)
+    )
+
+
 def _sse(content: str) -> str:
     return f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
 
@@ -177,6 +239,12 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
     user_id = current_user.id
     session_id = body.session_id or uuid.uuid4().hex
     report_context = _build_report_context(body, current_user, db)
+    if not report_context and llm_stub._is_report_data_question(message):
+        # 报告类问题未绑定具体报告时自动注入最近报告事实，堵住"凭空编造报告结论"。
+        report_context = _build_recent_reports_context(current_user, db)
+    # 指代/超短追问（"那成本呢？""你说的分段解缠怎么操作"）不能被范围外兜底抢答，
+    # 必须带着历史上下文进入模型链路。
+    follow_up = llm_stub.is_referential_follow_up(message, body.messages)
     db.add(ChatHistory(user_id=user_id, session_id=session_id, role=ChatRole.user, content=message))
     db.commit()
 
@@ -189,7 +257,9 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
             # 否则同一问题可能被通用 direct_response 提前回答，追问就无法真正基于当前报告。
             # 请求显式绑定报告/文档时，平台功能规则不得抢答；即使上下文暂时为空，
             # 也必须保留绑定语义并进入报告/文档链路。
-            direct = None if (body.report_id or body.document_id) else llm_stub.direct_response(message)
+            direct = None if (body.report_id or body.document_id) else llm_stub.direct_response(
+                message, allow_scope_fallback=not follow_up
+            )
             if direct:
                 async for chunk in llm_stub.generate_chat_stream(message):
                     full += chunk
@@ -263,9 +333,17 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
                             finally:
                                 await upstream.aclose()
                             candidate = llm_stub.finalize_model_answer(
-                                message, full, evidence, report_context=report_context
+                                message, full, evidence, report_context=report_context,
+                                allow_scope_fallback=not follow_up,
+                                history_note=previous_assistant,
                             )
-                            if llm_stub.is_near_duplicate_answer(candidate, previous_assistant):
+                            # 报告上下文绑定期间，连续追问同一报告的答案天然高度相似
+                            # （都在引用同一份快照），复读门禁会把新事实误判为复读，
+                            # 因此仅在无报告上下文的普通聊天中启用该替换。
+                            if (
+                                not report_context
+                                and llm_stub.is_near_duplicate_answer(candidate, previous_assistant)
+                            ):
                                 logger.warning("模型答案与上一轮高度重复，使用追问说明")
                                 candidate = llm_stub.duplicate_follow_up_response(message)
                             if for_event_errors or candidate != llm_stub._strip_think(full):

@@ -280,10 +280,12 @@ def test_concept_cards_answer_definition_questions_directly():
     assert rov and "遥控水下机器人" in rov and "系缆" in rov
 
 
-def test_comparison_cards_refuse_to_invent_ranking():
+def test_comparison_cards_give_magnitude_ranking_with_boundaries():
     bottle_bag = llm.direct_response("塑料瓶和塑料袋哪个先降解？")
-    assert bottle_bag and "没有" in bottle_bag and "排序结论" in bottle_bag
-    assert "450年" in bottle_bag and "微塑料" in bottle_bag
+    assert bottle_bag and "更难降解" in bottle_bag
+    assert "450" in bottle_bag and "微塑料" in bottle_bag
+    # 数量级直给必须同时声明边界：区间重叠、不是精确名次，不允许编出精确寿命
+    assert "重叠" in bottle_bag and "不是精确名次" in bottle_bag
 
     oil_plastic = llm.direct_response("石油泄漏对海洋的危害大还是塑料危害大？")
     assert oil_plastic

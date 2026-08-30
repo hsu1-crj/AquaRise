@@ -338,3 +338,136 @@ def test_atlas_whale_shark_actions_cover_propeller_strike_and_illegal_killing():
     assert answer and "货轮螺旋桨重创" in answer and "非法捕杀" in answer
     assert "减速" in answer and "安全距离" in answer
     assert "拒绝购买" in answer and "非法贸易" in answer
+
+
+# ==================== 2026-08-29 回归：追问路由 / 报告反编造 / 对比题 ====================
+
+
+def test_referential_follow_up_detection():
+    history = [
+        ChatMessage(role="user", content="打捞上来的废弃渔网，应该送去焚烧还是回收利用？"),
+        ChatMessage(role="assistant", content="渔网可按隔离-脱盐-分选-破碎-熔融过滤-造粒回收处理。"),
+    ]
+    assert llm.is_referential_follow_up("那成本呢？", history)
+    assert llm.is_referential_follow_up("你说的分段解缠，具体是怎么操作的？", history)
+    # 显式指代词不依赖历史也存在
+    assert llm.is_referential_follow_up("你说的分段解缠，具体是怎么操作的？")
+    assert not llm.is_referential_follow_up("MARPOL公约附则V主要规定什么内容？", history)
+
+
+def test_short_follow_up_skips_scope_fallback():
+    # 无历史时保持旧行为：范围外兜底仍可用
+    assert llm.direct_response("那成本呢？")
+    # 追问场景：不得被"超出专业范围"抢答，应交回带历史上下文的模型链路
+    assert llm.direct_response("那成本呢？", allow_scope_fallback=False) is None
+
+
+def test_material_comparison_question_gets_direct_ranking():
+    answer = llm.direct_response("PET 瓶和普通塑料袋，哪个在海里更难降解？为什么？")
+    assert answer
+    assert "更难降解" in answer
+    assert "450" in answer
+    assert "微塑料" in answer
+    assert "我不替档案编" not in answer
+
+
+def test_report_fabrication_blocked_without_report_context():
+    fabricated = (
+        "根据你的检测报告，污染等级为 [高]。重金属浓度超标：检测结果显示铅、汞和镉均超出标准，评分92分。"
+    )
+    result = llm.finalize_model_answer(
+        "我最近的检测报告结论是什么？污染等级高吗？", fabricated, evidence=[], report_context=None
+    )
+    assert "重金属" not in result
+    assert "[高]" not in result
+    assert "92" not in result
+
+
+def test_report_grounded_answer_kept_with_context():
+    context = "报告 ID：RPT-9\n风险等级：中\n评分：68\n目标数量：46"
+    answer = "根据当前绑定的报告内容，这份报告的风险等级为中，评分68分，检出46个目标。"
+    result = llm.finalize_model_answer(
+        "这份报告的污染等级怎么样？", answer, evidence=[], report_context=context
+    )
+    assert "风险等级为中" in result
+    assert "68" in result
+
+
+def test_report_data_question_detection_boundaries():
+    assert llm._is_report_data_question("我最近的检测报告结论是什么？污染等级高吗？")
+    assert llm._is_report_data_question("这份报告的评分是多少？")
+    assert not llm._is_report_data_question("污染等级是怎么划分的？")
+    assert not llm._is_report_data_question("MARPOL公约对塑料垃圾排放有什么规定？")
+
+
+def test_followup_fallback_keeps_topic_thread():
+    # 追问被门禁拦截后落到兜底时，必须承接上文话题，不得像新问题一样答非所问
+    answer = llm.finalize_model_answer(
+        "那成本呢？",
+        "处理成本大概是每吨80到150美元。",
+        evidence=[],
+        report_context=None,
+        allow_scope_fallback=False,
+        history_note="打捞上岸的尼龙或聚乙烯渔网可按隔离-脱盐-分选-破碎-熔融过滤-造粒处理。",
+    )
+    assert "结合刚才聊到" in answer
+    assert "渔网" in answer
+    assert "80" not in answer and "美元" not in answer
+    assert "超出专业范围" not in answer and "不是行家" not in answer
+
+
+def test_health_concern_card_reassures_and_defers_to_doctor():
+    answer = llm.direct_response("我孩子今天在海边玩水时吞了几口海水，担心误食微塑料，要不要去医院？")
+    assert answer and "没有证据" in answer and ("就医" in answer or "医生" in answer or "12320" in answer)
+    # 不编造医学结论，也不落成知识库科普课文
+    assert "知识库中没" not in answer and "碎裂" not in answer[:60]
+    # 通用科普问法不得被健康卡抢答
+    assert llm._health_concern_response("微塑料对人体的危害有哪些？") is None
+
+
+def test_realtime_news_claim_refuses_endorsement():
+    answer = llm.direct_response("昨天新闻说渤海发现了一条 500 米长的巨型垃圾漂浮带，你怎么看？")
+    assert answer and "无法核实" in answer
+    assert "500" not in answer and "确认" not in answer.split("既不确认")[0][:40]
+
+
+def test_bound_report_solution_answer_passes_without_citations():
+    # 绑定报告后问"治理解决方案"：模型基于报告事实的分析不需要 [S编号] 引用，
+    # 无关的 RAG 证据片段也不应一票否决——否则会被摘录兜底退化成复述。
+    context = (
+        "报告 ID：RPT-9\n生成时间：2026-08-21 11:40\n检测海域：北戴河\n"
+        "风险等级：中\n评分：68\n关键发现：塑料瓶 12 件、废弃渔网 3 件\n处置方案：优先清理废弃渔网"
+    )
+    answer = (
+        "结合当前绑定报告：北戴河这次任务污染等级为中（评分 68），主要垃圾是塑料瓶和废弃渔网。"
+        "建议处置上优先清理废弃渔网防止缠绕，其次集中捡拾塑料瓶；针对中的等级，"
+        "建议两周后同点位复测对比数量变化，并查漏陆源输入。"
+    )
+    result = llm.finalize_model_answer(
+        "结合这份报告，给我一套治理解决方案？",
+        answer,
+        evidence=[{"content": "与本问题无关的通用知识片段，讨论的是完全不同的话题内容。"}],
+        report_context=context,
+    )
+    assert "渔网" in result and "68" in result
+    assert "复测" in result  # 模型自己的方案内容必须被保留，而不是被摘录兜底替换
+
+
+def test_bound_report_solution_fallback_composes_briefing():
+    # 模型答案被拦时，方案/解读类问题应得到"结论-发现-方案-监测"结构化简报，
+    # 全部来自绑定报告实测事实，而不是几行摘录复述
+    context = (
+        "报告 ID：RPT-9\n生成时间：2026-08-21 11:40\n检测海域：北戴河\n"
+        "关联任务：任务 17（acc_baseline_task.jpg）\n"
+        "分析摘要：报告显示该任务处于“中”污染等级，检出 46 个目标。\n"
+        "风险等级：中\n评分：68\n目标数量：46\n"
+        "关键发现：\n- 本次共识别 46 个垃圾目标，污染等级为“中”。\n- 高频类别为：瓶子（12）、渔网（3）。\n"
+        "处置方案：\n- 优先清理废弃渔网，防止缠绕。\n- 塑料瓶集中捡拾并增压减量。\n"
+        "后续监测：\n- 两周后同点位复测，对比数量变化。"
+    )
+    result = llm._report_solution_response("结合这份报告，给我一套治理解决方案", context)
+    assert result and "北戴河" in result and "68" in result
+    assert "处置方案" in result and "后续监测建议" in result and "复测" in result
+    assert "不会补写" in result
+    # 纯事实问法不触发布报
+    assert llm._report_solution_response("这份报告的评分是多少？", context) is None
