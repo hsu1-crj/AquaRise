@@ -356,14 +356,16 @@ export class SoundscapeManager {
   }
 
   async playTrack(kind, trackConfig, { loop = false, fadeMs = this.fadeMs, replace = true } = {}) {
-    // 并发代次：每次播放开始即递增；期间任何 stopKind/新播放都会让本次调用作废，
-    // 在 await 恢复点检查，杜绝"迟到的旧调用杀掉新轨道"的竞态。
-    const gen = ++this._generation[kind];
+    // 并发代次：探测/解锁期间任何外部 stopKind/新播放都会让本次调用作废，
+    // 杜绝"迟到的旧调用杀掉新轨道"的竞态。replace 触发的 stopKind 属于同一次
+    // 播放的准备工作，必须在上台登记新一代次之后才允许被外部作废——否则每次
+    // replace 播放都会在起播前把自己判死，物种独白永远发不出声音。
+    const preGen = this._generation[kind];
+    const superseded = () => this._generation[kind] !== preGen;
     const duckGen = kind === "voice" ? ++this._voiceGen : null;
-    const stale = () => gen !== this._generation[kind];
 
     const probed = await this.resolveExistingSources(trackConfig);
-    if (stale()) return { ok: false, interrupted: true };
+    if (superseded()) return { ok: false, interrupted: true };
     const config = normalizeTrack(probed, kind);
     if (!config || !asSources(config).length) {
       this.kindState[kind] = "unloaded";
@@ -371,7 +373,7 @@ export class SoundscapeManager {
       return { ok: false, missing: true };
     }
     const unlocked = await this.unlock();
-    if (stale()) return { ok: false, interrupted: true };
+    if (superseded()) return { ok: false, interrupted: true };
     if (!unlocked) {
       this.kindState[kind] = "blocked";
       return { ok: false, unavailable: true };
@@ -379,7 +381,8 @@ export class SoundscapeManager {
 
     if (replace) this.stopKind(kind, fadeMs);
     if (kind === "voice") this.setVoiceDucking(true, fadeMs);
-    if (stale()) return { ok: false, interrupted: true };
+    const gen = ++this._generation[kind];
+    const stale = () => gen !== this._generation[kind];
     const element = this.createElement(kind, config);
     if (!element) return { ok: false, unavailable: true };
     const track = this.ensureTrack(kind, element, config);

@@ -153,3 +153,50 @@ test('流式请求将非 200 响应转为带状态码的明确错误', async () 
     error => error?.status === 401 && /401/.test(error.message),
   );
 });
+
+test('首个片段到达后流挂起不关闭时按空闲超时报错，而不是永远输出中', async () => {
+  const encoder = new TextEncoder();
+
+  await assert.rejects(
+    streamAtlasChat({
+      messages: [{ role: 'user', content: '你好' }],
+      sessionId: 'session-idle',
+      token: 'token-1',
+      signal: new AbortController().signal,
+      onChunk() {},
+      fetchImpl: async () => new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"content":"开"}\n\n'));
+          // 此后既不产出新片段也不关闭：模拟网关挂起
+        },
+      }), { status: 200 }),
+      firstByteTimeoutMs: 500,
+      chunkIdleTimeoutMs: 60,
+    }),
+    /响应中断/,
+  );
+});
+
+test('正常完成的流不会被空闲超时误报', async () => {
+  const encoder = new TextEncoder();
+  const chunks = [];
+
+  await streamAtlasChat({
+    messages: [{ role: 'user', content: '你好' }],
+    sessionId: 'session-ok',
+    token: 'token-1',
+    signal: new AbortController().signal,
+    onChunk: chunk => chunks.push(chunk),
+    fetchImpl: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"content":"完"}\n\ndata: [DONE]\n\n'));
+        controller.close();
+      },
+    }), { status: 200 }),
+    firstByteTimeoutMs: 500,
+    chunkIdleTimeoutMs: 50,
+  });
+
+  assert.deepEqual(chunks, ['完']);
+  await new Promise(resolve => setTimeout(resolve, 80));
+});

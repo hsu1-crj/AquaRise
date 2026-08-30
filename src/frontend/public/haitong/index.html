@@ -1607,8 +1607,203 @@
  @media(max-width:900px){.coach-panel{width:calc(100vw - 36px)}.coach-head{padding:22px 20px 16px}.coach-body{padding:18px 20px 22px}.coach-steps{grid-template-columns:1fr}.coach-steps::before{display:none}.coach-reopen{display:none}}
  @media (prefers-reduced-motion: reduce){#coachMarks,.coach-panel{transition:none}.coach-steps li{animation:none}.coach-emblem svg{animation:none}.gbif-toggle-emblem svg{animation:none}}
 
+ /* ===== 生命图谱 2026 可用性升级：清楚的三步路径 + 开放式博物馆档案 ===== */
+ :root{
+  --ink:#f0f6f2;
+  --ink-dim:#91a8b4;
+  --ink-ghost:#496170;
+  --glass-border:rgba(163,219,226,.16);
+ }
+ header{
+  min-height:72px;padding:16px 26px;align-items:center;
+  background:linear-gradient(180deg,rgba(1,5,12,.9),rgba(1,5,12,.18) 74%,transparent);
+ }
+ .brand{align-items:center;gap:13px}
+ .logo{font-size:18px;letter-spacing:.19em}
+ .sub-logo{font-family:var(--font-sans);font-size:11px;letter-spacing:.18em;color:#91a8b4}
+ .nav-actions{
+  gap:3px;padding:4px;border:1px solid rgba(163,219,226,.12);border-radius:14px;
+  background:rgba(2,11,20,.56);box-shadow:0 14px 34px rgba(0,0,0,.25);backdrop-filter:blur(18px);
+ }
+ .nav-actions .pill-btn{
+  min-height:34px;padding:0 12px;border:0;border-radius:10px;background:transparent;
+  box-shadow:none;color:#9fb5c0;font-size:11.5px;backdrop-filter:none;
+ }
+ .nav-actions .pill-btn:hover,.nav-actions .pill-btn.active{
+  transform:none;color:#fff;background:rgba(56,248,212,.1);box-shadow:none;
+ }
+ .nav-actions .dot{width:5px;height:5px}
+ .back-system-btn{min-height:34px;padding:0 12px;border-radius:10px;margin-right:2px;background:rgba(5,23,38,.72)}
+
+ #exploreRail{
+  left:28px;top:138px;width:224px;z-index:36;pointer-events:auto;
+  padding:2px 0 2px 20px;border-left:1px solid rgba(56,248,212,.32);
+  transition:opacity .35s ease,transform .35s ease,visibility .35s;
+ }
+ .atlas-species-mode #exploreRail{opacity:0;visibility:hidden;pointer-events:none;transform:translateX(-18px)}
+ .explore-rail-kicker{display:block;margin-bottom:10px;font:700 9px/1 var(--font-mono);letter-spacing:.26em;color:var(--cyan)}
+ #exploreRail h2{margin:0 0 25px;font:700 22px/1.2 var(--font-serif);letter-spacing:.07em;color:#f3faf7}
+ .explore-steps{list-style:none;display:grid;gap:22px;margin:0;padding:0}
+ .explore-steps li{position:relative;display:flex;gap:12px;align-items:flex-start;opacity:.43;transition:opacity .25s ease,transform .25s ease}
+ .explore-steps li::before{content:"";position:absolute;left:-25px;top:8px;width:9px;height:9px;border-radius:50%;background:#213946;border:2px solid #07131d;box-shadow:0 0 0 1px rgba(117,198,208,.24)}
+ .explore-steps li:not(:last-child)::after{content:"";position:absolute;left:-21px;top:18px;width:1px;height:49px;background:linear-gradient(rgba(75,183,187,.42),rgba(75,183,187,.05))}
+ .explore-steps li.active,.explore-steps li.complete{opacity:1}
+ .explore-steps li.active{transform:translateX(3px)}
+ .explore-steps li.active::before{background:var(--cyan);box-shadow:0 0 0 3px rgba(56,248,212,.12),0 0 15px rgba(56,248,212,.7)}
+ .explore-steps li i{font:700 9px/1.4 var(--font-mono);font-style:normal;color:var(--cyan);letter-spacing:.1em}
+ .explore-steps li b{display:block;margin-bottom:4px;font-size:13px;font-weight:600;color:#edf7f4}
+ .explore-steps li span{display:block;font-size:10.5px;line-height:1.45;color:var(--ink-dim)}
+ .explore-rail-tools{display:grid;gap:7px;margin-top:27px}
+ .rail-tool{width:max-content;padding:0;border:0;background:transparent;color:#7f9aa7;font:11px/1.6 var(--font-sans);cursor:pointer;text-align:left;border-bottom:1px solid transparent;transition:.2s ease}
+ .rail-tool:hover,.rail-tool:focus-visible{color:var(--cyan);border-color:rgba(56,248,212,.45);outline:none}
+
+ #filterHub.planet-mode{
+  top:auto;bottom:22px;left:54%;width:min(790px,calc(100vw - 520px));transform:translateX(-50%);
+ }
+ #filterHub.planet-mode .filter-main-bar{
+  display:flex;justify-content:initial;gap:8px;min-height:68px;padding:8px;
+  border:1px solid rgba(137,214,220,.18);border-radius:20px;
+  background:rgba(2,12,21,.82);box-shadow:0 24px 70px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.06);
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+ }
+ #filterHub.species-mode{opacity:0;visibility:hidden;pointer-events:none;transform:translate(-50%,-12px)}
+ body.meditation-mode #filterHub.planet-mode{
+  opacity:1!important;filter:none;pointer-events:auto!important;
+ }
+ .atlas-dock-summary{display:none;flex:0 0 auto;min-width:112px;padding:0 10px;align-items:center;justify-content:center;gap:6px;border-right:1px solid rgba(140,204,211,.14)}
+ #filterHub.planet-mode .atlas-dock-summary{display:flex}
+ .atlas-dock-summary strong{font:700 22px/1 var(--font-serif);color:#f3faf7}
+ .atlas-dock-summary span{font-size:10.5px;color:var(--ink-dim)}
+ #filterHub.planet-mode .search-trigger-btn{
+  flex:1;min-width:0;min-height:50px;justify-content:flex-start;padding:6px 11px;border-radius:13px;
+  border:1px solid rgba(140,204,211,.12);background:rgba(255,255,255,.025);
+ }
+ #filterHub.planet-mode .search-trigger-btn:hover{border-color:rgba(56,248,212,.42);background:rgba(56,248,212,.07)}
+ #filterHub.planet-mode .search-trigger-copy strong{font-size:12px}
+ #filterHub.planet-mode .search-trigger-copy small{font-size:9.5px}
+ .atlas-primary-action{
+  display:none;flex:0 0 auto;min-width:132px;min-height:50px;padding:0 18px;align-items:center;justify-content:center;gap:12px;
+  border:1px solid var(--cyan);border-radius:13px;background:var(--cyan);color:#032019;font:700 12px/1 var(--font-sans);cursor:pointer;
+  box-shadow:0 8px 22px rgba(56,248,212,.2);transition:transform .2s ease,box-shadow .2s ease,opacity .2s ease;
+ }
+ #filterHub.planet-mode .atlas-primary-action{display:inline-flex}
+ .atlas-primary-action:hover{transform:translateY(-1px);box-shadow:0 10px 30px rgba(56,248,212,.34)}
+ .atlas-primary-action:disabled{cursor:wait;opacity:.56;transform:none}
+
+ #bottomHint{
+  bottom:102px;left:54%;padding:0;border:0;background:transparent;backdrop-filter:none;
+  transform:translateX(-50%);letter-spacing:0;pointer-events:none;
+ }
+ .explore-status-copy{display:flex;align-items:baseline;justify-content:center;gap:10px;text-shadow:0 2px 14px rgba(0,0,0,.9)}
+ .explore-status-copy strong{font-size:12px;font-weight:600;color:#dfece8}
+ .explore-status-copy small{font-size:10.5px;color:#78919e}
+ .gbif-attribution{font-size:9.5px}
+
+ #photoBox{border-radius:17px;border-color:rgba(179,229,231,.24);box-shadow:0 34px 100px rgba(0,0,0,.76),0 0 70px rgba(56,248,212,.12)}
+ #infoCard{
+  right:42px;top:51%;width:min(432px,38vw);padding:24px 30px 18px 28px;border:0;border-left:1px solid rgba(94,214,205,.25);border-radius:0;
+  background:linear-gradient(90deg,rgba(2,11,19,.88),rgba(2,11,19,.64) 62%,rgba(2,11,19,.32));backdrop-filter:none;-webkit-backdrop-filter:none;
+  box-shadow:none;
+  max-height:calc(100vh - 108px);overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:rgba(94,214,205,.32) transparent;
+ }
+ #infoCard.extinct-card{border-color:rgba(255,105,127,.46);background:linear-gradient(90deg,rgba(31,8,17,.88),rgba(20,6,13,.64) 62%,rgba(20,6,13,.32));box-shadow:none}
+ /* 档案头两行式布局：第一行"档号 + 就绪状态"，第二行"濒危等级 + 进度读数" */
+ .card-top{flex-wrap:wrap;align-items:center;row-gap:10px;margin-bottom:12px}
+ .card-kicker-group{display:contents}
+ .card-top::after{content:"";flex-basis:100%;height:0;order:3}
+ .card-kicker{order:1;font-size:9px;letter-spacing:.25em}
+ .detail-state{order:2;margin-left:auto;font-size:10px}
+ .iucn{order:4;padding:4px 12px}
+ .spec-num{order:5;margin-left:auto;font-size:11.5px;letter-spacing:.16em;color:#93b2c2}
+ #chronoBadge{order:6;flex-basis:100%;margin-top:1px}
+ .spec-title{font-size:clamp(30px,3vw,43px);line-height:1.08;margin-bottom:7px}
+ .spec-latin{font-size:12px;margin-bottom:14px}
+ .spec-story{font-size:12.5px;line-height:1.8;margin-bottom:13px;color:#ddeefc;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}
+ .spec-tags{gap:6px;margin-bottom:13px}
+ .spec-tags span{font-size:9.5px;padding:4px 9px;background:rgba(48,34,12,.4);border-color:rgba(255,181,71,.26);color:#f2d9ad}
+ .spec-tags span:hover{border-color:rgba(255,181,71,.55);color:#ffe9c4;background:rgba(255,181,71,.12);box-shadow:0 0 12px rgba(255,181,71,.18);transform:translateY(-1px)}
+ /* 卡脚阅读顺序：声音预载 → 操作区 → 图片来源脚注 */
+ .card-footer{padding-top:12px;gap:11px}
+ #soundTags{order:1;margin-bottom:0}
+ .sound-tag{display:inline-flex;align-items:center;gap:6px}
+ .sound-tag::before{content:"";width:11px;height:7px;flex:none;border-radius:1px;background:repeating-linear-gradient(90deg,currentColor 0 1.5px,transparent 1.5px 3.5px);opacity:.85}
+ .card-actions{order:2}
+ .credit-block{order:3;justify-content:flex-start;gap:8px;margin-top:1px}
+ /* 操作区分组：讲述（主） / 助手·观测 / 海报·来源 / 返回（导航） */
+ .card-actions{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"voice voice" "ask gbif" "poster source" "unlock unlock";gap:8px}
+ .card-actions .card-link,.card-actions .card-unlock,.card-actions .gbif-toggle{width:100%;min-height:41px;padding:0 10px;border-radius:11px;font-size:11px}
+ .card-actions .card-link{color:#cfe4e6;background:rgba(8,31,43,.46);border-color:rgba(143,207,211,.17);box-shadow:none}
+ .card-actions .card-link.primary{color:#032019;background:var(--cyan);border-color:var(--cyan);box-shadow:none;min-height:46px;font-size:12.5px}
+ .card-actions .ask-assistant-link{grid-column:auto;color:#d6edee;background:rgba(23,86,94,.28);border-color:rgba(85,213,210,.32)}
+ #voiceEchoBtn{grid-area:voice}
+ #askAssistantBtn{grid-area:ask}
+ #gbifToggle{grid-area:gbif}
+ #shareBtn{grid-area:poster}
+ #sourceLink{grid-area:source}
+ #unlockDetail{grid-area:unlock}
+ .atlas-species-mode #infoCard .gbif-toggle{display:inline-flex;justify-content:center;background:rgba(8,31,43,.46);border-color:rgba(143,207,211,.17);box-shadow:none}
+ #infoCard .gbif-toggle-emblem{width:25px;height:25px;border:0;background:transparent;box-shadow:none}
+ #infoCard .gbif-toggle-copy small{display:none}
+ #infoCard .gbif-toggle-copy strong{font-size:11px;font-weight:600}
+ .card-actions #sourceLink{min-height:41px;background:rgba(8,31,43,.46);border-color:rgba(143,207,211,.17);color:#9fb6c4;box-shadow:none}
+ .card-actions #sourceLink:hover{color:#eaf6f3;border-color:rgba(56,248,212,.45);background:rgba(56,248,212,.08);box-shadow:none;transform:translateY(-1px)}
+ .card-actions #unlockDetail{min-height:38px;color:#a8c5d4;border-color:rgba(143,207,211,.22);background:rgba(8,31,43,.3);font-weight:600;letter-spacing:.05em}
+ .card-actions #unlockDetail:hover{color:#fff;border-color:rgba(56,248,212,.5);background:rgba(56,248,212,.1);transform:translateY(-1px);box-shadow:0 0 12px rgba(56,248,212,.2)}
+
+ #speciesNav{bottom:19px;gap:9px;padding:5px 8px;border-radius:16px;background:rgba(2,11,19,.58);border:1px solid rgba(137,214,220,.11);backdrop-filter:blur(16px)}
+ .dots-rail{padding:7px 12px;background:transparent;border:0;backdrop-filter:none}
+ .nav-arrow{width:30px;height:30px;background:transparent;border-color:transparent}
+ .d{width:5px;height:5px}.d.on{width:18px}
+ .atlas-planet-mode #speciesNav{opacity:0;pointer-events:none}
+ .atlas-planet-mode #controls{bottom:24px}
+ .atlas-species-mode #controls{bottom:20px}
+
+ .coach-panel{width:min(900px,calc(100vw - 72px));border-radius:22px}
+ .coach-body{padding-top:20px}
+ .coach-steps{grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}
+ .coach-steps::before{display:none}
+ .coach-steps li{min-height:126px}
+
+ @media(max-width:1100px){
+  #exploreRail{width:196px;left:22px}
+  #filterHub.planet-mode{left:55%;width:min(700px,calc(100vw - 390px))}
+  #bottomHint{left:55%}
+  #infoCard{right:24px;width:min(390px,39vw)}
+ }
+ @media(max-width:900px){
+  header{padding:10px 13px;min-height:60px}
+  .brand{gap:7px}.sub-logo{display:none}.logo{font-size:16px}
+  .back-system-btn{padding:0 9px}.back-system-btn span:not(.back-arrow){display:none}
+  .nav-actions{gap:1px}.nav-actions .pill-btn{padding:0 8px;font-size:10.5px}
+  #gestureBtn{display:none}
+  #exploreRail{display:none}
+  #filterHub.planet-mode{left:50%;bottom:14px;width:calc(100vw - 24px)}
+  #filterHub.planet-mode .filter-main-bar{min-height:60px;border-radius:17px;padding:6px}
+  .atlas-dock-summary{display:none!important}
+  #filterHub.planet-mode .search-trigger-btn{min-height:46px}
+  .atlas-primary-action{min-width:116px;min-height:46px;padding:0 13px}
+  #bottomHint{left:50%;bottom:84px;width:calc(100vw - 28px)}
+  .explore-status-copy small{display:none}
+  .atlas-planet-mode #controls,.atlas-species-mode #controls{top:68px;bottom:auto;left:13px}
+  .fullscreen-dock-btn{padding:7px 10px}.fs-label,.fs-kbd{display:none}
+  #infoCard{left:50%;right:auto;top:auto;bottom:67px;width:calc(100vw - 24px);max-height:49vh;padding:18px 17px 14px;border-left:0;border-top:1px solid rgba(94,214,205,.24);background:linear-gradient(180deg,rgba(2,11,19,.94),rgba(2,11,19,.78));border-radius:16px}
+  #infoCard.show{transform:translateX(-50%) translateY(0)}
+  .spec-title{font-size:28px}.spec-story{-webkit-line-clamp:3}
+  #speciesNav{bottom:10px}
+  .coach-panel{width:calc(100vw - 28px)}
+  .coach-steps{grid-template-columns:1fr}.coach-steps li{min-height:0}
+ }
+ @media(max-width:560px){
+  .nav-actions .pill-btn{padding:0 7px}
+  #filterHub.planet-mode .search-signal{display:none}
+  #filterHub.planet-mode .search-trigger-btn{padding-left:10px}
+  #filterHub.planet-mode .search-trigger-copy small{display:none}
+  .atlas-primary-action{min-width:106px}
+  .card-actions .card-link,.card-actions .card-unlock,.card-actions .gbif-toggle{min-height:38px}
+ }
+
  </style>
-</head>
 </head>
 <body>
 
@@ -1641,16 +1836,30 @@
  <div class="brand">
  <button class="pill-btn back-system-btn" id="backSystemBtn" title="返回海洋全域智守平台 (按 ESC)"><span class="back-arrow">&#8592;</span><span>返回工作台</span></button>
  <span class="logo">海瞳</span>
- <span class="sub-logo">Bioluminescent Atlas</span>
+ <span class="sub-logo">生命图谱</span>
  </div>
  <div class="nav-actions">
- <button class="pill-btn" id="bgmBtn" title="切换深海环境音乐"><span class="dot"></span><span id="bgmTxt">背景音</span></button>
- <button class="pill-btn" id="demoBtn" title="展览自动演示：三种随机动物依次自述，随后进入鲸落并循环">自动演示</button>
- <button class="pill-btn" id="usageGuideBtn" title="查看生命图谱完整使用指南">使用指南</button>
- <button class="pill-btn" id="guideBtn" title="查看 AI 视觉手势手册">手势图鉴</button>
- <button class="pill-btn" id="gestureBtn" title="开启摄像头手势控制"><span class="dot"></span><span id="gestureTxt">手势</span></button>
+ <button class="pill-btn" id="demoBtn" title="不知道看什么时，由系统自动带你浏览">自动导览</button>
+ <button class="pill-btn" id="bgmBtn" title="开启或暂停深海声音"><span class="dot"></span><span id="bgmTxt">声音</span></button>
+ <button class="pill-btn" id="gestureBtn" title="可选：开启摄像头，用手势控制图谱"><span class="dot"></span><span id="gestureTxt">手势控制</span></button>
+ <button class="pill-btn" id="usageGuideBtn" title="查看功能说明与使用方法">帮助</button>
  </div>
  </header>
+
+ <!-- 三步探索导航：把完整功能收敛成一个清楚的主路径 -->
+ <aside id="exploreRail" class="ui" aria-label="三步探索导航">
+  <span class="explore-rail-kicker">EXPLORE · 生命图谱</span>
+  <h2>从地球出发</h2>
+  <ol class="explore-steps">
+   <li class="active" data-step="1"><i>01</i><div><b>选择物种</b><span>搜索名称或保护等级</span></div></li>
+   <li data-step="2"><i>02</i><div><b>下潜观察</b><span>滚动让生物完成显影</span></div></li>
+   <li data-step="3"><i>03</i><div><b>阅读档案</b><span>听讲述、问助手、看分布</span></div></li>
+  </ol>
+  <div class="explore-rail-tools">
+   <button class="rail-tool" id="guideBtn" type="button">查看手势说明</button>
+   <button class="rail-tool" id="hintGestureBtn" type="button">开启手势控制</button>
+  </div>
+ </aside>
 
  <!-- 极简高级多维筛选中枢 (Floating Filter Hub) -->
  <div id="filterHub" class="ui" role="navigation" aria-label="物种分类与搜索中枢">
@@ -1680,6 +1889,7 @@
  </div>
 
  <!-- 声呐检索控制台入口 -->
+ <div class="atlas-dock-summary" aria-label="图谱档案统计"><strong>22</strong><span>个物种档案</span></div>
  <button class="search-trigger-btn" id="openSearchBtn" title="打开物种检索（快捷键 /）">
  <span class="search-signal" aria-hidden="true"><i></i><i></i><i></i></span>
  <span class="search-trigger-copy">
@@ -1689,21 +1899,7 @@
  <kbd>/</kbd>
  <span class="search-trigger-arrow" aria-hidden="true">↗</span>
  </button>
- <button class="gbif-toggle" id="gbifToggle" type="button" aria-pressed="false" title="显示当前物种的全球观测记录">
-  <span class="gbif-toggle-emblem" aria-hidden="true">
-   <svg viewBox="0 0 24 24">
-    <!-- 轨道扫描徽标：地球 + 卫星轨道 + 生物荧光卫星点 -->
-    <circle cx="12" cy="12" r="4.1"/>
-    <ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-16 12 12)" opacity=".85"/>
-    <circle class="gbif-sat-dot" cx="20.2" cy="8.9" r="1.15" fill="#38f8d4" stroke="none"/>
-    <path d="M2.6 13.6a9.6 9.6 0 0 0 3.4 5" opacity=".5"/>
-   </svg>
-  </span>
-  <span class="gbif-toggle-copy">
-   <strong id="gbifToggleText">观测分布</strong>
-   <small>全球物种记录</small>
-  </span>
- </button>
+ <button class="atlas-primary-action" id="startExploreBtn" type="button">开始探索 <span aria-hidden="true">→</span></button>
  </div>
  </div>
 
@@ -1781,19 +1977,25 @@
         <button class="sound-tag" type="button" data-kind="voice" title="悬浮或触摸预载动物独白">动物独白</button>
         <button class="sound-tag" type="button" data-kind="ambience" title="悬浮或触摸预载栖息地环境声">栖息地环境声</button>
       </div>
-      <div class="card-actions">
-        <button class="card-link primary voice-echo-link" id="voiceEchoBtn" type="button" title="播放当前动物独白并驱动粒子声纹">
-          <span class="voice-wave-icon"><i class="vw-bar"></i><i class="vw-bar"></i><i class="vw-bar"></i></span>
-          <span>声纹回响</span>
-        </button>
-        <button class="card-link ask-assistant-link" id="askAssistantBtn" type="button"><span>问问海瞳助手</span></button>
-        <button class="card-unlock" id="unlockDetail" type="button">
+       <div class="card-actions">
+         <button class="card-link primary voice-echo-link" id="voiceEchoBtn" type="button" title="播放当前动物独白并驱动粒子声纹">
+           <span class="voice-wave-icon"><i class="vw-bar"></i><i class="vw-bar"></i><i class="vw-bar"></i></span>
+           <span>听它讲述</span>
+         </button>
+         <button class="card-link ask-assistant-link" id="askAssistantBtn" type="button"><span>问海瞳助手</span></button>
+         <button class="gbif-toggle card-observation-link" id="gbifToggle" type="button" aria-pressed="false" title="查看当前物种的全球观测记录">
+          <span class="gbif-toggle-emblem" aria-hidden="true">
+           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-16 12 12)" opacity=".85"/><circle class="gbif-sat-dot" cx="20.2" cy="8.9" r="1.15" fill="#38f8d4" stroke="none"/><path d="M2.6 13.6a9.6 9.6 0 0 0 3.4 5" opacity=".5"/></svg>
+          </span>
+          <span class="gbif-toggle-copy"><strong id="gbifToggleText">观测分布</strong><small>全球物种记录</small></span>
+         </button>
+         <button class="card-link" id="shareBtn" type="button"><span>生成科普海报</span></button>
+         <a class="card-link" id="sourceLink" href="#" target="_blank" rel="noopener"><span>权威来源 ↗</span></a>
+         <button class="card-unlock" id="unlockDetail" type="button">
           <svg class="anim-svg anim-earth" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="4.5" ry="10"/><path d="M2 12h20"/></svg>
-          <span id="unlockTxt">回到地球</span>
-        </button>
-        <a class="card-link" id="sourceLink" href="#" target="_blank" rel="noopener"><span>查看档案 ↗</span></a>
-        <button class="card-link primary" id="shareBtn" type="button"><span>分享海报 ↗</span></button>
-      </div>
+           <span id="unlockTxt">回到地球</span>
+         </button>
+       </div>
     </div>
   </article>
 
@@ -1832,9 +2034,8 @@
 
   <!-- 底部操作提示 -->
   <div id="bottomHint" class="ui">
-    <span>地球正在自转 · 拖拽旋转经纬 · 鼠标滚轮/手势下潜探索物种</span>
+    <span class="explore-status-copy"><strong id="exploreStatusTitle">选择一个物种</strong><small id="exploreStatusDetail">搜索名称、学名或保护等级</small></span>
     <span class="gbif-attribution" id="gbifAttribution" aria-live="polite" hidden></span>
-    <button class="pill-btn" id="hintGestureBtn" style="padding:2px 8px;font-size:10px;">开启摄像头</button>
   </div>
 
   <!-- 底部物种轮播导航 -->
@@ -2184,7 +2385,7 @@
 
   <audio id="bgm" loop preload="auto"><source src="assets/audio/yue.mp3" type="audio/mpeg"></audio>
 
- <!-- 使用指南：首次进入自动显示；看过后仍可由顶部“使用指南”重新打开 -->
+  <!-- 使用指南：首次进入自动显示；看过后仍可由顶部“帮助”重新打开 -->
  <div id="coachMarks" aria-hidden="true">
   <div class="coach-panel" role="dialog" aria-modal="true" aria-labelledby="coachTitle">
    <div class="coach-head">
@@ -2200,25 +2401,24 @@
       </svg>
      </span>
      <div>
-      <span class="coach-kicker">FIRST DIVE · DESKTOP GUIDE</span><h2 id="coachTitle">四步看懂海瞳生命图谱</h2>
+      <span class="coach-kicker">FIRST DIVE · QUICK GUIDE</span><h2 id="coachTitle">三步开始探索</h2>
      </div>
     </div>
     <button class="coach-close" id="coachClose" type="button" aria-label="关闭使用指南">×</button>
    </div>
    <div class="coach-body">
-    <p class="coach-lead"><strong>第一次来会自动看到这里。</strong> 不需要开启摄像头，鼠标就能完成全部核心浏览；想体验 AI 手势，可直接点下方“开启摄像头手势”。以后可从顶部“使用指南”随时重开。</p>
+    <p class="coach-lead"><strong>用鼠标就能完成全部核心浏览。</strong> 摄像头手势是可选体验，只有你主动开启时才会请求权限。</p>
     <ol class="coach-steps">
-     <li><i>01</i><div class="coach-step-copy"><b>先找到想看的物种</b><span>按 CR / EN / VU / EX 或生物类群筛选，也可点击“检索物种”按名称、学名和威胁搜索。</span><em>快捷键 / 可直接打开检索</em></div></li>
-     <li><i>02</i><div class="coach-step-copy"><b>进入并切换物种档案</b><span>拖拽旋转地球，滚轮下潜或点击物种；进入档案后用左右箭头、底部圆点继续浏览。</span><em>ESC 可关闭当前面板或返回工作台</em></div></li>
-     <li><i>03</i><div class="coach-step-copy"><b>看分布、来源和保护信息</b><span>点击顶部“观测分布”按钮，查看该物种的 GBIF 全球观测记录；还可查看权威档案、声纹和科普分享海报。</span><em>观测点不可用时会保留档案栖息地</em></div></li>
-     <li><i>04</i><div class="coach-step-copy"><b>直接问当前物种</b><span>点击“问问海瞳助手”会自动带上当前档案；可追问濒危原因、垃圾威胁和保护行动，支持清空对话。</span><em>助手使用平台当前登录状态</em></div></li>
+     <li><i>01</i><div class="coach-step-copy"><b>选择物种</b><span>点击“开始探索”，按名称、学名或保护等级搜索。</span><em>按 / 也能直接打开搜索</em></div></li>
+     <li><i>02</i><div class="coach-step-copy"><b>下潜观察</b><span>滚动鼠标让物种显影；进入档案后可用左右箭头切换。</span><em>拖拽地球可改变观察方向</em></div></li>
+     <li><i>03</i><div class="coach-step-copy"><b>阅读档案</b><span>听物种讲述、问海瞳助手、看全球观测，或生成科普海报。</span><em>联网失败时会保留档案地点</em></div></li>
     </ol>
-    <div class="coach-more"><span class="coach-more-title">更多玩法</span><div class="coach-more-list"><span>自动演示 · 无操作也能看懂</span><span>手势图鉴 · 摄像头需主动开启</span><span>背景音与动物独白</span><span>生成并保存物种海报</span></div></div>
+    <div class="coach-more"><span class="coach-more-title">这些功能是什么？</span><div class="coach-more-list"><span>不知道看什么：点顶栏第一个按钮，系统会自动带你逛</span><span>手势控制：可选，用摄像头隔空操作</span><span>观测分布：联网获取 GBIF 公开记录</span><span>海瞳助手：围绕当前物种回答</span></div></div>
     <div class="coach-actions">
      <button class="pill-btn primary" id="coachExplore" type="button">开始探索</button>
-     <button class="pill-btn" id="coachOpenGesture" type="button">查看手势图鉴</button>
-     <button class="pill-btn" id="coachStartCamera" type="button">开启摄像头手势</button>
-     <p class="coach-reopen">关闭后仍可从顶部“使用指南”重新打开</p>
+     <button class="pill-btn" id="coachOpenGesture" type="button">查看手势说明</button>
+     <button class="pill-btn" id="coachStartCamera" type="button">开启手势控制</button>
+     <p class="coach-reopen">关闭后仍可从顶部“帮助”重新打开</p>
     </div>
    </div>
   </div>
@@ -2242,7 +2442,7 @@ import { classifyHandGesture, HAND_RULES, HAND_LM } from "./assets/js/hand-gestu
 import { AtlasChatError, buildContextualQuestion, buildSpeciesStarterQuestion, clearAtlasChatHistory, createSpeciesStarterTracker, renderSafeMarkdown, streamAtlasChat } from "./assets/js/atlas-chat.mjs";
 import { createFpsFuse } from "./assets/js/bloom-policy.mjs";
 import { createGbifClient } from "./assets/js/gbif-client.mjs";
-import { createAtlasGuideVisitTracker } from "./assets/js/atlas-guide.mjs";
+import { createAtlasGuideVisitTracker, getDemoControlCopy, getExplorationGuidance, getSoundControlCopy, resolveAtlasShortcut, resolveDemoNarrationBudget } from "./assets/js/atlas-guide.mjs";
 
 const $ = s => document.querySelector(s);
 let toastTimer = null;
@@ -2673,13 +2873,15 @@ function initParticleRenderer() {
           col += vec3(0.2, 0.5, 0.6) * pow(core, 4.0);
           gl_FragColor = vec4(col, vAlpha * halo);
         } else {
-          float core = exp(-d * d * 32.0);
-          float halo = exp(-d * 4.8);
+          // 光晕收紧：过宽的 halo 在陆地粒子高密度区叠成"磨砂色块"，
+          // 收窄衰减并降低权重后，点阵保持辉光感但表面读得干净。
+          float core = exp(-d * d * 40.0);
+          float halo = exp(-d * 7.5);
           float edgeBoost = vEdge * 0.45;
           vec3 col = vColor * (0.90 + edgeBoost);
           col += vec3(0.16, 0.24, 0.28) * core * 0.58;
-          col += vColor * halo * 0.48;
-          float finalAlpha = vAlpha * (core * 0.85 + halo * 0.32);
+          col += vColor * halo * 0.30;
+          float finalAlpha = vAlpha * (core * 0.88 + halo * 0.18);
           gl_FragColor = vec4(col, clamp(finalAlpha, 0.0, 1.0));
         }
       }
@@ -3671,12 +3873,12 @@ const photoBoxEl = $("#photoBox"), photoLayers = [$("#photoA"), $("#photoB")], i
 
 function photoBox() {
   const narrow = W < 900;
-  const maxW = narrow ? W * 0.88 : Math.min(W * 0.46, 720);
+  const maxW = narrow ? W * 0.88 : Math.min(W * 0.52, 780);
   const maxH = narrow ? H * 0.38 : Math.min(H * 0.68, 620);
   const aspect = SPECIES[speciesIdx].aspect || (3 / 2);
   let w = maxW, h = w / aspect;
   if (h > maxH) { h = maxH; w = h * aspect; }
-  const x = narrow ? (W - w) / 2 : W * 0.28 - w / 2;
+  const x = narrow ? (W - w) / 2 : W * 0.31 - w / 2;
   const y = narrow ? H * 0.26 - h / 2 : (H - h) / 2;
   return { x, y, w, h };
 }
@@ -3686,7 +3888,15 @@ let speciesIdx = 0;
 let zoom = 0, zoomS = 0, targetZoom = 0;
 let lifeMode = "planet";
 let uiState = "planet";
-const reducedMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+// 系统"减少动态效果"跟随运行中切换：matchMedia change 监听，JS 驱动的动画时序实时生效（CSS 媒体查询本身就是活的，两边保持一致）
+let reducedMotion = false;
+if (window.matchMedia) {
+ const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+ reducedMotion = !!motionQuery.matches;
+ const onMotionPrefChange = e => { reducedMotion = !!e.matches; };
+ if (motionQuery.addEventListener) motionQuery.addEventListener("change", onMotionPrefChange);
+ else motionQuery.addListener?.(onMotionPrefChange);
+}
 const PALM_CONFIRM_SECONDS = 0.45;
 const PALM_REVEAL_SECONDS = 0.95;
 const PALM_TARGET_ZOOM = 0.92;
@@ -3809,6 +4019,29 @@ function syncModeUi() {
   }
   document.body.classList.toggle("atlas-planet-mode", lifeMode === "planet");
   document.body.classList.toggle("atlas-species-mode", lifeMode === "species");
+  syncExplorationGuidance();
+}
+let explorationGuidanceKey = "";
+function syncExplorationGuidance() {
+  const guidance = getExplorationGuidance({ lifeMode, uiState });
+  const key = `${guidance.step}|${guidance.title}|${guidance.actionLabel}`;
+  if (key === explorationGuidanceKey) return;
+  explorationGuidanceKey = key;
+  document.querySelectorAll(".explore-steps li").forEach(item => {
+    const step = Number(item.dataset.step || 0);
+    item.classList.toggle("active", step === guidance.step);
+    item.classList.toggle("complete", step < guidance.step);
+  });
+  const title = $("#exploreStatusTitle");
+  const detail = $("#exploreStatusDetail");
+  const action = $("#startExploreBtn");
+  if (title) title.textContent = guidance.title;
+  if (detail) detail.textContent = guidance.detail;
+  if (action) {
+    action.innerHTML = `${guidance.actionLabel} <span aria-hidden="true">→</span>`;
+    action.disabled = !guidance.action;
+    action.dataset.action = guidance.action || "";
+  }
 }
 function syncUiState() {
   if (uiState === "diving" && targetZoom >= 0.6) {
@@ -3818,6 +4051,7 @@ function syncUiState() {
   } else if (uiState === "whaleFall" && speciesTransition.preset === "idle") {
     endWhaleFall(false);
   }
+  syncExplorationGuidance();
 }
 let speciesSoundRevealedFor = -1;
 let speciesNarrationFor = -1;
@@ -3906,9 +4140,25 @@ let lastHintHidden = null, lastGlowOn = null;
 
 let lastFrameTime = performance.now(), lastFps = 60;
 let snapParticlesOnNextFrame = false;
+let hiddenAudioRunning = false;
 document.addEventListener("visibilitychange", () => {
   lastFrameTime = performance.now();
-  if (document.hidden) return;
+  if (document.hidden) {
+    // 后台暂停能耗：手势推理循环（令牌失效使在途迭代不再续跑）、在途 GBIF 结果、AudioContext
+    gestureLoopToken += 1;
+    clearTimeout(gestureTimer);
+    gbifRequestToken += 1;
+    if (soundscape.context && soundscape.context.state === "running") {
+      hiddenAudioRunning = true;
+      soundscape.context.suspend().catch(() => {});
+    }
+    return;
+  }
+  if (hiddenAudioRunning) {
+    hiddenAudioRunning = false;
+    soundscape.context?.resume().catch(() => {});
+  }
+  if (gestureRunning) startLandmarkLoop();
   scrollVelocity = 0;
   dragVelocityX = 0;
   dragVelocityY = 0;
@@ -4856,11 +5106,11 @@ function renderDetailState() {
  const state = $("#detailState");
  const unlock = $("#unlockDetail");
  if (!state) return;
- state.textContent = detailLocked ? "档案已固定" : "可浏览";
+  state.textContent = detailLocked ? "档案已固定" : "可切换浏览";
  state.classList.toggle("locked", detailLocked);
  if (unlock) {
     const unlockTxt = $("#unlockTxt");
-    if (unlockTxt) unlockTxt.textContent = detailLocked ? "解除固定" : "回到地球";
+    if (unlockTxt) unlockTxt.textContent = "返回地球";
   }
 }
 
@@ -4907,7 +5157,7 @@ function applySpecies(immediate = false) {
  if (askAssistantBtn) {
   askAssistantBtn.hidden = !CONFIG.atlasChat;
   const label = askAssistantBtn.querySelector("span");
-  if (label) label.textContent = "问问海瞳助手 · " + s.cn;
+   if (label) label.textContent = "问海瞳助手";
  }
  syncAtlasChatSpecies();
  if (gbifLayerEnabled && gbifLoadedSpeciesIndex !== speciesIdx) loadGbifForCurrentSpecies();
@@ -5202,16 +5452,13 @@ if (!CONFIG.atlasChat) {
 
 $("#unlockDetail").addEventListener("click", () => {
  stopDemo();
- if (!detailLocked) {
- targetZoom = 0;
- toast(" 已回到自转地球 · 守护蓝色家园");
- return;
- }
  detailLocked = false;
  renderDetailState();
- targetZoom = Math.min(targetZoom, 0.62);
+ targetZoom = 0;
+ uiState = lifeMode === "species" ? "returning" : "planet";
+ syncExplorationGuidance();
  $("#statusTxt").textContent = gestureRunning ? "MediaPipe 手势感知中..." : "系统就绪 · 蓝色星球 (71%海洋)";
- toast("已解除固定 · 可继续下潜浏览");
+ toast("正在返回自转地球 · 可以重新选择物种");
 });
 
 function setFilterTier(tier) {
@@ -5271,6 +5518,15 @@ function closeSpotlight() {
 }
 
 $("#openSearchBtn").addEventListener("click", openSpotlight);
+$("#startExploreBtn")?.addEventListener("click", event => {
+ const action = event.currentTarget.dataset.action;
+ if (action === "search") {
+  stopDemo("开始自主探索");
+  openSpotlight();
+ } else if (action === "return") {
+  $("#unlockDetail")?.click();
+ }
+});
 $("#closeSpotlight").addEventListener("click", closeSpotlight);
 spotlightModal.addEventListener("pointerdown", e => { if (e.target === spotlightModal) closeSpotlight(); });
 
@@ -6492,8 +6748,12 @@ window.addEventListener("keydown", e => {
   else e.preventDefault();
   return;
  }
- if ((e.key === "/" || (e.key === "k" && (e.metaKey || e.ctrlKey))) && !typing) {
- e.preventDefault(); stopDemo("检测到检索操作"); openSpotlight();
+ const shortcut = resolveAtlasShortcut({ key: e.key, typing, ctrlKey: e.ctrlKey, metaKey: e.metaKey });
+ if (shortcut === "open-search") {
+  e.preventDefault(); stopDemo("检测到检索操作"); openSpotlight();
+ }
+ if (shortcut === "toggle-fullscreen") {
+  e.preventDefault(); toggleFullscreen();
  }
  if (typing) return;
  if (e.key === "ArrowRight") { stopDemo("检测到键盘操作"); switchSpecies(1); }
@@ -6680,7 +6940,8 @@ function stopDemo(reason) {
  demoMode = false;
  demoRunId += 1;
  demoBtn?.classList.remove("active");
- if (reason) toast("已退出自动演示 · " + reason);
+ if (demoBtn) demoBtn.textContent = getDemoControlCopy({ active: false });
+ if (reason) toast("已退出自动导览 · " + reason);
 }
 function buildDemoSequence(count = 3) {
  const pool = SPECIES.map((_, index) => index);
@@ -6696,9 +6957,12 @@ async function waitForDemoNarration(index, runId) {
  await waitFor(() => !demoMode || runId !== demoRunId || speciesNarrationFor === index, 2500);
  if (!demoMode || runId !== demoRunId) return false;
  const narration = speciesNarrationPromise;
- // 独白资源可能被浏览器拦截或网络音频加载较慢，演示不能因此卡住。
- // 最多等待 3.2 秒，保证每个物种都能展示后继续切换和鲸落流程。
- await Promise.race([narration, sleep(3200)]);
+ let narrationSettled = false;
+ narration.then(() => { narrationSettled = true; }, () => { narrationSettled = true; });
+ const budget = resolveDemoNarrationBudget({ kinds: soundscape.getState().kinds });
+ // 音频被浏览器拦截或资源缺失时沿用短超时保住导览节奏；
+ // 音频真的在响时，等独白完整播完再切换物种，避免"讲一半被掐断"。
+ await waitFor(() => !demoMode || runId !== demoRunId || narrationSettled, budget);
  return demoMode && runId === demoRunId;
 }
 async function runDemo(runId) {
@@ -6751,8 +7015,13 @@ if (demoBtn) {
   }
   demoMode = true;
   demoRunId += 1;
+  recordUserInteraction();
+  // 必须在点击手势调用栈内同步解锁 AudioContext：playTrack 里的解锁要等资源探测的 await，
+  // 严格自动播放策略（iOS Safari 等）下会因脱离手势栈被拦，导览就只剩画面没有声音。
+  soundscape.unlock();
   demoBtn.classList.add("active");
-  toast("自动演示开启 · 三种动物依次自述，随后进入鲸落");
+  demoBtn.textContent = getDemoControlCopy({ active: true });
+  toast("自动导览已开启 · 将依次讲述三个物种并展示鲸落");
   runDemo(demoRunId);
  });
 }
@@ -6767,7 +7036,7 @@ soundscape.attachBgm(bgm, {
 });
 function syncBgmUi() {
  bgmBtn.classList.toggle("active", bgmPlaying);
- bgmTxt.textContent = bgmPlaying ? "正在播放《跃》" : "背景音";
+ bgmTxt.textContent = getSoundControlCopy({ playing: bgmPlaying });
 }
 function setBgmUi(playing) {
  bgmPlaying = playing;
@@ -6777,7 +7046,7 @@ function setBgmUi(playing) {
 function showBgmBlockedState() {
  bgmPlaying = false;
  bgmBtn.classList.remove("active");
- bgmTxt.textContent = "浏览器阻止";
+ bgmTxt.textContent = getSoundControlCopy({ blocked: true });
 }
 async function toggleBgm() {
  stopDemo("切换了背景音");
@@ -6839,6 +7108,8 @@ document.querySelectorAll("#soundTags [data-kind]").forEach(tag => {
 const video = $("#webcam"), canvasDet = $("#detCanvas"), ctxDet = canvasDet.getContext("2d");
 const gestureBtn = $("#gestureBtn"), hintGestureBtn = $("#hintGestureBtn");
 let gestureStream = null, gestureRunning = false, gestureTimer = null;
+// 后台隐藏时递增：在途的手势检测迭代发现令牌失效后不再续跑，避免复活循环
+let gestureLoopToken = 0;
 let gestureManualChoice = false;
 // 手势不是视频检测：识别频率不需要追上渲染帧率。降低同步 WASM/GPU 调用频率，
 // 避免它和 2.6 万粒子地球争用主线程与显卡，摄像头预览仍由浏览器按原生帧率播放。
@@ -6952,8 +7223,8 @@ function stopGesture() {
 function updateGestureUi(active) {
  gestureBtn.classList.toggle("active", active);
  const label = $("#gestureTxt");
- if (label) label.textContent = active ? "手势已开" : "手势";
- if (hintGestureBtn) hintGestureBtn.textContent = active ? "关闭摄像头" : "开启摄像头";
+ if (label) label.textContent = active ? "手势已开启" : "手势控制";
+ if (hintGestureBtn) hintGestureBtn.textContent = active ? "关闭手势控制" : "开启手势控制";
 }
 
 gestureBtn.addEventListener("click", toggleGesture);
@@ -6993,9 +7264,10 @@ window.__HAND = {
 
 function startLandmarkLoop() {
  if (!gestureRunning || !handLandmarker) return;
+ const loopToken = gestureLoopToken;
  let lastTs = 0;
  async function loop() {
- if (!gestureRunning) return;
+ if (!gestureRunning || gestureLoopToken !== loopToken) return;
  try {
  const ts = performance.now();
  if (video.readyState >= 2 && video.videoWidth > 0 && ts > lastTs) {
@@ -7014,7 +7286,7 @@ function startLandmarkLoop() {
  } catch (err) {
  // 单帧跟踪失败忽略
  }
- if (gestureRunning) gestureTimer = setTimeout(loop, GESTURE_DETECT_INTERVAL_MS);
+ if (gestureRunning && gestureLoopToken === loopToken) gestureTimer = setTimeout(loop, GESTURE_DETECT_INTERVAL_MS);
  }
  loop();
 }
@@ -7442,13 +7714,14 @@ function handleServerGesture(data) {
 }
 
 /* ================= 全屏控制 ================= */
-$("#fsBtn").addEventListener("click", () => {
+function toggleFullscreen() {
  if (!document.fullscreenElement) {
- document.documentElement.requestFullscreen().catch(() => {});
+  document.documentElement.requestFullscreen().catch(() => {});
  } else {
- document.exitFullscreen();
+  document.exitFullscreen();
  }
-});
+}
+$("#fsBtn").addEventListener("click", toggleFullscreen);
 $("#pvBtn")?.addEventListener("click", () => {
  $("#preview").classList.toggle("show");
 });
@@ -7660,7 +7933,10 @@ $("#usageGuideBtn")?.addEventListener("click", () => {
  openUsageGuide();
 });
 $("#coachClose")?.addEventListener("click", dismissUsageGuide);
-$("#coachExplore")?.addEventListener("click", dismissUsageGuide);
+$("#coachExplore")?.addEventListener("click", () => {
+ dismissUsageGuide({ restoreFocus: false });
+ setTimeout(openSpotlight, 380);
+});
 $("#coachOpenGesture")?.addEventListener("click", () => {
  dismissUsageGuide({ restoreFocus: false });
  setTimeout(openGestureGuide, 380);
@@ -7671,7 +7947,7 @@ $("#coachStartCamera")?.addEventListener("click", () => {
 });
 const coachStartCameraBtn = $("#coachStartCamera");
 const syncCoachStartCameraLabel = () => {
-  if (coachStartCameraBtn) coachStartCameraBtn.textContent = gestureRunning ? "关闭摄像头手势" : "开启摄像头手势";
+  if (coachStartCameraBtn) coachStartCameraBtn.textContent = gestureRunning ? "关闭手势控制" : "开启手势控制";
 };
 if ($("#coachMarks")) {
   new MutationObserver(syncCoachStartCameraLabel).observe($("#coachMarks"), { attributes: true, attributeFilter: ["class"] });

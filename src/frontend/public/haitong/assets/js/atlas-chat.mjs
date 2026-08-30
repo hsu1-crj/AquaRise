@@ -97,17 +97,24 @@ export async function streamAtlasChat({
   onChunk,
   fetchImpl = fetch,
   firstByteTimeoutMs = 15000,
+  chunkIdleTimeoutMs = 30000,
 }) {
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort(signal?.reason);
   signal?.addEventListener('abort', abortFromCaller, { once: true });
   let timer = 0;
-  const timeout = new Promise((_, reject) => {
+  let timeoutReject = null;
+  const timeout = new Promise((_, reject) => { timeoutReject = reject; });
+  // 可重置的超时：连接/首字节阶段用 firstByteTimeoutMs，收到数据后每 chunk 重置为 chunkIdleTimeoutMs。
+  // 否则后端吐出首个片段后流挂起不关闭，前端会永远停在"输出中"。
+  const armTimeout = (ms, message) => {
+    clearTimeout(timer);
     timer = setTimeout(() => {
       controller.abort();
-      reject(new AtlasChatError('等待 AI 助手响应超时'));
-    }, firstByteTimeoutMs);
-  });
+      timeoutReject(new AtlasChatError(message));
+    }, ms);
+  };
+  armTimeout(firstByteTimeoutMs, '等待 AI 助手响应超时');
 
   try {
     const response = await Promise.race([
@@ -128,8 +135,12 @@ export async function streamAtlasChat({
     let buffer = '';
     let receivedContent = false;
     while (true) {
-      const result = receivedContent ? await reader.read() : await Promise.race([reader.read(), timeout]);
+      const reading = reader.read();
+      // 超时/手动停止会中止底层流，挂起的 read 将以 AbortError 拒绝；兜住以免变成未处理拒绝
+      reading.catch(() => {});
+      const result = await Promise.race([reading, timeout]);
       if (result.done) break;
+      armTimeout(chunkIdleTimeoutMs, 'AI 助手响应中断（长时间未收到新内容）');
       buffer += decoder.decode(result.value, { stream: true });
       const events = buffer.split(/\r?\n\r?\n/);
       buffer = events.pop() ?? '';
@@ -140,10 +151,7 @@ export async function streamAtlasChat({
           return;
         }
         if (!parsed.content) continue;
-        if (!receivedContent) {
-          receivedContent = true;
-          clearTimeout(timer);
-        }
+        receivedContent = true;
         onChunk(parsed.content);
       }
     }
