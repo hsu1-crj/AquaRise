@@ -1,5 +1,6 @@
 """海洋守护者对话 API：优先 Ollama + RAG，失败时安全兜底。"""
 
+import asyncio
 import json
 import logging
 import os
@@ -275,7 +276,7 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
                             max_tokens=config.LLM_MAX_TOKENS, stream=True, enable_rag=config.RAG_ENABLED,
                             report_context=report_context,
                         )
-                        prepared_messages, evidence = svc.prepare_messages(req)
+                        prepared_messages, evidence = await asyncio.to_thread(svc.prepare_messages, req)
                         previous_assistant = next(
                             (
                                 item.content
@@ -288,7 +289,7 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
                         # 避免让 1.5B 模型生成后再被引用门禁拦截，端到端控制在秒级。
                         grounded = None
                         if not report_context and llm_stub.is_strong_evidence_question(message, evidence):
-                            grounded = llm_stub._knowledge_fallback(message, evidence)
+                            grounded = await asyncio.to_thread(llm_stub._knowledge_fallback, message, evidence)
                         if grounded and llm_stub.is_near_duplicate_answer(grounded, previous_assistant):
                             logger.info("强证据答案与上一轮高度重复，改走模型链路")
                             grounded = None
@@ -430,7 +431,7 @@ async def chat_suggestions(
     svc = _get_ollama_service()
     if svc is not None and getattr(svc, "rag", None) is not None:
         try:
-            _, results = svc.rag.retrieve(context, k=4)
+            _, results = await asyncio.to_thread(svc.rag.retrieve, context, 4)
             hit_docs = [str(item.get("source") or "") for item in results if item.get("source")]
         except Exception:
             logger.debug("建议追问检索加权失败，忽略命中文档", exc_info=True)
@@ -439,7 +440,8 @@ async def chat_suggestions(
         try:
             from src.LLM.rag.lexical_retriever import LocalKnowledgeRetriever
 
-            for item in LocalKnowledgeRetriever().search(context, 3) or []:
+            items = await asyncio.to_thread(lambda: LocalKnowledgeRetriever().search(context, 3)) or []
+            for item in items:
                 source = str((item.get("metadata") or {}).get("source") or "")
                 if source:
                     hit_docs.append(Path(source).name)

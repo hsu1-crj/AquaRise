@@ -72,9 +72,45 @@ const SYSTEM_PROMPT: ChatMessagePayload = {
 
 const SESSION_KEY = 'aquarise-chat-session';
 
-/** 页面卸载时未中断的流式请求。用于重挂载后等待其落库并刷新历史，
- *  避免思考中切页再返回时回复缺失。 */
-let pendingChatStream: { sessionId: string; finished: Promise<void> } | null = null;
+/**
+ * 在途对话流（模块级）。切页卸载时请求不中断，仍在后台生成：
+ * 发起实例在 streamChat 的 chunk 回调里持续写入 content 并通知订阅者；
+ * 重挂载的页面通过 subscribeInflight 订阅增量，实现“切回来即时看到 + 直播更新”，
+ * 结束后再重拉历史拿到服务端落库的最终答案。
+ */
+interface InflightChat {
+  sessionId: string;
+  /** 已生成的累积文本 */
+  content: string;
+  /** 流是否仍在生成（未到 [DONE]/失败/手动停止） */
+  active: boolean;
+  listeners: Set<(content: string, finished: boolean) => void>;
+}
+
+let inFlightChat: InflightChat | null = null;
+
+function notifyInflight(chat: InflightChat): void {
+  for (const listener of chat.listeners) {
+    try {
+      listener(chat.content, !chat.active);
+    } catch {
+      /* 单监听器异常不影响其余订阅 */
+    }
+  }
+}
+
+function subscribeInflight(
+  sessionId: string,
+  fn: (content: string, finished: boolean) => void,
+): () => void {
+  const chat = inFlightChat;
+  if (!chat || chat.sessionId !== sessionId) return () => {};
+  chat.listeners.add(fn);
+  fn(chat.content, !chat.active);
+  return () => {
+    chat.listeners.delete(fn);
+  };
+}
 
 function uuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -725,6 +761,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const [error, setError] = useState('');
   const [lastQuestion, setLastQuestion] = useState('');
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  // 切回页面时仍在后台生成的那条回答气泡 id：用于给它打上流式占位/光标
+  const [inflightBubbleId, setInflightBubbleId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
 
   // --- 语音识别输入（Web Speech API，Chrome/Edge） ---
@@ -743,6 +781,9 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const controller = useRef<AbortController | null>(null);
+  // 组件是否仍挂载：切页后对话流继续在后台生成，chunk 回调不再驱动已卸载实例的
+  // 字幕 timer/state，改由模块级 store 通知重挂载实例。
+  const mountedRef = useRef(true);
   // 同步 busy 标志给 ref，供挂载后的历史刷新判断是否已有新的在途提问。
   const busyRef = useRef(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -879,6 +920,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   // 后端才会把回答落库；否则“思考中切页再返回”会在历史里只剩提问没有回答。
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       stopSubtitleQueue();
       stopStageSubtitle();
       dhRef.current?.destroy();
@@ -922,9 +964,12 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [importOpen, importBusy]);
 
-  // 加载持久化对话历史
+  // 加载持久化对话历史。切页时上一个实例的对话流仍在后台生成：
+  // 此处不等待它完成（否则页面会干等），而是先渲染历史 + 已生成的部分内容，
+  // 再订阅增量直播更新，结束后重拉历史拿到服务端落库的最终答案。
   useEffect(() => {
     let cancelled = false;
+    let unsub: (() => void) | null = null;
     const toUiMessages = (history: ChatMessagePayload[]): UiMessage[] =>
       history.map((m) => ({
         id: uuid(),
@@ -933,39 +978,51 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         timestamp: formatCurrentTime(),
       }));
     const load = async () => {
+      let base: UiMessage[] = [];
       try {
         const history = await getChatHistory(sessionId);
         if (cancelled) return;
-        if (history.length > 0) setMessages(toUiMessages(history));
+        base = toUiMessages(history);
       } catch {
         // 保留初始欢迎语
       }
-      // 上一个聊天实例的流式请求可能仍在后台生成（切页时未中断）。
-      // 等它完成落库后再拉一次历史，避免“思考中切页再返回”时只有提问没有回答。
-      const pending = pendingChatStream;
-      if (pending && pending.sessionId === sessionId) {
-        // 等待期间用户可能已发出新提问（正在流式）。此时若用历史快照整体覆盖，
-        // 会冲掉当前正在流式的回答气泡，导致界面一直停留在旧回答上；直接放弃刷新，
+      const inflight = inFlightChat;
+      if (inflight && inflight.sessionId === sessionId && inflight.active) {
+        // 后台回复仍在生成：实时展示已生成的增量，结束或失败后再统一重拉历史。
+        // 若期间用户已发起新提问（inFlightChat 已被新请求接管），放弃本次刷新，
         // 让新提问自行完成并落库。
-        if (busyRef.current) return;
-        try {
-          await pending.finished;
-        } catch {
-          /* 等待失败不影响已恢复的内容 */
-        }
-        if (cancelled || busyRef.current) return;
-        try {
-          const updated = await getChatHistory(sessionId);
-          if (cancelled || busyRef.current) return;
-          if (updated.length > 0) setMessages(toUiMessages(updated));
-        } catch {
-          /* 保留已恢复的内容 */
-        }
+        const bubbleId = uuid();
+        setMessages([
+          ...base,
+          { id: bubbleId, role: 'assistant', content: inflight.content, timestamp: formatCurrentTime() },
+        ]);
+        setInflightBubbleId(bubbleId);
+        unsub = subscribeInflight(sessionId, (content, finished) => {
+          if (cancelled) return;
+          if (finished) {
+            unsub?.();
+            if (inFlightChat !== inflight) return; // 已被新提问接管，交给新流
+            setInflightBubbleId(null);
+            getChatHistory(sessionId)
+              .then((updated) => {
+                if (cancelled) return;
+                if (updated.length > 0) setMessages(toUiMessages(updated));
+              })
+              .catch(() => { /* 保留已恢复的内容 */ });
+          } else {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === bubbleId ? { ...m, content } : m)),
+            );
+          }
+        });
+      } else if (base.length > 0) {
+        setMessages(base);
       }
     };
     void load();
     return () => {
       cancelled = true;
+      unsub?.();
     };
   }, [sessionId]);
 
@@ -1162,10 +1219,9 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       const abortController = new AbortController();
       controller.current = abortController;
 
-      // 登记在途请求：切页卸载不再中止，返回后据此等它完成并刷新历史。
-      let markFinished = () => {};
-      const finished = new Promise<void>((resolve) => { markFinished = resolve; });
-      pendingChatStream = { sessionId, finished };
+      // 登记在途请求：切页卸载不中止，重挂载后据此恢复流式气泡并订阅增量。
+      const chat: InflightChat = { sessionId, content: '', active: true, listeners: new Set() };
+      inFlightChat = chat;
 
       if (dhOn && dhReady && dhRef.current) {
         setDhStatus('thinking');
@@ -1200,6 +1256,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           (chunk: string) => {
             if (abortController.signal.aborted) return;
             fullContent += chunk;
+            // 同步模块级在途状态：切页后重挂载的实例通过订阅拿到增量，回复不中断。
+            chat.content = fullContent;
+            notifyInflight(chat);
+            if (!mountedRef.current) return;
 
             setMessages((current) =>
               current.map((item) =>
@@ -1207,7 +1267,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               ),
             );
 
-            // 流式字幕
+            // 流式字幕（仅组件仍挂载时驱动；卸载后由重挂载页面的订阅恢复展示）
             if (dhOn && dhReady) {
               const parts = splitIntoSentences(fullContent);
               const last = parts.length ? parts[parts.length - 1] : fullContent;
@@ -1253,8 +1313,12 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       } finally {
         // streamChat resolves normally after the SSE [DONE]/reader completion.
         // Always release the busy lock, while preserving a newer request's lock.
-        markFinished();
-        if (pendingChatStream?.sessionId === sessionId) pendingChatStream = null;
+        // 结束在途对话（成功/失败/手动停止均进入）：通知订阅者，重挂载页面据此重拉历史。
+        if (inFlightChat === chat) {
+          chat.active = false;
+          notifyInflight(chat);
+          inFlightChat = null;
+        }
         if (controller.current !== abortController) return;
         busyRef.current = false;
         setBusy(false);
@@ -1724,7 +1788,10 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             <MessageBubble
               key={msg.id}
               message={msg}
-              streaming={busy && msg === messages[messages.length - 1]}
+              streaming={
+              (busy && msg === messages[messages.length - 1]) ||
+              (inflightBubbleId !== null && msg.id === inflightBubbleId)
+            }
               userName={userName}
               userInitial={userInitial}
               onSpeak={speakText}
