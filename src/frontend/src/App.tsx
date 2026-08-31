@@ -5,6 +5,7 @@ import { Shell } from './components/Shell';
 import { SeaAreaProvider } from './context/SeaAreaContext';
 import { HaitongLogo } from './components/HaitongLogo';
 import { api, clearStoredAuth, getStoredToken, storeToken } from './services/api';
+import { PERMISSIONS_CHANGED_EVENT } from './services/notifications';
 import { useCamera } from './services/camera';
 import { OCEAN3D_PAGE_KEYS } from './types';
 import type { PageKey, UserInfo } from './types';
@@ -45,6 +46,16 @@ export default function App() {
   useEffect(() => {
     if (!authenticated) { setUser(null); return; }
     api.getCurrentUser().then(setUser).catch(() => setUser(null));
+    // 用户组权限被管理员调整（SSE 瞬时事件）或标签页回焦：重拉当前用户，让功能入口即时生效；
+    // 静默失败——网络抖动不清空已有会话（401 由全局 handleUnauthorized 统一登出）。
+    const refreshUser = () => { api.getCurrentUser().then(setUser).catch(() => {}); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') refreshUser(); };
+    window.addEventListener(PERMISSIONS_CHANGED_EVENT, refreshUser);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener(PERMISSIONS_CHANGED_EVENT, refreshUser);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [authenticated]);
 
   useEffect(() => {

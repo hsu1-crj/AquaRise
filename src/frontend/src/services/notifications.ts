@@ -14,11 +14,14 @@ export interface NotifItem {
 }
 
 export interface NotifPayload<T = NotifItem> {
-  type: 'init' | 'notification';
+  type: 'init' | 'notification' | 'permissions_changed';
   items?: NotifItem[];
   unreadCount: number;
   item?: T;
 }
+
+/** 用户组权限被管理员调整时，铃铛的 SSE 订阅把瞬时事件转成 window 事件，App 监听后重拉 /auth/me */
+export const PERMISSIONS_CHANGED_EVENT = 'auth:permissions-changed';
 
 export interface NotifSnapshot {
   items: NotifItem[];

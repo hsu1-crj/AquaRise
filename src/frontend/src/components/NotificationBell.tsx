@@ -17,6 +17,7 @@ import {
   getNotifications,
   markAllNotifRead,
   markNotifRead,
+  PERMISSIONS_CHANGED_EVENT,
   subscribeNotifications,
   type NotifItem,
 } from '../services/notifications';
@@ -60,6 +61,11 @@ export function NotificationBell({
     const unsubscribe = subscribeNotifications(
       (payload) => {
         setOffline(false);
+        if (payload.type === 'permissions_changed') {
+          // 权限瞬时事件：不属于铃铛消息，转成 window 事件由 App 重拉当前用户（功能入口即时更新）
+          window.dispatchEvent(new CustomEvent(PERMISSIONS_CHANGED_EVENT));
+          return;
+        }
         if (payload.type === 'init') {
           setItems((payload.items ?? []).slice(0, 20));
           setUnreadCount(payload.unreadCount);
