@@ -181,16 +181,23 @@ def is_referential_follow_up(message: str, history: Sequence[Any] = ()) -> bool:
     """判断当前问题是否依赖上文：显式指代词，或存在历史时的超短追问。
 
     超短问句（"那成本呢？""为什么？"）单独无法判断领域归属，只有确实存在
-    上一轮对话时才按追问处理，避免把无上下文的新问题误放进模型链路。
+    上一轮对话时才按追问处理；阈值取 6 字——更长的短句（"塑料袋降解要多久"）
+    通常已自含主题，交给常规领域路由更准。纯寒暄不按追问处理。
     """
     text = (message or "").strip()
     if not text:
+        return False
+    if re.fullmatch(
+        r"(?:你好|您好|嗨|hello|hi|在吗|早上好|下午好|晚上好)[呀啊哟吧呢！!。．.、, ]*",
+        text.strip(),
+        re.I,
+    ):
         return False
     if _REFERENTIAL_FOLLOWUP_RE.search(text):
         return True
     has_history = bool(_history_texts(history))
     compact = re.sub(r"[^\w\u4e00-\u9fff]+", "", text)
-    return bool(has_history and 0 < len(compact) <= 8)
+    return bool(has_history and 0 < len(compact) <= 6)
 
 
 _COUNTERFACTUAL_RE = re.compile(

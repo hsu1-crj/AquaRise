@@ -371,6 +371,21 @@ function highlightKeyFacts(root: HTMLElement) {
 const SECTION_LABEL_RE =
   /^(概况|关键发现|可能来源|处置方案|后续监测建议|后续监测|分析摘要|优先做什么)[:：]?\s*$/;
 
+// P0/P1/P2 列表项：加彩色优先级徽标（排版 effect 在流式期间会随 DOM 重建重复执行，徽标防重复插入）
+function decoratePriorityList(list: HTMLElement) {
+  [...list.children].forEach((li) => {
+    const liEl = li as HTMLElement;
+    if (liEl.querySelector('.og-pri-badge')) return;
+    const badge = /^(P[0-3])[：:]/.exec(liEl.textContent || '');
+    if (!badge) return;
+    liEl.classList.add('og-li-priority');
+    const tag = document.createElement('span');
+    tag.className = `og-pri-badge pri-${badge[1].toLowerCase()}`;
+    tag.textContent = badge[1];
+    liEl.insertBefore(tag, liEl.firstChild);
+  });
+}
+
 function cardifyAnswer(root: HTMLElement) {
   const body = root.querySelector('.og-markdown-body');
   if (!body) return;
@@ -392,22 +407,13 @@ function cardifyAnswer(root: HTMLElement) {
         node.parentNode?.insertBefore(card, node);
         card.appendChild(node);
         card.appendChild(next);
+        decoratePriorityList(next as HTMLElement);
       }
       continue;
     }
     if (node.tagName === 'UL' || node.tagName === 'OL') {
+      decoratePriorityList(node as HTMLElement);
       node.classList.add('og-ans-list');
-      [...node.children].forEach((li) => {
-        const liEl = li as HTMLElement;
-        const badge = /^(P[0-3])[：:]/.exec(liEl.textContent || '');
-        if (badge) {
-          liEl.classList.add('og-li-priority');
-          const tag = document.createElement('span');
-          tag.className = `og-pri-badge pri-${badge[1].toLowerCase()}`;
-          tag.textContent = badge[1];
-          liEl.insertBefore(tag, liEl.firstChild);
-        }
-      });
     }
   }
 }
