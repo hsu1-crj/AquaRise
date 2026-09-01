@@ -155,6 +155,29 @@ def ensure_detection_tasks_monitoring_site_column() -> None:
             conn.commit()
 
 
+def ensure_sea_areas_area_km2_column() -> None:
+    """
+    幂等迁移：为 sea_areas 增加 area_km2 列（监测覆盖面积，静态地理主数据）。
+    create_all 只建新表、不会 ALTER 旧表，因此启动时手动补列（MySQL 专用写法，
+    information_schema.COLUMNS 查询；本项目仅用 MySQL，可接受）。
+    缺省 NULL：随后由 main.py 的海域播种按种子值回填。
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = :db AND TABLE_NAME = 'sea_areas' "
+                "AND COLUMN_NAME = 'area_km2'"
+            ),
+            {"db": DB_NAME},
+        ).scalar()
+        if not exists:
+            conn.execute(
+                text("ALTER TABLE sea_areas ADD COLUMN area_km2 FLOAT NULL")
+            )
+            conn.commit()
+
+
 def ensure_notification_type_enum() -> None:
     """
     幂等迁移：为 notifications.type 枚举补充换组申请相关取值

@@ -60,6 +60,8 @@ export interface SiteStat {
   lat: number;
   lng: number;
   seaAreaId?: number | null;
+  /** 所属海域名（北戴河/秦皇岛/渤海湾），后端 /stats/sites 返回 */
+  seaAreaName?: string | null;
   taskCount: number;
   totalObjects: number;
   /** 环境质量评分 1-10 整数（越高越好）；未检测过为 null（显示"未检测"） */
@@ -90,6 +92,8 @@ export interface StatsAnalysis {
   plasticPercentPrev: number;
   severeCount: number; // 高风险（严重）任务数
   severeCountPrev: number;
+  highRiskAreas: number; // 高风险监测海域数（近 30 天综合污染指数 ≥ 6 的海域个数）
+  highRiskAreasPrev: number;
   totalObjects: number; // 近 30 天检出垃圾总数
   materialBreakdown: Record<string, number>; // 材质桶 → 数量
   classRanking: ClassRankItem[]; // 高频类别 TOP N

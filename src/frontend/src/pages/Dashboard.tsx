@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, ArrowRight, Camera, ChevronRight, CircleGauge, FileDown, MapPin, Radio, RefreshCw, ScanLine, ShipWheel, Sparkles, TrendingUp, Waves } from 'lucide-react';
 import { MaterialChart, RankingChart, TrendChart } from '../components/Charts';
 import { api } from '../services/api';
+import { useSeaArea } from '../context/SeaAreaContext';
 import type { DetectionRecord, PageKey, StatsAnalysis, Summary, TrendPoint, UserInfo } from '../types';
 
 const beijingClock = new Intl.DateTimeFormat('zh-CN', {
@@ -49,14 +50,18 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<DetectionRecord[]>([]);
 
+  // 侧边栏全局海域选择：统计卡片/趋势/聚合随所选海域过滤（实时监测网络图为全域总览，不过滤）
+  const { seaAreaId, seaAreaName } = useSeaArea();
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
+      const areaFilter = seaAreaId === '' ? undefined : seaAreaId;
       const [summaryData, trendData, analysisData, history] = await Promise.all([
-        api.getSummary(),
-        api.getTrend(),
-        api.getAnalysis(),
+        api.getSummary(areaFilter),
+        api.getTrend('month', areaFilter),
+        api.getAnalysis(areaFilter),
         // 检测历史按模块门控：无 history 模块的用户组（如指挥决策组）会 403，降级为空列表不拖垮整页
         api.getHistory(1, 4).catch(() => ({ items: [], total: 0 })),
       ]);
@@ -69,7 +74,7 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [seaAreaId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -78,7 +83,7 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
   if (!summary) return <PageState type="empty" />;
   const cards = [
     { label: '累计检测任务', value: summary.totalTasks.toLocaleString(), unit: '次', icon: ScanLine, color: 'cyan', detail: '历史累计统计' },
-    { label: '识别垃圾目标', value: summary.totalObjects.toLocaleString(), unit: '件', icon: Camera, color: 'violet', detail: `本月 +${summary.monthlyGrowth}%` },
+    { label: '识别垃圾目标', value: summary.totalObjects.toLocaleString(), unit: '件', icon: Camera, color: 'violet', detail: `本月 ${summary.monthlyGrowth > 0 ? '+' : ''}${summary.monthlyGrowth}%` },
     { label: '覆盖监测海域', value: summary.seaAreas, unit: '处', icon: MapPin, color: 'green', detail: `${summary.coverageKm2} km²` },
     { label: '待处置预警', value: summary.activeAlerts, unit: '条', icon: AlertTriangle, color: 'coral', detail: analysis ? `近 30 天严重污染 ${analysis.severeCount} 项` : '实时聚合预警' },
   ];
@@ -95,7 +100,7 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
   return (
     <div className="page-stack">
       <section className="page-heading">
-        <div><span className="eyebrow"><i /> OCEAN INTELLIGENCE</span><h1>海洋污染态势总览</h1><p><BeijingGreeting name={user?.username} />{`渤海近岸 ${summary.seaAreas} 片监测海域正在持续回传环境数据。`}</p></div>
+        <div><span className="eyebrow"><i /> OCEAN INTELLIGENCE</span><h1>海洋污染态势总览</h1><p><BeijingGreeting name={user?.username} />{seaAreaId === '' ? `渤海近岸 ${summary.seaAreas} 片监测海域正在持续回传环境数据。` : `当前展示「${seaAreaName}」海域的监测数据（全域共 ${summary.seaAreas} 片海域）。`}</p></div>
         <div className="heading-actions"><SyncTime /><button className="secondary-button" onClick={load}><RefreshCw size={16} />刷新</button><button className="primary-button" onClick={() => onNavigate('detection')}><ScanLine size={17} />开始识别</button></div>
       </section>
 

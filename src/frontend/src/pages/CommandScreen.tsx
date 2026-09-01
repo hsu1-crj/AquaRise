@@ -14,6 +14,7 @@ import {
 import { MaterialChart, RankingChart, TrendChart } from '../components/Charts';
 import { HaitongLogo } from '../components/HaitongLogo';
 import { api } from '../services/api';
+import { useSeaArea } from '../context/SeaAreaContext';
 import type { DetectionRecord, StatsAnalysis, Summary, TrendPoint } from '../types';
 
 const REFRESH_MS = 60_000;
@@ -52,13 +53,17 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
   const [analysis, setAnalysis] = useState<StatsAnalysis | null>(null);
   const [records, setRecords] = useState<DetectionRecord[]>([]);
 
+  // 侧边栏全局海域选择：KPI/趋势/聚合随所选海域过滤（中央监测网络图为全域总览，不过滤）
+  const { seaAreaId } = useSeaArea();
+
   const load = useCallback(async () => {
     setError('');
     try {
+      const areaFilter = seaAreaId === '' ? undefined : seaAreaId;
       const [summaryData, trendData, analysisData, history] = await Promise.all([
-        api.getSummary(),
-        api.getTrend('month'),
-        api.getAnalysis(),
+        api.getSummary(areaFilter),
+        api.getTrend('month', areaFilter),
+        api.getAnalysis(areaFilter),
         // 检测历史按模块门控：无 history 模块的用户组（如指挥决策组）会 403，降级为空列表不拖垮大屏
         api.getHistory(1, 9).catch(() => ({ items: [], total: 0 })),
       ]);
@@ -72,7 +77,7 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [seaAreaId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -104,7 +109,7 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
   };
 
   const fmt = (n?: number) => (n == null ? '—' : n.toLocaleString('zh-CN'));
-  const growth = (n?: number) => (n == null ? '—' : `+${n}%`);
+  const growth = (n?: number) => (n == null ? '—' : `${n > 0 ? '+' : ''}${n}%`);
   const qualityBand = (index?: number) => {
     if (index == null) return '暂无评估数据';
     if (index >= 6) return '污染较重，需重点处置';

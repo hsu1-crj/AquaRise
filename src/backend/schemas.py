@@ -390,13 +390,13 @@ def pollution_level_zh(level: str | None) -> str:
 
 
 class FrontendSummary(BaseModel):
-    """仪表盘统计卡片（前端 Summary）"""
+    """仪表盘统计卡片（前端 Summary），全部由 /stats/summary 从数据库聚合，无硬编码默认值"""
     totalTasks: int
     totalObjects: int
-    seaAreas: int = 28
-    monthlyGrowth: float = 18.6
-    activeAlerts: int = 3
-    coverageKm2: float = 126.8
+    seaAreas: int          # 监测海域数（sea_areas 表实际行数）
+    monthlyGrowth: float   # 本月检出目标数较上月环比（%），上月无数据时为 0
+    activeAlerts: int      # 待处置预警：近 30 天污染等级为「差/严重」的已完成任务数
+    coverageKm2: float     # 监测覆盖面积 km²（sea_areas.area_km2 主数据求和）
 
 
 class FrontendTrendPoint(BaseModel):
@@ -419,8 +419,10 @@ class StatsAnalysis(BaseModel):
     pollution_index_prev: float = 0.0
     plastic_percent: float = 0.0  # 塑料类目标占已分类目标比例（%）
     plastic_percent_prev: float = 0.0
-    severe_count: int = 0  # 近 30 天严重污染任务数（高风险监测点）
+    severe_count: int = 0  # 近 30 天严重污染任务数
     severe_count_prev: int = 0
+    high_risk_areas: int = 0  # 高风险监测海域数：近 30 天综合污染指数 ≥ 6 的海域个数
+    high_risk_areas_prev: int = 0
     total_objects: int = 0  # 近 30 天检出垃圾总数
     material_breakdown: dict = {}  # {材质桶: 数量}，按数量降序
     class_ranking: list[ClassRankItem] = []  # 近 30 天高频类别 TOP 6
@@ -474,6 +476,7 @@ class SiteStatItem(BaseModel):
     lat: float
     lng: float
     seaAreaId: int | None = None  # 所属海域 id（前端据此按海域过滤站点）
+    seaAreaName: str | None = None  # 所属海域名（北戴河/秦皇岛/渤海湾）
     taskCount: int = 0
     totalObjects: int = 0
     qualityScore: int | None = None  # 水质评分 1-10 整数, 越高水质越好; 未检测过为 null(前端显示"未检测")

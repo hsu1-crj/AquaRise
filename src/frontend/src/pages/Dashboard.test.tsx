@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Dashboard } from './Dashboard';
+import { SeaAreaProvider } from '../context/SeaAreaContext';
 import { api } from '../services/api';
 
 vi.mock('../services/api', () => ({
@@ -10,6 +11,7 @@ vi.mock('../services/api', () => ({
     getTrend: vi.fn(),
     getAnalysis: vi.fn(),
     getHistory: vi.fn(),
+    getSeaAreas: vi.fn(),
   },
 }));
 
@@ -35,6 +37,8 @@ const analysis = {
   plasticPercentPrev: 35,
   severeCount: 1,
   severeCountPrev: 0,
+  highRiskAreas: 1,
+  highRiskAreasPrev: 0,
   totalObjects: 86,
   materialBreakdown: { 塑料: 33 },
   classRanking: [{ name: '塑料袋', count: 18 }],
@@ -59,6 +63,7 @@ function arrangeSuccessfulLoad() {
   mockApi.getTrend.mockResolvedValue(trend);
   mockApi.getAnalysis.mockResolvedValue(analysis);
   mockApi.getHistory.mockResolvedValue(history);
+  mockApi.getSeaAreas.mockResolvedValue([]);
 }
 
 describe('Dashboard', () => {
@@ -70,8 +75,8 @@ describe('Dashboard', () => {
   it('loads the overview and routes the primary action to detection', async () => {
     const onNavigate = vi.fn();
     const user = userEvent.setup();
+    render(<SeaAreaProvider><Dashboard onNavigate={onNavigate} user={{ id: 7, username: '演示用户', role: 'user' }} /></SeaAreaProvider>);
 
-    render(<Dashboard onNavigate={onNavigate} user={{ id: 7, username: '演示用户', role: 'user' }} />);
 
     expect(screen.getByRole('heading', { name: '正在汇聚海域数据' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: '海洋污染态势总览' })).toBeInTheDocument();
@@ -90,7 +95,7 @@ describe('Dashboard', () => {
     mockApi.getSummary.mockRejectedValueOnce(new Error('汇总服务离线')).mockResolvedValue(summary);
     const user = userEvent.setup();
 
-    render(<Dashboard onNavigate={vi.fn()} />);
+    render(<SeaAreaProvider><Dashboard onNavigate={vi.fn()} /></SeaAreaProvider>);
 
     expect(await screen.findByRole('heading', { name: '数据暂时失联' })).toBeInTheDocument();
     expect(screen.getByText('汇总服务离线')).toBeInTheDocument();

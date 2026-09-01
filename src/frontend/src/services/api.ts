@@ -1,6 +1,5 @@
-import { STANDARD_SITES } from '../data/sites';
-import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSeaAreaComparison, mockSummary, mockTrend } from '../data/mock';
-import type { AdminGroup, AdminOverview, AdminUserRow, ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanCredential, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, GroupOption, GroupSwitchRequestInfo, KnowledgeDocInfo, MarineInfo, ModuleMeta, MultiImageDetectItem, MultiImageDetectResponse, ProfileStats, Report, ReportAnalysis, SeaArea, SeaAreaStat, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
+import type { AdminGroup, AdminOverview, AdminUserRow, ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanCredential, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, GroupOption, GroupSwitchRequestInfo, KnowledgeDocInfo, MarineInfo, ModuleMeta, MultiImageDetectItem, MultiImageDetectResponse, ProfileStats, Report, ReportAnalysis, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -132,29 +131,32 @@ export const api = {
     return request<DigitalHumanCredential>('/api/v1/digital-human/credential', { method: 'POST' });
   },
 
-  async getSummary(): Promise<Summary> {
+  async getSummary(seaAreaId?: number): Promise<Summary> {
     if (isMockMode()) { await wait(); return mockSummary; }
-    return request<Summary>('/api/v1/stats/summary');
+    const qs = seaAreaId ? `?sea_area_id=${seaAreaId}` : '';
+    return request<Summary>(`/api/v1/stats/summary${qs}`);
   },
 
-  async getTrend(period = 'month'): Promise<TrendPoint[]> {
+  async getTrend(period = 'month', seaAreaId?: number): Promise<TrendPoint[]> {
     if (isMockMode()) { await wait(560); return mockTrend; }
-    const payload = await request<{ items?: TrendPoint[] } | TrendPoint[]>(`/api/v1/stats/trend?period=${encodeURIComponent(period)}`);
+    const qs = `period=${encodeURIComponent(period)}${seaAreaId ? `&sea_area_id=${seaAreaId}` : ''}`;
+    const payload = await request<{ items?: TrendPoint[] } | TrendPoint[]>(`/api/v1/stats/trend?${qs}`);
     return Array.isArray(payload) ? payload : payload.items ?? [];
   },
-
   /** 分析页聚合数据：综合污染指数 / 材质分布 / 高频类别排名（Analysis 与 Dashboard 共用）。
    * 后端返回 snake_case，需显式映射为 camelCase（与 getSummary/getVideoStatus 一致）。 */
-  async getAnalysis(): Promise<StatsAnalysis> {
+  async getAnalysis(seaAreaId?: number): Promise<StatsAnalysis> {
     if (isMockMode()) { await wait(500); return mockAnalysis; }
+    const qs = seaAreaId ? `?sea_area_id=${seaAreaId}` : '';
     const response = await request<{
       pollution_index: number; pollution_index_prev: number;
       plastic_percent: number; plastic_percent_prev: number;
       severe_count: number; severe_count_prev: number;
+      high_risk_areas: number; high_risk_areas_prev: number;
       total_objects: number;
       material_breakdown: Record<string, number>;
       class_ranking: { name: string; count: number }[];
-    }>('/api/v1/stats/analysis');
+    }>(`/api/v1/stats/analysis${qs}`);
     return {
       pollutionIndex: response.pollution_index,
       pollutionIndexPrev: response.pollution_index_prev,
@@ -162,6 +164,8 @@ export const api = {
       plasticPercentPrev: response.plastic_percent_prev,
       severeCount: response.severe_count,
       severeCountPrev: response.severe_count_prev,
+      highRiskAreas: response.high_risk_areas,
+      highRiskAreasPrev: response.high_risk_areas_prev,
       totalObjects: response.total_objects,
       materialBreakdown: response.material_breakdown ?? {},
       classRanking: response.class_ranking ?? [],

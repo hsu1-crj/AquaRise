@@ -42,6 +42,7 @@ from database import (  # noqa: E402
     ensure_login_session_platform_column,
     ensure_monitoring_sites_sea_area_column,
     ensure_notification_type_enum,
+    ensure_sea_areas_area_km2_column,
     ensure_users_group_column,
 )
 from routers import (  # noqa: E402
@@ -172,6 +173,7 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_login_session_platform_column()
     ensure_monitoring_sites_sea_area_column()
+    ensure_sea_areas_area_km2_column()
     ensure_users_group_column()
     ensure_notification_type_enum()
 
@@ -230,10 +232,11 @@ _LEGACY_SITE_CODES = {"A-01", "A-02", "B-01", "B-02", "C-01"}
 _LEGACY_SITE_NAMES = ("舟山", "大鹏湾", "万山群岛", "胶州湾")
 
 # 渤海海域：北戴河 / 秦皇岛 / 渤海湾（全局海域维度主数据，检测任务的 sea_area_id 归属）
+# area_km2 为各海域监测覆盖范围的静态地理主数据（合计 126.8 km²）
 _SEA_AREA_SEEDS = [
-    ("北戴河", "BDH", "渤海辽东湾西南沿岸，旅游景区近岸"),
-    ("秦皇岛", "QHD", "秦皇岛港及山海关老龙头一带沿岸"),
-    ("渤海湾", "BHB", "渤海湾北缘与西端（曹妃甸 / 塘沽）沿岸"),
+    ("北戴河", "BDH", "渤海辽东湾西南沿岸，旅游景区近岸", 16.8),
+    ("秦皇岛", "QHD", "秦皇岛港及山海关老龙头一带沿岸", 34.0),
+    ("渤海湾", "BHB", "渤海湾北缘与西端（曹妃甸 / 塘沽）沿岸", 76.0),
 ]
 
 # 渤海近岸监测站点：覆盖北戴河 / 秦皇岛 / 渤海湾三个海域（本项目全部检测行为的归属点位）
@@ -256,15 +259,16 @@ def _is_legacy_site(site) -> bool:
 def _ensure_sea_areas(db) -> dict[str, int]:
     """播种渤海海域（幂等），返回 {海域名: id} 映射供站点回填使用。"""
     id_by_name: dict[str, int] = {}
-    for name, code, note in _SEA_AREA_SEEDS:
+    for name, code, note, area_km2 in _SEA_AREA_SEEDS:
         area = db.query(models.SeaArea).filter(models.SeaArea.name == name).first()
         if area is None:
-            area = models.SeaArea(name=name, code=code, note=note)
+            area = models.SeaArea(name=name, code=code, note=note, area_km2=area_km2)
             db.add(area)
             db.flush()
-        elif area.code != code or area.note != note:
+        elif area.code != code or area.note != note or area.area_km2 != area_km2:
             area.code = code
             area.note = note
+            area.area_km2 = area_km2
         id_by_name[name] = area.id
     db.commit()
     return id_by_name

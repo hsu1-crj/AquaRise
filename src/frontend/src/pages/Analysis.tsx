@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowDownRight, ArrowUpRight, BrainCircuit, CalendarRange, Download, Info, Layers3, MapPinned, RefreshCw } from 'lucide-react';
 import { MaterialChart, OceanChart, RankingChart, TrendChart } from '../components/Charts';
 import { api } from '../services/api';
+import { useSeaArea } from '../context/SeaAreaContext';
 import type { EChartsCoreOption as EChartsOption } from 'echarts/core';
 import type { SiteStat, StatsAnalysis, TrendPoint } from '../types';
 
@@ -14,11 +15,14 @@ export function AnalysisPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [loadError, setLoadError] = useState(false);
   const [adviceOpen, setAdviceOpen] = useState(false);
+  // 侧边栏全局海域选择：趋势/聚合/KPI 随所选海域过滤；海域污染对比图保持全域对比
+  const { seaAreaId, seaAreaName } = useSeaArea();
 
   useEffect(() => {
     setLoading(true);
     setLoadError(false);
-    Promise.all([api.getTrend(period), api.getAnalysis(), api.getSiteStats()])
+    const areaFilter = seaAreaId === '' ? undefined : seaAreaId;
+    Promise.all([api.getTrend(period, areaFilter), api.getAnalysis(areaFilter), api.getSiteStats()])
       .then(([trendData, analysisData, siteData]) => {
         setTrend(trendData);
         setAnalysis(analysisData);
@@ -26,7 +30,7 @@ export function AnalysisPage() {
       })
       .catch(() => setLoadError(true)) // 失败保留旧数据；首次失败时图表区展示错误态而非编造数据
       .finally(() => setLoading(false));
-  }, [period, refreshKey]);
+  }, [period, refreshKey, seaAreaId]);
   const indexDelta = analysis && analysis.pollutionIndexPrev > 0
     ? ((analysis.pollutionIndex - analysis.pollutionIndexPrev) / analysis.pollutionIndexPrev) * 100
     : null;
@@ -42,7 +46,7 @@ export function AnalysisPage() {
     const lines = ['指标,数值,说明'];
     lines.push(`综合污染指数,${analysis.pollutionIndex} / 10,${indexDelta != null ? `较上月 ${Math.abs(indexDelta).toFixed(1)}%` : '近 30 天'}`);
     lines.push(`塑料垃圾占比,${analysis.plasticPercent}%,${plasticDelta != null ? `较上月 ${Math.abs(plasticDelta).toFixed(1)}%` : '近 30 天'}`);
-    lines.push(`高风险监测点,${analysis.severeCount} 处,近 30 天严重污染任务`);
+    lines.push(`高风险监测点,${analysis.highRiskAreas} 处,近 30 日综合污染指数 ≥ 6 的海域`);
     lines.push(`近 30 天检出垃圾,${analysis.totalObjects} 件,`);
     lines.push('');
     lines.push('材质构成,数量');
@@ -54,7 +58,7 @@ export function AnalysisPage() {
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'haitong-analysis.csv'; link.click(); URL.revokeObjectURL(link.href);
   };
 
-  return <div className="page-stack"><section className="page-heading compact"><div><span className="eyebrow"><i /> ENVIRONMENT INSIGHTS</span><h1>海洋污染分析</h1><p>从趋势、材质和海域维度洞察污染变化，辅助治理决策。</p></div><div className="heading-actions"><label className="period-select"><CalendarRange /><select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="week">近 7 天</option><option value="month">近 30 天</option><option value="year">近 12 月</option></select></label><button className="secondary-button" onClick={exportCsv} disabled={!analysis}><Download />导出分析</button></div></section><section className="insight-strip glass"><BrainCircuit /><div><span>AI 洞察</span>{insight ? <><strong>{insight.title}</strong><p>{insight.description}</p>{adviceOpen && insight.recommendations.length > 0 && <ul className="insight-advice">{insight.recommendations.map((item) => <li key={item}>{item}</li>)}</ul>}</> : loadError ? <p>数据加载失败，请点击「污染趋势」面板右上角刷新按钮重试。</p> : <p>正在基于检测数据生成洞察…</p>}</div><button onClick={() => setAdviceOpen((open) => !open)} aria-expanded={adviceOpen} disabled={!insight || insight.recommendations.length === 0}>{adviceOpen ? '收起建议' : '查看治理建议'}</button></section><section className="analysis-kpis"><article className="panel glass"><span>综合污染指数<Info /></span><strong>{analysis?.pollutionIndex.toFixed(1) ?? '—'}<small>/ 10</small></strong>{indexDelta == null ? <em className="neutral">基于近 30 天</em> : <em className={indexDelta < 0 ? 'down' : 'up'}>{indexDelta < 0 ? <ArrowDownRight /> : <ArrowUpRight />}较上月 {Math.abs(indexDelta).toFixed(1)}%</em>}</article><article className="panel glass"><span>塑料垃圾占比<Layers3 /></span><strong>{analysis?.plasticPercent.toFixed(1) ?? '—'}<small>%</small></strong>{plasticDelta == null ? <em className="neutral">基于近 30 天</em> : <em className={plasticDelta > 0 ? 'up' : 'down'}>{plasticDelta > 0 ? <ArrowUpRight /> : <ArrowDownRight />}较上月 {Math.abs(plasticDelta).toFixed(1)}%</em>}</article><article className="panel glass"><span>高风险监测点<MapPinned /></span><strong>{analysis?.severeCount ?? '—'}<small>处</small></strong><em className="neutral">近 30 日严重污染任务</em></article><article className="panel glass"><span>近 30 天检出垃圾<Activity /></span><strong>{analysis?.totalObjects ?? '—'}<small>件</small></strong><em className="neutral">近 30 天累计检出目标</em></article></section><section className="analysis-grid"><article className="panel glass analysis-trend"><header className="panel-simple-title"><div><h2>污染趋势与密度变化</h2><span>目标数量 / 单位面积垃圾密度</span></div><button onClick={() => setRefreshKey((k) => k + 1)} title="重新拉取数据"><RefreshCw /></button></header>{loading ? <div className="chart-loading"><i className="loader-orbit" />数据计算中…</div> : <TrendChart data={trend} />}</article><article className="panel glass"><header className="panel-simple-title"><div><h2>垃圾材质构成</h2><span>各材质目标占比</span></div></header>{loadError && !analysis ? <div className="chart-empty">数据加载失败<br /><small>请点击「污染趋势」面板右上角刷新按钮重试</small></div> : <MaterialChart breakdown={analysis?.materialBreakdown} total={analysis?.totalObjects} />}</article><article className="panel glass"><header className="panel-simple-title"><div><h2>海域污染对比</h2><span>监测点垃圾密度 /㎡</span></div></header><SiteComparisonChart sites={siteStats} loading={loading} /></article><article className="panel glass"><header className="panel-simple-title"><div><h2>高频目标排名</h2><span>近 30 日识别总量</span></div></header>{loadError && !analysis ? <div className="chart-empty">数据加载失败<br /><small>请点击「污染趋势」面板右上角刷新按钮重试</small></div> : <RankingChart ranking={analysis?.classRanking} />}</article></section></div>;
+  return <div className="page-stack"><section className="page-heading compact"><div><span className="eyebrow"><i /> ENVIRONMENT INSIGHTS</span><h1>海洋污染分析</h1><p>从趋势、材质和海域维度洞察污染变化，辅助治理决策。当前范围：{seaAreaName}</p></div><div className="heading-actions"><label className="period-select"><CalendarRange /><select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="week">近 7 天</option><option value="month">近 30 天</option><option value="year">近 12 月</option></select></label><button className="secondary-button" onClick={exportCsv} disabled={!analysis}><Download />导出分析</button></div></section><section className="insight-strip glass"><BrainCircuit /><div><span>AI 洞察</span>{insight ? <><strong>{insight.title}</strong><p>{insight.description}</p>{adviceOpen && insight.recommendations.length > 0 && <ul className="insight-advice">{insight.recommendations.map((item) => <li key={item}>{item}</li>)}</ul>}</> : loadError ? <p>数据加载失败，请点击「污染趋势」面板右上角刷新按钮重试。</p> : <p>正在基于检测数据生成洞察…</p>}</div><button onClick={() => setAdviceOpen((open) => !open)} aria-expanded={adviceOpen} disabled={!insight || insight.recommendations.length === 0}>{adviceOpen ? '收起建议' : '查看治理建议'}</button></section><section className="analysis-kpis"><article className="panel glass"><span>综合污染指数<Info /></span><strong>{analysis?.pollutionIndex.toFixed(1) ?? '—'}<small>/ 10</small></strong>{indexDelta == null ? <em className="neutral">基于近 30 天</em> : <em className={indexDelta < 0 ? 'down' : 'up'}>{indexDelta < 0 ? <ArrowDownRight /> : <ArrowUpRight />}较上月 {Math.abs(indexDelta).toFixed(1)}%</em>}</article><article className="panel glass"><span>塑料垃圾占比<Layers3 /></span><strong>{analysis?.plasticPercent.toFixed(1) ?? '—'}<small>%</small></strong>{plasticDelta == null ? <em className="neutral">基于近 30 天</em> : <em className={plasticDelta > 0 ? 'up' : 'down'}>{plasticDelta > 0 ? <ArrowUpRight /> : <ArrowDownRight />}较上月 {Math.abs(plasticDelta).toFixed(1)}%</em>}</article><article className="panel glass"><span>高风险监测点<MapPinned /></span><strong>{analysis?.highRiskAreas ?? '—'}<small>处</small></strong><em className="neutral">近 30 日污染指数 ≥ 6 的海域</em></article><article className="panel glass"><span>近 30 天检出垃圾<Activity /></span><strong>{analysis?.totalObjects ?? '—'}<small>件</small></strong><em className="neutral">近 30 天累计检出目标</em></article></section><section className="analysis-grid"><article className="panel glass analysis-trend"><header className="panel-simple-title"><div><h2>污染趋势与密度变化</h2><span>目标数量 / 单位面积垃圾密度</span></div><button onClick={() => setRefreshKey((k) => k + 1)} title="重新拉取数据"><RefreshCw /></button></header>{loading ? <div className="chart-loading"><i className="loader-orbit" />数据计算中…</div> : <TrendChart data={trend} />}</article><article className="panel glass"><header className="panel-simple-title"><div><h2>垃圾材质构成</h2><span>各材质目标占比</span></div></header>{loadError && !analysis ? <div className="chart-empty">数据加载失败<br /><small>请点击「污染趋势」面板右上角刷新按钮重试</small></div> : <MaterialChart breakdown={analysis?.materialBreakdown} total={analysis?.totalObjects} />}</article><article className="panel glass"><header className="panel-simple-title"><div><h2>海域污染对比</h2><span>各海域环境质量评分 / 10</span></div></header><SiteComparisonChart sites={siteStats} loading={loading} /></article><article className="panel glass"><header className="panel-simple-title"><div><h2>高频目标排名</h2><span>近 30 日识别总量</span></div></header>{loadError && !analysis ? <div className="chart-empty">数据加载失败<br /><small>请点击「污染趋势」面板右上角刷新按钮重试</small></div> : <RankingChart ranking={analysis?.classRanking} />}</article></section></div>;
 }
 /** 由近 30 天聚合统计动态生成 AI 洞察与治理建议（无真实数据时回退为中性提示） */
 function buildInsight(a: StatsAnalysis) {
@@ -83,10 +87,20 @@ function buildInsight(a: StatsAnalysis) {
   return { title, description, recommendations: recs };
 }
 
-/** 海域环境质量对比（F0 真数据版）：分站点质量评分(1-10, 越高越好) + 任务/目标数提示。
- * 无任何站点任务时展示空态引导（上传时选择监测点），不再回退静态假数据。 */
+/** 海域环境质量对比（真数据版）：每海域一根柱 —— 质量评分(1-10, 越高越好) + 任务/目标数提示。
+ * 同一海域的多个站点共享同一聚合值，按海域去重（全域=北戴河/秦皇岛/渤海湾三处）。
+ * 无任何海域任务时展示空态引导（上传时选择监测点），不再回退静态假数据。 */
 function SiteComparisonChart({ sites, loading }: { sites: SiteStat[]; loading: boolean }) {
-  const withData = sites.filter((s) => s.taskCount > 0);
+  // 按海域去重：同一海域的多个站点共享同一聚合值，只保留每海域一个代表项
+  // （与 3D 海洋态势页一致 —— 全域为北戴河/秦皇岛/渤海湾三处海域）
+  const byArea = new Map<string, SiteStat>();
+  for (const s of sites) {
+    const key = s.seaAreaId != null ? `area-${s.seaAreaId}` : `site-${s.id}`;
+    if (!byArea.has(key) || s.taskCount > (byArea.get(key)?.taskCount ?? -1)) byArea.set(key, s);
+  }
+  // 海域名：优先后端返回的 seaAreaName，否则取站点名「·」前缀
+  const labelOf = (s: SiteStat) => s.seaAreaName ?? s.name.split('·')[0] ?? s.name;
+  const withData = [...byArea.values()].filter((s) => s.taskCount > 0);
   const option: EChartsOption = {
     tooltip: {
       trigger: 'axis', backgroundColor: '#092a3e', borderColor: 'rgba(75,220,255,.28)',
@@ -95,11 +109,11 @@ function SiteComparisonChart({ sites, loading }: { sites: SiteStat[]; loading: b
         const list = params as { dataIndex: number }[];
         const s = withData[list[0]?.dataIndex];
         if (!s) return '';
-        return `<b>${s.code} ${s.name}</b><br/>环境质量评分：${s.qualityScore ?? '未检测'} / 10<br/>任务数：${s.taskCount} · 检出目标：${s.totalObjects}<br/>最近任务：${s.lastTaskAt ?? '—'}`;
+        return `<b>${labelOf(s)}</b><br/>代表站点：${s.code} ${s.name}<br/>环境质量评分：${s.qualityScore ?? '未检测'} / 10<br/>任务数：${s.taskCount} · 检出目标：${s.totalObjects}<br/>最近任务：${s.lastTaskAt ?? '—'}`;
       },
     },
     grid: { left: 12, right: 12, top: 22, bottom: 8, containLabel: true },
-    xAxis: { type: 'category', data: withData.map((s) => s.code), axisLabel: { color: 'rgba(207,232,244,.56)' }, axisLine: { lineStyle: { color: 'rgba(94,214,255,.15)' } } },
+    xAxis: { type: 'category', data: withData.map(labelOf), axisLabel: { color: 'rgba(207,232,244,.56)' }, axisLine: { lineStyle: { color: 'rgba(94,214,255,.15)' } } },
     yAxis: { type: 'value', max: 10, axisLabel: { color: 'rgba(207,232,244,.56)' }, splitLine: { lineStyle: { color: 'rgba(94,214,255,.08)' } } },
     series: [{
       type: 'bar',
@@ -111,7 +125,7 @@ function SiteComparisonChart({ sites, loading }: { sites: SiteStat[]; loading: b
   };
   if (loading) return <div className="chart-loading"><i className="loader-orbit" />数据计算中…</div>;
   if (withData.length === 0) {
-    return <div className="chart-empty">暂无分站点数据<br /><small>在「检测识别」上传时选择监测点，此处即展示各站点环境质量对比</small></div>;
+    return <div className="chart-empty">暂无分海域数据<br /><small>在「检测识别」上传时选择监测点，此处即展示各海域环境质量对比</small></div>;
   }
   return <OceanChart option={option} className="comparison-chart" />;
 }

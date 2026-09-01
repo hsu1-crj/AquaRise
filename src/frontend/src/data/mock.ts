@@ -3,7 +3,7 @@ import type { DetectionRecord, DetectionResult, Report, StatsAnalysis, Summary, 
 export const mockSummary: Summary = {
   totalTasks: 12846,
   totalObjects: 487392,
-  seaAreas: 28,
+  seaAreas: 3,
   monthlyGrowth: 18.6,
   activeAlerts: 3,
   coverageKm2: 126.8,
@@ -16,6 +16,8 @@ export const mockAnalysis: StatsAnalysis = {
   plasticPercentPrev: 6.1,
   severeCount: 19,
   severeCountPrev: 14,
+  highRiskAreas: 2,
+  highRiskAreasPrev: 1,
   totalObjects: 1108,
   materialBreakdown: { '其他/未知': 410, '织物/衣物': 357, '金属/木质': 161, '渔网/绳索': 99, '塑料/轻质': 81 },
   classRanking: [

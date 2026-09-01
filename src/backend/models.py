@@ -308,6 +308,7 @@ class SeaArea(Base):
     name = Column(String(32), unique=True, nullable=False)     # 北戴河 / 秦皇岛 / 渤海湾
     code = Column(String(16), unique=True, nullable=False)     # 如 "BDH" / "QHD" / "BHB"
     note = Column(String(255), nullable=True)
+    area_km2 = Column(Float, nullable=True)                    # 监测覆盖面积 km²（静态地理主数据，由种子回填）
 
     def __repr__(self):
         return f"<SeaArea id={self.id} name={self.name!r}>"

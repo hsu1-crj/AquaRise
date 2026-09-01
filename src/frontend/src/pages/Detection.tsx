@@ -3,6 +3,7 @@ import type { ChangeEvent, DragEvent } from 'react';
 import { AlertCircle, ArrowRight, CheckCircle2, FileImage, FileText, FileVideo2, LoaderCircle, MapPinned, RotateCcw, ScanLine, ShieldCheck, UploadCloud, WandSparkles, X } from 'lucide-react';
 import { api } from '../services/api';
 import { useSeaArea } from '../context/SeaAreaContext';
+import { oneSitePerSeaArea } from '../services/sites';
 import type { DetectionResult, MultiImageDetectItem, MultiImageDetectResponse, PageKey, SiteStat, VideoDetectResult, VideoTaskStatus } from '../types';
 import { PreviewGallery, VideoResultCard, levelZh, QUALITY_SCORE } from '../components/resultViews';
 
@@ -44,8 +45,8 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
     api.getSiteStats().then((list) => { if (mounted) setSites(list); }).catch(() => { /* 站点列表失败不阻塞上传 */ });
     return () => { mounted = false; };
   }, [seaAreaId]);
-  // 仅展示所选海域下的站点（全部海域时展示全部）
-  const visibleSites = sites.filter((s) => seaAreaId === '' || s.seaAreaId === seaAreaId);
+  // 与海洋 3D 态势页同一「三站」口径：每海域只保留一个代表监测站；再按侧边栏海域过滤（全部海域时展示全部三站）
+  const visibleSites = oneSitePerSeaArea(sites).filter((s) => seaAreaId === '' || s.seaAreaId === seaAreaId);
 
   // 站点下拉选定后按站点挂靠的海域归属（契约同 Ocean3D：site_id 字段传海域 id）；未选站点沿用侧边栏海域
   const effectiveSeaAreaId = siteId !== ''
