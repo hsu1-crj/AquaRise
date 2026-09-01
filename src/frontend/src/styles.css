@@ -3196,3 +3196,91 @@
 .og-pri-badge.pri-p0 { background: rgba(255, 104, 133, 0.2); color: #ff8ba0; border: 1px solid rgba(255, 104, 133, 0.5); }
 .og-pri-badge.pri-p1 { background: rgba(255, 181, 71, 0.18); color: #ffc97e; border: 1px solid rgba(255, 181, 71, 0.5); }
 .og-pri-badge.pri-p2 { background: rgba(27, 231, 255, 0.16); color: #7fe8ff; border: 1px solid rgba(27, 231, 255, 0.5); }
+
+/* --- 后台管理：设为超管二次确认弹窗（替代浏览器原生 confirm，项目风格、页面居中） --- */
+.admin-confirm-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 10, 16, 0.72);
+  backdrop-filter: blur(4px);
+  animation: og-fade-in 0.24s ease;
+}
+
+.admin-confirm-modal {
+  width: min(460px, 100%);
+  padding: 28px 26px 22px;
+  text-align: center;
+  background: #04121d;
+  border: 1px solid rgba(73, 220, 249, 0.18);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.admin-confirm-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: rgba(255, 109, 136, 0.12);
+  color: var(--coral);
+  box-shadow: 0 0 26px rgba(255, 109, 136, 0.18);
+}
+
+.admin-confirm-modal h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #eafaff;
+}
+
+.admin-confirm-modal p {
+  margin: 0 0 20px;
+  font-size: 11px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+
+.admin-confirm-modal footer {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.admin-confirm-modal .admin-confirm-danger {
+  background: linear-gradient(135deg, var(--coral), #ff8f66);
+  box-shadow: 0 8px 22px rgba(255, 109, 136, 0.25);
+}
+
+.admin-confirm-icon.info {
+  background: rgba(43, 220, 255, 0.12);
+  color: var(--cyan);
+  box-shadow: 0 0 26px rgba(43, 220, 255, 0.16);
+}
+
+.admin-confirm-input {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(5, 32, 48, 0.6);
+  color: #dff6fa;
+  font-size: 12px;
+  outline: none;
+}
+
+.admin-confirm-input:focus {
+  border-color: var(--line-strong);
+}
+
+.admin-confirm-error {
+  margin: 0 0 12px;
+  font-size: 10px;
+  color: var(--coral);
+}

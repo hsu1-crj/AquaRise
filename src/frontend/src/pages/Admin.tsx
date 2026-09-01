@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Boxes,
   Check,
@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  ShieldAlert,
   ShieldCheck,
   Trash2,
   UserPlus,
@@ -37,6 +38,110 @@ const FALLBACK_MODULES: ModuleMeta[] = [
   { key: 'atlas', name: '海瞳 · 生命图谱', desc: '' },
   { key: 'admin', name: '后台管理', desc: '' },
 ];
+
+/* ============ 项目风格弹窗（替代浏览器原生 confirm/prompt/alert，页面居中、风格统一） ============ */
+
+interface ConfirmDialogOptions {
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+  /** 危险操作（删除/注销/设为超管）：确认按钮与图标用珊瑚色强调 */
+  danger?: boolean;
+}
+
+function ConfirmDialog({ title, message, confirmLabel = '确认', danger, onSettle }: ConfirmDialogOptions & { onSettle: (confirmed: boolean) => void }) {
+  return (
+    <div className="admin-confirm-mask" role="presentation" onClick={() => onSettle(false)}>
+      <div className="admin-confirm-modal" role="dialog" aria-modal="true" aria-label={title}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => { if (event.key === 'Escape') onSettle(false); }}
+        tabIndex={-1} ref={(el) => el?.focus()}>
+        <div className={`admin-confirm-icon${danger ? '' : ' info'}`}>{danger ? <ShieldAlert size={26} /> : <ShieldCheck size={26} />}</div>
+        <h3>{title}</h3>
+        {message && <p>{message}</p>}
+        <footer>
+          <button className="ghost-button" onClick={() => onSettle(false)}>取消</button>
+          <button className={`primary-button${danger ? ' admin-confirm-danger' : ''}`} onClick={() => onSettle(true)}>{confirmLabel}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/** 确认弹窗驱动 hook：open() 返回 Promise<boolean>，弹窗点确认/取消/遮罩/Esc 时结算 */
+function useConfirmDialog() {
+  const [options, setOptions] = useState<ConfirmDialogOptions | null>(null);
+  const resolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const open = (opts: ConfirmDialogOptions) => new Promise<boolean>((resolve) => {
+    resolverRef.current = resolve;
+    setOptions(opts);
+  });
+  const settle = (confirmed: boolean) => {
+    resolverRef.current?.(confirmed);
+    resolverRef.current = null;
+    setOptions(null);
+  };
+  const dialog = options ? <ConfirmDialog {...options} onSettle={settle} /> : null;
+  return { open, dialog };
+}
+
+interface PromptDialogOptions {
+  title: string;
+  message?: string;
+  placeholder?: string;
+  /** 输入最小长度（trim 后）；不满足时弹窗内联报错，不关闭 */
+  minLength?: number;
+  minLengthError?: string;
+  confirmLabel?: string;
+}
+
+function PromptDialog({ title, message, placeholder, minLength, minLengthError, confirmLabel = '确认', onSettle }: PromptDialogOptions & { onSettle: (value: string | null) => void }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const submit = () => {
+    const trimmed = value.trim();
+    if (minLength != null && trimmed.length < minLength) {
+      setError(minLengthError ?? `至少 ${minLength} 个字符`);
+      return;
+    }
+    onSettle(trimmed);
+  };
+  return (
+    <div className="admin-confirm-mask" role="presentation" onClick={() => onSettle(null)}>
+      <div className="admin-confirm-modal" role="dialog" aria-modal="true" aria-label={title}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => { if (event.key === 'Escape') onSettle(null); }}>
+        <h3>{title}</h3>
+        {message && <p>{message}</p>}
+        <input className="admin-confirm-input" type="password" autoFocus value={value} placeholder={placeholder}
+          onChange={(event) => { setValue(event.target.value); setError(''); }}
+          onKeyDown={(event) => { if (event.key === 'Enter') submit(); }} />
+        {error && <div className="admin-confirm-error" role="alert">{error}</div>}
+        <footer>
+          <button className="ghost-button" onClick={() => onSettle(null)}>取消</button>
+          <button className="primary-button" onClick={submit}>{confirmLabel}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/** 输入弹窗驱动 hook：open() 返回 Promise<string | null>（取消为 null，确认为 trim 后的输入） */
+function usePromptDialog() {
+  const [options, setOptions] = useState<PromptDialogOptions | null>(null);
+  const resolverRef = useRef<((value: string | null) => void) | null>(null);
+  const open = (opts: PromptDialogOptions) => new Promise<string | null>((resolve) => {
+    resolverRef.current = resolve;
+    setOptions(opts);
+  });
+  const settle = (value: string | null) => {
+    resolverRef.current?.(value);
+    resolverRef.current = null;
+    setOptions(null);
+  };
+  const dialog = options ? <PromptDialog {...options} onSettle={settle} /> : null;
+  return { open, dialog };
+}
 
 type AdminTab = 'overview' | 'users' | 'groups' | 'requests';
 
@@ -206,16 +311,22 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
   }, [query, groupFilter]);
 
   useEffect(load, [load]);
-
   /** 调组：立即生效（后端按组实时计算权限，用户下次请求即受新权限约束）。
-      设为超级管理员组前二次确认：一旦设为其分组再也无法改变（返回 false 表示已取消，调用方还原下拉框） */
+      设为超级管理员组前二次确认：一旦设为其分组再也无法改变（返回 false 表示已取消，调用方还原下拉框）。
+      所有二次确认/输入均走项目风格居中弹窗（替代浏览器原生 confirm/prompt/alert） */
+  const { open: confirmDialog, dialog: confirmModal } = useConfirmDialog();
+  const { open: promptDialog, dialog: promptModal } = usePromptDialog();
+
   const changeGroup = async (row: AdminUserRow, groupId: number): Promise<boolean> => {
     setNotice('');
     const target = groups.find((g) => g.id === groupId);
     if (target?.code === 'super_admin') {
-      const confirmed = window.confirm(
-        `确认把「${row.username}」设置为超级管理员？\n设置后该账号的分组再也无法改变（不可调组、不可注销，密码仅本人可修改），请谨慎操作。`,
-      );
+      const confirmed = await confirmDialog({
+        title: '确认设为超级管理员？',
+        message: `即将把「${row.username}」设置为超级管理员。设置后该账号的分组再也无法改变（不可调组、不可注销，密码仅本人可修改），请谨慎操作。`,
+        confirmLabel: '确认设置',
+        danger: true,
+      });
       if (!confirmed) return false;
     }
     try {
@@ -230,11 +341,17 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
   };
 
   const resetPassword = async (row: AdminUserRow) => {
-    const next = window.prompt(`为「${row.username}」设置新密码（至少 6 位）：`, '');
+    const next = await promptDialog({
+      title: `重置「${row.username}」的密码`,
+      message: '为该账号设置新密码（至少 6 位）。重置后该账号将全部下线，需重新登录。',
+      placeholder: '输入新密码',
+      minLength: 6,
+      minLengthError: '密码至少 6 位',
+      confirmLabel: '确认重置',
+    });
     if (next === null) return;
-    if (next.trim().length < 6) { window.alert('密码至少 6 位'); return; }
     try {
-      const { message } = await adminApi.resetPassword(row.id, next.trim());
+      const { message } = await adminApi.resetPassword(row.id, next);
       setNotice(`${message}（该账号已全部下线，需重新登录）`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '重置失败');
@@ -243,10 +360,13 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
 
   const deleteUser = async (row: AdminUserRow) => {
     const self = row.id === currentUserId;
-    const warning = self
-      ? `确认注销自己的账号「${row.username}」？销号后将立即退出登录，名下数据一并删除，不可恢复。`
-      : `确认注销「${row.username}」？其名下的检测任务、报告与对话记录将一并删除，不可恢复。`;
-    if (!window.confirm(warning)) return;
+    const confirmed = await confirmDialog({
+      title: self ? `确认注销自己的账号「${row.username}」？` : `确认注销「${row.username}」？`,
+      message: self ? '销号后将立即退出登录，名下数据一并删除，不可恢复。' : '其名下的检测任务、报告与对话记录将一并删除，不可恢复。',
+      confirmLabel: '确认注销',
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       const { message } = await adminApi.deleteUser(row.id);
       if (self) {
@@ -396,6 +516,9 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
         )}
         <p className="admin-hint">保护规则：只有最高管理员（种子 admin 与超级管理员组成员）不可被注销、不可调组、密码仅由本人修改；其余账号均可注销——包括注销自己（销号后自动退出登录）。</p>
       </div>
+      {/* 二次确认/输入弹窗：项目风格居中渲染（替代浏览器原生 confirm/prompt/alert） */}
+      {confirmModal}
+      {promptModal}
     </div>
   );
 }
@@ -483,8 +606,16 @@ function GroupsTab() {
     }
   };
 
+  const { open: confirmDialog, dialog: confirmModal } = useConfirmDialog();
+
   const removeGroup = async (group: AdminGroup) => {
-    if (!window.confirm(`确认删除用户组「${group.name}」？`)) return;
+    const confirmed = await confirmDialog({
+      title: `确认删除用户组「${group.name}」？`,
+      message: '删除操作不可恢复，请谨慎操作。',
+      confirmLabel: '确认删除',
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       await adminApi.deleteGroup(group.id);
       setGroups((prev) => prev.filter((g) => g.id !== group.id));
@@ -591,6 +722,8 @@ function GroupsTab() {
           })}
         </div>
       )}
+      {/* 删除用户组二次确认弹窗 */}
+      {confirmModal}
     </div>
   );
 }
@@ -616,10 +749,16 @@ function RequestsTab() {
 
   useEffect(load, [load]);
 
+  const { open: confirmDialog, dialog: confirmModal } = useConfirmDialog();
+
   const handle = async (req: GroupSwitchRequestInfo, action: 'approve' | 'reject') => {
     setNotice('');
     setError('');
-    if (action === 'approve' && !window.confirm(`确认批准「${req.username}」加入「${req.to_group_name}」？其可用功能即时生效。`)) return;
+    if (action === 'approve' && !(await confirmDialog({
+      title: `确认批准「${req.username}」加入「${req.to_group_name}」？`,
+      message: '批准后其可用功能即时生效，双方均收到铃铛通知。',
+      confirmLabel: '确认批准',
+    }))) return;
     setBusyId(req.id);
     try {
       const { message } = action === 'approve'
@@ -689,6 +828,8 @@ function RequestsTab() {
           </div>
         )}
       </div>
+      {/* 批准换组申请二次确认弹窗 */}
+      {confirmModal}
     </div>
   );
 }
