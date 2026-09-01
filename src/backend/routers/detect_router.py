@@ -382,9 +382,10 @@ async def task_status(
     )
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
-    # 视频后台任务在内存中实时更新进度/预览帧（进程内有效），优先于静态 PROGRESS 映射
+    # 视频后台任务在内存中实时更新进度/预览帧（进程内有效），优先于静态 PROGRESS 映射；
+    # 视频线程未启动（排队/模型加载）时回退 0 而非静态 50，避免进度条 50%→0% 回跳
     live = detector.get_video_progress(task.id) if task.task_type == TaskType.video else {}
-    progress = live.get("progress", PROGRESS[task.status])
+    progress = live.get("progress", 0 if task.task_type == TaskType.video else PROGRESS[task.status])
     return TaskStatusResponse(
         task_id=task.id,
         status=task.status.value,

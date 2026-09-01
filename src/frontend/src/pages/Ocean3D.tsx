@@ -50,22 +50,17 @@ const DEMO_GLOBE_STATIONS: GlobeStationView[] = [
   { id: 2, code: 'QHD-01', name: '秦皇岛站', lat: 39.93, lng: 119.60, region: '渤海 · 秦皇岛', country: '中国', qualityScore: null, taskCount: 0 },
   { id: 3, code: 'BHB-01', name: '渤海湾站', lat: 39.00, lng: 117.72, region: '渤海 · 渤海湾', country: '中国', qualityScore: null, taskCount: 0 },
 ];
-/** 演示站点时间戳相对当前时间生成, 避免硬编码日期过期 */
-const demoTimeAgo = (hoursAgo: number): string => {
-  const d = new Date(Date.now() - hoursAgo * 3600e3);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-const DEMO_SITE_STATS: SiteStat[] = DEMO_GLOBE_STATIONS.map((station, index) => ({
+// 演示兜底站点（站点接口失败/无站点时保证地球可渲染）：不伪造任务数据，统计一律 0、评分"未检测"
+const DEMO_SITE_STATS: SiteStat[] = DEMO_GLOBE_STATIONS.map((station) => ({
   id: station.id,
   code: station.code,
   name: station.name,
   lat: station.lat,
   lng: station.lng,
-  taskCount: [24, 18, 11][index] ?? 0,
-  totalObjects: [386, 214, 172][index] ?? 0,
+  taskCount: 0,
+  totalObjects: 0,
   qualityScore: null, // 演示站点未检测 → 评分显示"未检测"
-  lastTaskAt: demoTimeAgo([4 + Math.random() * 3, 11 + Math.random() * 3, 26 + Math.random() * 4][index] ?? 0),
+  lastTaskAt: null,
 }));
 // 每片海域只保留一个代表监测站（北戴河/秦皇岛/渤海湾各一处）
 const seenArea = new Set<number>();

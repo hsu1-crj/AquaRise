@@ -26,7 +26,9 @@ from models import (
     DigitalHumanSession,
     FaceRecord,
     GroupModule,
+    KnowledgeDoc,
     LoginSession,
+    Notification,
     Report,
     ReportAnalysis,
     TaskStatus,
@@ -284,18 +286,23 @@ async def delete_user(
     # 2) 对话与数字人记录
     db.query(ChatHistory).filter(ChatHistory.user_id == user.id).delete()
     db.query(DigitalHumanSession).filter(DigitalHumanSession.user_id == user.id).delete()
-    # 3) 检测任务（含逐帧结果；上传产物尽力清理）
-    tasks = db.query(DetectionTask).filter(DetectionTask.user_id == user.id).all()
-    for task in tasks:
-        db.query(DetectionResult).filter(DetectionResult.task_id == task.id).delete()
-        _remove_file_quietly(task.file_path)
-    db.query(DetectionTask).filter(DetectionTask.user_id == user.id).delete()
-    # 4) 报告与结构化分析（HTML 文件尽力清理）
+    # 通知（notifications.user_id 外键无级联，需显式删除，否则注销有通知的账号会 500）
+    db.query(Notification).filter(Notification.user_id == user.id).delete()
+    # 知识库文档属共享资源：不随账号删除，仅清空归属（uploaded_by 可空外键）
+    db.query(KnowledgeDoc).filter(KnowledgeDoc.uploaded_by == user.id).update({KnowledgeDoc.uploaded_by: None})
+    # 3) 报告与结构化分析（HTML 文件尽力清理）——reports.task_id 外键引用检测任务，
+    #    必须先删报告再删任务，否则注销生成过报告的账号会触发外键约束冲突（500）
     reports = db.query(Report).filter(Report.user_id == user.id).all()
     for report in reports:
         db.query(ReportAnalysis).filter(ReportAnalysis.report_id == report.id).delete()
         _remove_file_quietly(report.report_path)
     db.query(Report).filter(Report.user_id == user.id).delete()
+    # 4) 检测任务（含逐帧结果；上传产物尽力清理）
+    tasks = db.query(DetectionTask).filter(DetectionTask.user_id == user.id).all()
+    for task in tasks:
+        db.query(DetectionResult).filter(DetectionResult.task_id == task.id).delete()
+        _remove_file_quietly(task.file_path)
+    db.query(DetectionTask).filter(DetectionTask.user_id == user.id).delete()
     # 5) 用户本体
     db.delete(user)
     db.commit()

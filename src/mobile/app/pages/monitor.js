@@ -123,6 +123,7 @@ export function renderMonitor(container, ctx) {
           const r = statuses[i];
           if (r.status === 'fulfilled' && r.value) {
             task._progress = r.value.progress;
+            task._rtStatus = r.value.status;
             task._processingTime = r.value.processing_time;
             // 将权威实时状态合并回任务字段，确保 processTasks 分类与通知使用最新值
             const rtZh = STATUS_MAP[r.value.status];

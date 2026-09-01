@@ -588,7 +588,8 @@ def process_video_background(task_id: int, file_path: str):
                     writer.send(_draw_preview(frame, result).tobytes())
                 frame_index += 1
                 processed = frame_index
-                progress = min(100.0, processed / total_frames * 100) if total_frames else 100.0
+                # 读不到总帧数（部分容器元数据缺失）时保持当前进度，完成时统一置 100，避免刚开始识别就显示 100%
+                progress = min(100.0, processed / total_frames * 100) if total_frames else VIDEO_PROGRESS[task_id].get("progress", 0.0)
                 VIDEO_PROGRESS[task_id].update(
                     {"progress": round(progress, 1), "processed_frames": processed}
                 )

@@ -77,16 +77,25 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
   if (error) return <PageState type="error" message={error} onRetry={load} />;
   if (!summary) return <PageState type="empty" />;
   const cards = [
-    { label: '累计检测任务', value: summary.totalTasks.toLocaleString(), unit: '次', icon: ScanLine, color: 'cyan', detail: '较上月 +12.4%' },
+    { label: '累计检测任务', value: summary.totalTasks.toLocaleString(), unit: '次', icon: ScanLine, color: 'cyan', detail: '历史累计统计' },
     { label: '识别垃圾目标', value: summary.totalObjects.toLocaleString(), unit: '件', icon: Camera, color: 'violet', detail: `本月 +${summary.monthlyGrowth}%` },
     { label: '覆盖监测海域', value: summary.seaAreas, unit: '处', icon: MapPin, color: 'green', detail: `${summary.coverageKm2} km²` },
-    { label: '待处置预警', value: summary.activeAlerts, unit: '条', icon: AlertTriangle, color: 'coral', detail: '1 条严重预警' },
+    { label: '待处置预警', value: summary.activeAlerts, unit: '条', icon: AlertTriangle, color: 'coral', detail: analysis ? `近 30 天严重污染 ${analysis.severeCount} 项` : '实时聚合预警' },
   ];
+
+  // AI 环境研判：由近 30 天聚合统计动态生成（无数据时给中性提示，不写死点位结论）
+  const topClass = analysis?.classRanking?.[0];
+  const insightTitle = analysis && topClass
+    ? `近 30 天「${topClass.name}」检出 ${topClass.count} 件，居高频目标首位`
+    : '暂无足够检测数据，完成识别任务后在此生成研判';
+  const insightDesc = analysis && analysis.severeCount > 0
+    ? `${analysis.severeCount} 个任务达到严重污染等级，建议生成区域质量评估报告并安排复检。`
+    : '建议创建检测任务积累数据，并生成区域质量评估报告。';
 
   return (
     <div className="page-stack">
       <section className="page-heading">
-        <div><span className="eyebrow"><i /> OCEAN INTELLIGENCE</span><h1>海洋污染态势总览</h1><p><BeijingGreeting name={user?.username} />渤海近岸 28 个监测点正在持续回传环境数据。</p></div>
+        <div><span className="eyebrow"><i /> OCEAN INTELLIGENCE</span><h1>海洋污染态势总览</h1><p><BeijingGreeting name={user?.username} />{`渤海近岸 ${summary.seaAreas} 片监测海域正在持续回传环境数据。`}</p></div>
         <div className="heading-actions"><SyncTime /><button className="secondary-button" onClick={load}><RefreshCw size={16} />刷新</button><button className="primary-button" onClick={() => onNavigate('detection')}><ScanLine size={17} />开始识别</button></div>
       </section>
 
@@ -108,13 +117,13 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
           <div className="sonar-map">
             <div className="sonar-rings"><i /><i /><i /></div>
             <span className="coast coast-a">秦皇岛</span><span className="coast coast-b">北戴河</span><span className="coast coast-c">渤海湾</span>
-            <button className="map-point point-a" title="A-07 严重"><i /><b>A-07</b></button>
-            <button className="map-point point-b" title="B-12 正常"><i /><b>B-12</b></button>
-            <button className="map-point point-c" title="C-03 正常"><i /><b>C-03</b></button>
-            <button className="map-point point-d" title="D-09 注意"><i /><b>D-09</b></button>
+            <button className="map-point point-a" title="监测点 A-07" onClick={() => onNavigate('screen')}><i /><b>A-07</b></button>
+            <button className="map-point point-b" title="监测点 B-12" onClick={() => onNavigate('screen')}><i /><b>B-12</b></button>
+            <button className="map-point point-c" title="监测点 C-03" onClick={() => onNavigate('screen')}><i /><b>C-03</b></button>
+            <button className="map-point point-d" title="监测点 D-09" onClick={() => onNavigate('screen')}><i /><b>D-09</b></button>
             <div className="map-sweep" />
           </div>
-          <div className="map-legend"><span><i className="normal" />运行正常 25</span><span><i className="warning" />需要关注 2</span><span><i className="danger" />严重预警 1</span></div>
+          <div className="map-legend"><span><i className="normal" />运行正常</span><span><i className="warning" />需要关注</span><span><i className="danger" />严重预警</span></div>
         </article>
       </section>
 
@@ -132,7 +141,7 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
       </section>
 
       <section className="action-banner glass">
-        <div className="banner-orb"><Waves /></div><div><span>AI 环境研判</span><h3>A-07 点位塑料垃圾密度连续 3 日上升</h3><p>建议创建专项检测任务，并生成区域质量评估报告。</p></div>
+        <div className="banner-orb"><Waves /></div><div><span>AI 环境研判</span><h3>{insightTitle}</h3><p>{insightDesc}</p></div>
         <button className="ghost-button" onClick={() => onNavigate('reports')}><FileDown size={17} />查看报告</button><button className="primary-button" onClick={() => onNavigate('detection')}>发起复检<ArrowRight size={17} /></button>
       </section>
     </div>

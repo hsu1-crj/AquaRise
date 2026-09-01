@@ -1091,7 +1091,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       try {
         const publicConfig = await api.getDigitalHumanConfig().catch(() => null);
         setDhLoadingText('正在加载数字人引擎…');
-        await loadXmovSDK(publicConfig?.sdk_url, publicConfig?.sdk_integrity ?? undefined);
+        // 同 GuideDock：CDN @latest 文件更新后固定 SRI 必然拦截脚本，不传 integrity
+        await loadXmovSDK(publicConfig?.sdk_url);
         if (cancelled) return;
 
         setDhLoadingText('正在连接数字人服务…');
@@ -1203,7 +1204,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
 
   // --- 发送提问逻辑 ---
   const ask = useCallback(
-    async (question: string, reportContextOverride?: ActiveReportContext | null) => {
+    async (question: string, reportContextOverride?: ActiveReportContext | null, opts?: { reuseLastUserMessage?: boolean }) => {
       const text = question.trim();
       if (!text || busy) return;
       setInput('');
@@ -1230,7 +1231,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           : undefined,
       };
       const assistantId = uuid();
-      const nextMessages = [...messages, userMessage];
+      // 重试（重新生成）时复用已上屏的提问气泡，不再追加一条相同的用户消息
+      const nextMessages = opts?.reuseLastUserMessage ? messages : [...messages, userMessage];
       setMessages([
         ...nextMessages,
         { id: assistantId, role: 'assistant', content: '', timestamp: currentTime },
@@ -1909,7 +1911,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             <div className="og-error-banner">
               <AlertCircle size={15} />
               <span>{error}</span>
-              <button onClick={() => void ask(lastQuestion)}>
+              <button onClick={() => void ask(lastQuestion, undefined, { reuseLastUserMessage: true })}>
                 <RotateCcw size={12} /> 重新生成
               </button>
             </div>

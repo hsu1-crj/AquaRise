@@ -12,6 +12,7 @@
 import re
 
 import config
+import captcha as captcha_mod
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session

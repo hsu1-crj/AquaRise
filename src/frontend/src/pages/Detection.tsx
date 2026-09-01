@@ -40,11 +40,17 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
   const [siteId, setSiteId] = useState<number | ''>('');
   useEffect(() => {
     let mounted = true;
+    setSiteId(''); // 切换海域后清空站点选择，避免残留其他海域站点的错误归属
     api.getSiteStats().then((list) => { if (mounted) setSites(list); }).catch(() => { /* 站点列表失败不阻塞上传 */ });
     return () => { mounted = false; };
   }, [seaAreaId]);
   // 仅展示所选海域下的站点（全部海域时展示全部）
   const visibleSites = sites.filter((s) => seaAreaId === '' || s.seaAreaId === seaAreaId);
+
+  // 站点下拉选定后按站点挂靠的海域归属（契约同 Ocean3D：site_id 字段传海域 id）；未选站点沿用侧边栏海域
+  const effectiveSeaAreaId = siteId !== ''
+    ? (sites.find((s) => s.id === siteId)?.seaAreaId ?? (seaAreaId === '' ? undefined : seaAreaId))
+    : (seaAreaId === '' ? undefined : seaAreaId);
 
   // 预览 object URL 生命周期：
   // 仅在真正移除/替换/卸载时回收，避免误回收仍被后续 previews 引用的 URL
@@ -139,7 +145,7 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
     if (mode === 'image') {
       setBatchProgress({ current: 0, total: files.length });
       try {
-        const res = await api.detectImages(files, (current, total) => setBatchProgress({ current, total }), seaAreaId === '' ? undefined : seaAreaId);
+        const res = await api.detectImages(files, (current, total) => setBatchProgress({ current, total }), effectiveSeaAreaId);
         setResult(res);
         if (res.successCount === 0 && res.failCount > 0) {
           setStatus('error');
@@ -155,14 +161,15 @@ export function Detection({ onNavigate }: { onNavigate: (page: PageKey) => void 
       }
     } else {
       try {
-        const { taskId } = await api.createVideoTask(files[0], seaAreaId === '' ? undefined : seaAreaId);
+        const { taskId } = await api.createVideoTask(files[0], effectiveSeaAreaId);
         if (!taskId) { throw new Error('未获取到任务编号'); }
         setVideoProgress(0); setVideoStatus(null);
         // 轮询实时进度：展示真实帧处理进度 + 标注预览帧，直到完成/失败
         const poll = async () => {
           const statusInfo = await api.getVideoStatus(taskId);
           setVideoStatus(statusInfo);
-          setVideoProgress(statusInfo.progress);
+          // 进度只增不减：后端排队/模型加载期回退值与真实进度可能交错，展示层钳制为单调递增
+          setVideoProgress((prev) => Math.max(prev, statusInfo.progress));
           if (statusInfo.status === 'completed' || statusInfo.status === 'failed') {
             if (statusInfo.status === 'failed') { setStatus('error'); setMessage('视频识别失败，请重试'); }
             else {
