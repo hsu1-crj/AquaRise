@@ -259,7 +259,7 @@ pytest tests/test_llm.py -v
 - React、Vite、ECharts、Marked、DOMPurify等依赖通过 `src/frontend/package.json` 固定主版本并由npm管理；生产构建不得依赖公共CDN，答辩环境应预先执行 `npm install` 和 `npm run build`。
 - 页面外壳、导航、图表与业务页面按 React 组件复用；路由采用Hash导航以兼容静态托管刷新。禁止复制公共逻辑或堆叠内联脚本。
 - API地址、请求头、超时和错误解析由 `src/frontend/src/services/api.ts` 统一管理。开发环境通过Vite代理访问同源相对路径 `/api/v1/...`，生产环境由FastAPI同源提供。后端未完成期间使用与正式契约同结构的显式Mock模式；所有异步区域必须提供加载、空数据、失败和重试状态，页面不得静默失败。
-- `POST /api/v1/chat` 的流式响应使用 `fetch` + `ReadableStream` 消费；`EventSource` 仅支持GET，禁止用于该POST接口。离开页面或重新提问时应使用 `AbortController` 终止旧请求。
+- `POST /api/v1/chat` 的流式响应使用 `fetch` + `ReadableStream` 消费；`EventSource` 仅支持GET，禁止用于该POST接口。**切页卸载不中断在途对话流**：流由模块级在途状态（`InflightChat`）持有，`chunk` 回调在后台继续累积内容并通知订阅者；重挂载页面不阻塞等待，先渲染历史+已生成增量再订阅直播更新，结束后重拉历史落库答案。手动停止或重新提问时才用 `AbortController` 终止旧请求。
 - LLM返回的Markdown先由 Marked 解析，再经 DOMPurify 清洗后写入DOM；禁止将用户输入、模型输出或接口错误直接赋给 `innerHTML`。前端文件类型/大小校验仅用于交互提示，服务端校验仍为最终依据。
 - ECharts实例按容器复用并在销毁时 `dispose()`；通过 `ResizeObserver` 或窗口 `resize` 触发自适应。30秒刷新定时器在页面隐藏时暂停、离开页面时清理，禁止每次刷新重新初始化图表。
 - Canvas检测框按原始媒体尺寸保存坐标，并根据实际渲染尺寸及 `devicePixelRatio` 换算，避免缩放后标注偏移。

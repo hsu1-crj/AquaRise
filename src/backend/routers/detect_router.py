@@ -7,6 +7,7 @@ GET  /api/v1/detect/status/{task_id}  任务进度
 GET  /api/v1/detect/result/{task_id}  帧级结果 + 汇总
 """
 
+import asyncio
 import os
 import uuid
 from datetime import datetime
@@ -79,10 +80,12 @@ def _save_upload(file: UploadFile, subdir: str) -> str:
     return file_path
 
 
-def _process_single_image(file: UploadFile, current_user: User, db: Session,
-                          sea_area_id: int | None = None) -> FrontendDetectionResult:
+async def _process_single_image(file: UploadFile, current_user: User, db: Session,
+                                sea_area_id: int | None = None,
+                                notify_task: bool = True) -> FrontendDetectionResult:
     """单张图片：保存 → YOLO 推理 → 建任务/结果 → 返回前端 DetectionResult 形状。
-    单图与多图端点共用，保证行为一致。sea_area_id 为任务归属海域（软外键）。"""
+    单图与多图端点共用，保证行为一致。sea_area_id 为任务归属海域（软外键）。
+    notify_task=False 时跳过本图通知（批量端点逐图关闭，结束时合并成一条统发）。"""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_IMAGE:
         raise HTTPException(status_code=400, detail="不支持的图片格式，支持 jpg/png/webp/bmp")
@@ -91,8 +94,9 @@ def _process_single_image(file: UploadFile, current_user: User, db: Session,
     with open(file_path, "rb") as f:
         image_bytes = f.read()
 
-    # 调用检测服务（真实 YOLO 推理），返回检测目标列表 + 图片真实宽高
-    payload = detector.detect_image(image_bytes)
+    # 调用检测服务（真实 YOLO 推理）：CPU/GPU 密集同步调用放进线程池，
+    # 避免单帧推理数百 ms、批量最多 50 张时整帧卡死事件循环（登录/聊天/报告全部排队）
+    payload = await asyncio.to_thread(detector.detect_image, image_bytes)
     detections = payload["detections"]
 
     # 创建任务 + 结果
@@ -131,27 +135,28 @@ def _process_single_image(file: UploadFile, current_user: User, db: Session,
     task.completed_at = datetime.now()
     db.commit()
 
-    # 通知：任务完成 + 污染等级告警（poor/severe 时追加）
-    notify(
-        db,
-        current_user.id,
-        "task_completed",
-        f"检测任务 #{task.id} 完成",
-        f"「{task.file_name}」检出 {task.total_objects} 个垃圾目标",
-        "history",
-        task.id,
-    )
-    if level in (PollutionLevel.poor, PollutionLevel.severe):
-        zl = pollution_level_zh(level)
+    # 通知：任务完成 + 污染等级告警（poor/severe 时追加）；批量端点传 notify_task=False 由批量合并统发
+    if notify_task:
         notify(
             db,
             current_user.id,
-            "pollution_warning",
-            f"⚠ 污染告警：{zl}污染",
-            f"「{task.file_name}」综合污染等级为{zl}，建议及时处理",
+            "task_completed",
+            f"检测任务 #{task.id} 完成",
+            f"「{task.file_name}」检出 {task.total_objects} 个垃圾目标",
             "history",
             task.id,
         )
+        if level in (PollutionLevel.poor, PollutionLevel.severe):
+            zl = pollution_level_zh(level)
+            notify(
+                db,
+                current_user.id,
+                "pollution_warning",
+                f"⚠ 污染告警：{zl}污染",
+                f"「{task.file_name}」综合污染等级为{zl}，建议及时处理",
+                "history",
+                task.id,
+            )
 
     objects: list[FrontendDetectionBox] = []
     for index, d in enumerate(detections, start=1):
@@ -197,7 +202,7 @@ async def detect_image(
 ):
     """图片检测：上传 → YOLO 推理 → 结果写库 → 返回前端 DetectionResult 形状
     （sourceWidth/Height 取自图片真实尺寸；width/height 表单参数仅向前端契约保留）"""
-    return _process_single_image(file, current_user, db, _validate_sea_area(db, site_id))
+    return await _process_single_image(file, current_user, db, _validate_sea_area(db, site_id))
 
 
 @router.post("/detect/images", response_model=MultiImageDetectResponse)
@@ -216,24 +221,65 @@ async def detect_images(
 
     items: list[MultiImageDetectItem] = []
     success_count = 0
+    fail_count = 0
+    total_found = 0
+    warn_count = 0
+    warn_levels: set[str] = set()
+    first_task_id: int | None = None
     valid_sea_area_id = _validate_sea_area(db, site_id)
     for file in files:
         name = file.filename or "未命名图片"
         try:
-            result = _process_single_image(file, current_user, db, valid_sea_area_id)
+            # 逐图关闭单图通知，批量结束时合并为一条统发，避免 50 张图刷 50 条通知
+            result = await _process_single_image(
+                file, current_user, db, valid_sea_area_id, notify_task=False
+            )
             items.append(MultiImageDetectItem(success=True, fileName=name, result=result))
             success_count += 1
+            total_found += len(result.objects)
+            if first_task_id is None:
+                first_task_id = int(result.taskId)
+            if result.pollutionLevel in ("差", "严重"):
+                warn_levels.add(result.pollutionLevel)
+                warn_count += 1
         except HTTPException as exc:
             # 单图校验失败（格式/类型）不中断整批
+            fail_count += 1
             items.append(MultiImageDetectItem(success=False, fileName=name, error=exc.detail))
         except Exception as exc:
+            fail_count += 1
             items.append(MultiImageDetectItem(success=False, fileName=name, error=str(exc)))
+
+    # 批量合并通知：整批一条"完成"汇总 +（有差/严重时）一条污染告警，链接到批内第一张图
+    if success_count > 0 and first_task_id is not None:
+        batch_body = f"共 {len(files)} 张，成功 {success_count} 张，检出 {total_found} 个垃圾目标"
+        if fail_count:
+            batch_body += f"，失败 {fail_count} 张"
+        notify(
+            db,
+            current_user.id,
+            "task_completed",
+            "批量检测完成",
+            batch_body,
+            "history",
+            first_task_id,
+        )
+        if warn_count:
+            notify(
+                db,
+                current_user.id,
+                "pollution_warning",
+                f"⚠ 批量检测发现 {warn_count} 张污染图片",
+                f"{warn_count} 张图片综合污染等级为{'、'.join(sorted(warn_levels))}，建议优先处理",
+                "history",
+                first_task_id,
+            )
 
     return MultiImageDetectResponse(
         items=items,
         total=len(files),
         successCount=success_count,
-        failCount=len(files) - success_count,
+        failCount=fail_count,
     )
 
 

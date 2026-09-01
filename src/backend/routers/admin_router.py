@@ -45,6 +45,7 @@ from schemas import (
     AdminUserUpdateRequest,
     MessageResponse,
 )
+from services.notification_hub import hub
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -111,6 +112,13 @@ def _sync_group_modules(db: Session, group: UserGroup, modules: list[str]) -> No
     db.query(GroupModule).filter(GroupModule.group_id == group.id).delete()
     for key in modules:
         db.add(GroupModule(group_id=group.id, module=key))
+
+
+def _broadcast_permissions_changed(*user_ids: int) -> None:
+    """向指定在线用户推送权限变更瞬时事件（SSE 直推，不落库、不进铃铛）。
+    前端收到后重拉 /auth/me 刷新功能入口；目标不在线时为 no-op（刷新/回焦时兜底重拉）。"""
+    for uid in user_ids:
+        hub.publish(uid, {"type": "permissions_changed"})
 
 
 def _remove_file_quietly(path: str | None) -> None:
@@ -215,6 +223,7 @@ async def update_user(
         raise HTTPException(status_code=404, detail="用户不存在")
     if _is_super_admin(db, user) and body.group_id is not None and body.group_id != user.group_id:
         raise HTTPException(status_code=403, detail="最高管理员不可调整用户组")
+    previous_group_id = user.group_id
     if body.group_id is not None:
         group = db.query(UserGroup).filter(UserGroup.id == body.group_id).first()
         if not group:
@@ -226,6 +235,9 @@ async def update_user(
         user.phone_num = body.phone_num.strip() or None
     db.commit()
     db.refresh(user)
+    # 被划组用户的权限快照实时失效：SSE 通知其客户端重拉 /auth/me
+    if body.group_id is not None and body.group_id != previous_group_id:
+        _broadcast_permissions_changed(user.id)
     return _user_item(db, user)
 
 
@@ -347,9 +359,16 @@ async def update_group(
     if body.description is not None:
         group.description = body.description
     if body.modules is not None:
+        old_modules = {m.module for m in group.modules}
         _sync_group_modules(db, group, _validate_modules(body.modules))
+    else:
+        old_modules = None
     db.commit()
     db.refresh(group)
+    # 功能勾选有实质变化 → 组内在线成员实时刷新权限快照（SSE 瞬时事件，不落库不进铃铛）
+    if old_modules is not None and old_modules != {m.module for m in group.modules}:
+        member_ids = [uid for (uid,) in db.query(User.id).filter(User.group_id == group.id).all()]
+        _broadcast_permissions_changed(*member_ids)
     return _group_item(db, group)
 
 

@@ -23,6 +23,24 @@ _app = None
 _app_lock = threading.Lock()
 
 
+def _resolve_ctx_id() -> int:
+    """解析 InsightFace 推理设备：环境变量 FACE_CTX_ID 显式指定时优先；
+    缺省自动探测——有 CUDA 用 GPU(0)，否则降级 CPU(-1)，避免无 GPU 环境直接 500。"""
+    if config.FACE_CTX_ID:
+        try:
+            return int(config.FACE_CTX_ID)
+        except ValueError:
+            pass
+    try:
+        import onnxruntime as ort
+
+        if "CUDAExecutionProvider" in ort.get_available_providers():
+            return 0
+    except Exception:
+        pass
+    return -1
+
+
 def _get_app():
     """懒加载 InsightFace FaceAnalysis 单例（进程内共享，首次调用才下载/加载权重）"""
     global _app
@@ -32,7 +50,7 @@ def _get_app():
                 from insightface.app import FaceAnalysis
 
                 _app = FaceAnalysis(name=config.FACE_MODEL_PACK)
-                _app.prepare(ctx_id=0, det_size=(640, 640))
+                _app.prepare(ctx_id=_resolve_ctx_id(), det_size=(640, 640))
     return _app
 
 
@@ -74,14 +92,22 @@ def _restore_descriptor(blob: bytes) -> np.ndarray:
     return np.frombuffer(blob, dtype=np.float32)
 
 
-def enroll_face(db, user: User, image_bytes: bytes, name: str = "人脸") -> FaceRecord:
-    """录入人脸：解码 → 提取嵌入 → 校验数量(≤MAX_FACES_PER_USER) → 入库。
+def extract_feature(image_bytes: bytes) -> np.ndarray:
+    """从图片字节提取人脸 512 维嵌入（解码 + InsightFace 推理，纯计算无 DB）。
 
-    数量超限抛 ValueError（由路由层转 400）。
+    供路由层放入线程池执行，避免重型推理阻塞事件循环。
+    解码失败 / 无人脸 / 无法提取特征抛 ValueError（由路由层区分提示）。
     """
     img_bgr, _, _ = _decode_image(image_bytes)
-    descriptor = _extract_embedding(img_bgr)
+    return _extract_embedding(img_bgr)
 
+
+def create_face_record(db, user: User, descriptor: np.ndarray, name: str = "人脸") -> FaceRecord:
+    """录入人脸：校验数量(≤MAX_FACES_PER_USER) → 入库。仅做 DB 操作，留在事件循环线程。
+
+    descriptor 为已提取的嵌入（由路由层在线程池中调用 extract_feature 得到）。
+    数量超限抛 ValueError（由路由层转 400）。
+    """
     count = db.query(FaceRecord).filter(FaceRecord.user_id == user.id).count()
     if count >= config.MAX_FACES_PER_USER:
         raise ValueError(f"每个账号最多录入 {config.MAX_FACES_PER_USER} 张人脸，已达上限")
@@ -89,7 +115,7 @@ def enroll_face(db, user: User, image_bytes: bytes, name: str = "人脸") -> Fac
     record = FaceRecord(
         user_id=user.id,
         name=(name or "人脸").strip()[:30] or "人脸",
-        descriptor=descriptor.tobytes(),
+        descriptor=np.asarray(descriptor, dtype=np.float32).tobytes(),
     )
     db.add(record)
     db.commit()
@@ -97,14 +123,12 @@ def enroll_face(db, user: User, image_bytes: bytes, name: str = "人脸") -> Fac
     return record
 
 
-def identify_face(db, image_bytes: bytes) -> User | None:
-    """根据图片人脸识别账号：遍历库内所有人脸求最小欧氏距离，小于阈值返回对应用户。
+def match_face(db, probe: np.ndarray) -> User | None:
+    """根据探针嵌入识别账号：遍历库内所有人脸求最小欧氏距离，小于阈值返回对应用户。仅做 DB 操作。
 
-    未检测到人脸抛 ValueError（由路由层区分提示）；无人录入 / 无命中也返回 None。
+    probe 为已提取的探针嵌入（由路由层在线程池中调用 extract_feature 得到）。
+    无人录入 / 无命中返回 None。
     """
-    img_bgr, _, _ = _decode_image(image_bytes)
-    probe = _extract_embedding(img_bgr)
-
     candidates = db.query(FaceRecord).all()
     if not candidates:
         return None

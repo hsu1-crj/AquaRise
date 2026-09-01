@@ -204,7 +204,8 @@ async def lifespan(app: FastAPI):
     from services.notification_hub import hub
 
     # 通知发布中枢绑定主事件循环：视频 worker 等线程池线程借此 call_soon_threadsafe 投递 SSE
-    hub.set_loop(asyncio.get_running_loop())
+    hub.set_loop(
+        asyncio.get_running_loop())
 
     try:
         detector.restore_video_indexes()
