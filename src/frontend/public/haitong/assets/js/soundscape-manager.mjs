@@ -88,6 +88,7 @@ export class SoundscapeManager {
     this._voiceGen = 0;
     this._whaleFxResetTimer = null;
     this.voicePlaying = false;
+    this.voicePaused = false;
     this.lastStatus = "声音待命 · 点击背景音或开启摄像头解锁音频";
     // 音频资源存在性探测缓存：缺失文件不产生控制台 404 噪音，直接以"未加载"继续运行
     this._probeCache = new Map();
@@ -391,6 +392,7 @@ export class SoundscapeManager {
     track.gainNode.gain.setValueAtTime(0, this.context.currentTime);
     this.rampGain(track.gainNode, startGain, fadeMs);
     this.tracks.set(element, track);
+    if (kind === "voice") this.voicePaused = false;
 
     const result = await new Promise(resolve => {
       let settled = false;
@@ -413,6 +415,10 @@ export class SoundscapeManager {
       };
       track.endedHandler = () => {
         this.kindState[kind] = "paused";
+        if (kind === "voice") {
+          this.voicePlaying = false;
+          this.voicePaused = false;
+        }
         // 只有仍然最新的独白才能解除压低；旧轨道的 ended 不许提前恢复背景音量。
         if (kind === "voice" && this._voiceGen === duckGen) this.setVoiceDucking(false, fadeMs);
         this.status(`${this.label(kind)}播放结束`, { type: "ended", kind });
@@ -422,6 +428,7 @@ export class SoundscapeManager {
       element.addEventListener("error", fail, { once: true });
       const promise = element.play();
       this.kindState[kind] = "playing";
+      this.status(`${this.label(kind)}播放中`, { type: "playing", kind });
       if (promise && typeof promise.catch === "function") promise.catch(fail);
       if (loop) finish({ ok: true, element, track });
     });
@@ -451,7 +458,57 @@ export class SoundscapeManager {
       }, fadeMs + 40);
     });
     this.kindState[kind] = "paused";
-    if (kind === "voice") this.setVoiceDucking(false, fadeMs);
+    if (kind === "voice") {
+      this.voicePaused = false;
+      this.setVoiceDucking(false, fadeMs);
+    }
+  }
+
+  /** 暂停轨道但保留当前位置，供用户稍后继续聆听。 */
+  pauseKind(kind, fadeMs = 220) {
+    const tracks = [...this.tracks.values()].filter(track => track.kind === kind);
+    let paused = false;
+    for (const track of tracks) {
+      if (track.element.paused) continue;
+      this.rampGain(track.gainNode, 0, fadeMs);
+      try { track.element.pause(); } catch (_) {}
+      paused = true;
+    }
+    if (!paused) return false;
+    this.kindState[kind] = "paused";
+    if (kind === "voice") {
+      this.voicePaused = true;
+      this.setVoiceDucking(false, fadeMs);
+    }
+    this.status(`${this.label(kind)}已暂停`, { type: "paused", kind });
+    return true;
+  }
+
+  /** 从暂停位置继续播放，不重置 currentTime。 */
+  async resumeKind(kind, fadeMs = 220) {
+    const track = [...this.tracks.values()].find(item => item.kind === kind);
+    if (!track || !track.element.paused || (kind === "voice" && !this.voicePaused)) return false;
+    const unlocked = await this.unlock();
+    if (!unlocked) {
+      this.kindState[kind] = "blocked";
+      return false;
+    }
+    try {
+      const promise = track.element.play();
+      if (promise && typeof promise.then === "function") await promise;
+      this.rampGain(track.gainNode, clamp(track.config?.gain ?? 1), fadeMs);
+      this.kindState[kind] = "playing";
+      if (kind === "voice") {
+        this.voicePaused = false;
+        this.setVoiceDucking(true, fadeMs);
+      }
+      this.status(`${this.label(kind)}继续播放`, { type: "playing", kind });
+      return true;
+    } catch (error) {
+      this.kindState[kind] = "paused";
+      this.status(`${this.label(kind)}无法继续播放`, { type: "blocked", kind, error });
+      return false;
+    }
   }
 
   releaseTrack(track) {
@@ -873,6 +930,7 @@ export class SoundscapeManager {
       unlocked: this.context?.state === "running",
       bgmPlaying: Boolean(this.bgm && !this.bgm.paused),
       voicePlaying: this.voicePlaying,
+      voicePaused: this.voicePaused,
       preloadedCount: this.preloadedTracks.size,
       activeSpecies: this.activeSpecies?.cn || null,
       lastStatus: this.lastStatus,

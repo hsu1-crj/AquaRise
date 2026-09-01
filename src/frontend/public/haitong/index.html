@@ -616,14 +616,21 @@
   .credit-label { font: 9.5px var(--font-mono); letter-spacing: 0.20em; color: var(--ink-ghost); white-space: nowrap; }
   #photoCredit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-dim); font-size: 11px; }
   
-  .sound-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .sound-tags { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 4px; }
   .sound-tag {
-    font: 11px/1.4 var(--font-mono); letter-spacing: 0.04em; color: #a4c9e4;
-    border: 1px solid rgba(135, 222, 255, 0.22); border-radius: 999px; padding: 4px 12px;
-    background: rgba(6, 28, 48, 0.6); cursor: pointer; transition: all 0.2s ease;
+    min-width: 0; min-height: 42px; padding: 7px 10px 7px 12px;
+    display: grid; grid-template-columns: 11px minmax(0, 1fr); grid-template-rows: auto auto;
+    column-gap: 8px; align-items: center; text-align: left;
+    font: 11px/1.25 var(--font-mono); letter-spacing: 0.03em; color: #a4c9e4;
+    border: 1px solid rgba(135, 222, 255, 0.22); border-radius: 10px;
+    background: rgba(6, 28, 48, 0.6); pointer-events: none; user-select: none;
   }
-  .sound-tag:hover, .sound-tag:focus-visible, .sound-tag.loaded { color: #d9fbff; border-color: rgba(56, 248, 212, 0.6); background: rgba(56, 248, 212, 0.16); box-shadow: 0 0 12px rgba(56, 248, 212, 0.25); }
-  .sound-tag.on { color: #021a14; background: var(--cyan); border-color: var(--cyan); font-weight: 700; box-shadow: 0 0 16px rgba(56, 248, 212, 0.5); }
+  .sound-tag::before { content: ""; grid-row: 1 / span 2; width: 11px; height: 11px; border-radius: 50%; background: #557481; box-shadow: 0 0 0 3px rgba(85,116,129,.12); }
+  .sound-tag-label { display: block; min-width: 0; color: #d9fbff; font-weight: 700; }
+  .sound-tag-status { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #83aab7; font-size: 9px; }
+  .sound-tag[data-state="playing"] { border-color: rgba(56, 248, 212, 0.62); background: rgba(56, 248, 212, 0.14); }
+  .sound-tag[data-state="playing"]::before { background: var(--cyan); box-shadow: 0 0 0 3px rgba(56,248,212,.15), 0 0 10px rgba(56,248,212,.55); }
+  .sound-tag[data-state="paused"]::before { background: #ffd166; box-shadow: 0 0 0 3px rgba(255,209,102,.14); }
 
   .voice-echo-link {
     grid-column: 1 / -1; justify-content: center; min-height: 40px; font-size: 13px; font-weight: 700;
@@ -638,6 +645,7 @@
     box-shadow: 0 8px 30px rgba(56, 248, 212, 0.65); transform: translateY(-1.5px);
   }
   .voice-echo-link.on { animation: voiceEchoPulse 1.4s ease-in-out infinite; }
+  .voice-echo-link.paused { background: linear-gradient(135deg, #ffe08a, #ffc56b); color: #281b04; border-color: #ffd166; box-shadow: 0 6px 22px rgba(255, 209, 102, 0.34); }
   @keyframes voiceEchoPulse {
     0%, 100% { box-shadow: 0 4px 16px rgba(56, 248, 212, 0.35); }
     50% { box-shadow: 0 4px 28px rgba(27, 231, 255, 0.8); }
@@ -719,7 +727,7 @@
   }
   .ask-assistant-link:hover { color: #fff; border-color: #8df8ff; background: linear-gradient(135deg, rgba(31, 128, 180, 0.58), rgba(56,248,212,0.26)); }
   .ask-assistant-link:focus-visible, .atlas-chat-close:focus-visible, .atlas-chat-clear:focus-visible, .chat-chip:focus-visible,
-  .chat-send:focus-visible, .chat-stop:focus-visible, .chat-regenerate:focus-visible, #atlasChatInput:focus-visible {
+  .chat-send:focus-visible, .chat-stop:focus-visible, #atlasChatInput:focus-visible {
     outline: 2px solid #fff; outline-offset: 3px;
   }
   #infoCard.chat-hidden { opacity: 0 !important; pointer-events: none !important; transform: translateY(-50%) translateX(38px) !important; }
@@ -762,9 +770,6 @@
   .chat-message-content p:last-child { margin-bottom: 0; }
   .chat-message-content code { padding: 1px 5px; border-radius: 5px; color: #fff1b4; background: rgba(255,224,130,0.10); font: 0.92em var(--font-mono); }
   .source-badge { display: inline-flex; vertical-align: 1px; margin: 0 2px; padding: 1px 5px; border: 1px solid rgba(56,248,212,0.45); border-radius: 999px; color: var(--cyan); font: 700 9px/1.4 var(--font-mono); }
-  .chat-message-tools { display: flex; gap: 8px; }
-  .chat-regenerate { padding: 0; border: 0; background: none; color: #8eb5ca; font: 10px var(--font-sans); cursor: pointer; }
-  .chat-regenerate:hover { color: var(--cyan); }
   .chat-typing { display: inline-flex; gap: 4px; align-items: center; min-height: 14px; }
   .chat-typing i { width: 4px; height: 4px; border-radius: 50%; background: var(--cyan); animation: chatDot 0.9s ease-in-out infinite alternate; }
   .chat-typing i:nth-child(2) { animation-delay: 0.16s; } .chat-typing i:nth-child(3) { animation-delay: 0.32s; }
@@ -1318,7 +1323,7 @@
   .gesture-card {
     display: flex; align-items: flex-start; gap: 14px; padding: 18px; border-radius: 18px;
     background: rgba(6, 24, 40, 0.6); border: 1px solid rgba(135, 222, 255, 0.15);
-    cursor: pointer; transition: all 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: border-color 0.26s ease, background 0.26s ease;
     position: relative; overflow: hidden;
   }
   .gesture-card::before {
@@ -1326,19 +1331,7 @@
     background: radial-gradient(circle at 30% 30%, rgba(56, 248, 212, 0.18), transparent 70%);
     transition: opacity 0.3s ease; pointer-events: none;
   }
-  .gesture-card:hover {
-    border-color: var(--cyan); background: rgba(6, 28, 48, 0.9);
-    transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 248, 212, 0.2);
-  }
-  .gesture-card:hover::before { opacity: 1; }
-
-  .gesture-card[data-act="palm"]:hover { border-color: #38f8d4; }
-  .gesture-card[data-act="fist"]:hover { border-color: #ffb547; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 181, 71, 0.25); }
-  .gesture-card[data-act="ok"]:hover { border-color: #38f8d4; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 248, 212, 0.35); }
-  .gesture-card[data-act="like"]:hover { border-color: #38f8d4; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 248, 212, 0.25); }
-  .gesture-card[data-act="wave-left"]:hover { border-color: #1be7ff; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(27, 231, 255, 0.25); }
-  .gesture-card[data-act="point"]:hover { border-color: #60a5fa; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(96, 165, 250, 0.25); }
-  .gesture-card[data-act="call"]:hover { border-color: #a78bfa; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(167, 139, 250, 0.25); }
+  .gesture-card:hover { border-color: rgba(56, 248, 212, 0.42); background: rgba(6, 28, 48, 0.78); }
 
   .g-icon-box {
     width: 66px; height: 66px; border-radius: 16px;
@@ -1421,7 +1414,6 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    cursor: pointer;
     position: relative;
     overflow: hidden;
     transition: all 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -1434,13 +1426,7 @@
     opacity: 0.6;
     transition: opacity 0.3s ease;
   }
-  .guide-easter-egg:hover {
-    border-style: solid;
-    border-color: #38f8d4;
-    transform: translateY(-2px);
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 30px rgba(56, 248, 212, 0.25);
-  }
-  .guide-easter-egg:hover::before { opacity: 1; }
+  .guide-easter-egg::after { content: "摄像头识别"; flex-shrink: 0; color: #ffe082; font: 700 9px/1 var(--font-mono); letter-spacing: .08em; border: 1px solid rgba(255,224,130,.36); border-radius: 999px; padding: 5px 8px; }
   .gee-icon-wrap {
     width: 48px;
     height: 48px;
@@ -1478,18 +1464,6 @@
     border: 1px solid rgba(255, 224, 130, 0.4);
   }
   .gee-desc { font-size: 12px; color: #b8e2f8; line-height: 1.45; margin: 0; }
-  .guide-easter-egg .g-test-tag {
-    flex-shrink: 0;
-    margin-top: 0;
-    background: rgba(255, 224, 130, 0.15);
-    border-color: rgba(255, 224, 130, 0.4);
-    color: #ffe082;
-  }
-  .guide-easter-egg:hover .g-test-tag {
-    background: #ffe082;
-    color: #031220;
-    box-shadow: 0 0 12px rgba(255, 224, 130, 0.6);
-  }
   @media (max-width: 680px) {
     .guide-easter-egg { flex-direction: column; align-items: flex-start; gap: 10px; }
   }
@@ -1504,15 +1478,6 @@
   }
   .g-desc { font-size: 12px; color: #d6ecf7; line-height: 1.5; margin-bottom: 5px; }
   .g-tip { font-size: 11px; color: var(--ink-dim); line-height: 1.4; }
-  .g-test-tag {
-    font-size: 10.5px; font-weight: 600; color: var(--cyan); margin-top: 8px;
-    display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
-    border-radius: 999px; background: rgba(56, 248, 212, 0.1); border: 1px solid rgba(56, 248, 212, 0.25);
-    transition: all 0.2s ease;
-  }
-  .gesture-card:hover .g-test-tag {
-    background: var(--cyan); color: #021a14; box-shadow: 0 0 10px var(--cyan);
-  }
 
   /* 响应式断点 */
  @media (max-width: 768px) {
@@ -1735,8 +1700,7 @@
  /* 卡脚阅读顺序：声音预载 → 操作区 → 图片来源脚注 */
  .card-footer{padding-top:12px;gap:11px}
  #soundTags{order:1;margin-bottom:0}
- .sound-tag{display:inline-flex;align-items:center;gap:6px}
- .sound-tag::before{content:"";width:11px;height:7px;flex:none;border-radius:1px;background:repeating-linear-gradient(90deg,currentColor 0 1.5px,transparent 1.5px 3.5px);opacity:.85}
+ .sound-tag{display:grid;align-items:center}
  .card-actions{order:2}
  .credit-block{order:3;justify-content:flex-start;gap:8px;margin-top:1px}
  /* 操作区分组：讲述（主） / 助手·观测 / 海报·来源 / 返回（导航） */
@@ -1810,6 +1774,10 @@
  .gbif-observation-mode #gbifModeControl{display:flex}
  .gbif-observation-mode.atlas-planet-mode #infoCard{display:none!important}
  .gbif-observation-mode.atlas-planet-mode #photoBox{visibility:hidden!important;pointer-events:none!important}
+ .gbif-mode-badge{display:none;position:fixed;left:50%;top:76px;transform:translateX(-50%);z-index:35;align-items:center;gap:9px;padding:7px 12px;border:1px solid rgba(255,209,102,.48);border-radius:999px;background:rgba(28,18,7,.9);color:#ffe8b0;box-shadow:0 8px 22px rgba(0,0,0,.35);pointer-events:none}
+ .gbif-mode-badge.visible{display:inline-flex}
+ .gbif-mode-badge strong{font:700 10px/1 var(--font-sans);letter-spacing:.04em;color:#fff2c6}
+ .gbif-mode-badge span{font:600 9px/1 var(--font-mono);color:#d4b878}
  @media(max-width:900px){
    #gbifLegend{left:50%;right:auto;top:auto;bottom:calc(67px + 56px);transform:translateX(-50%);width:calc(100vw - 36px);min-width:0}
    .gbif-legend-items{gap:9px}
@@ -2050,12 +2018,16 @@
         <span class="credit-label">IMAGE SOURCE</span>
         <span id="photoCredit">NOAA Fisheries</span>
       </div>
-      <div id="soundTags" class="sound-tags" aria-label="声音资源">
-        <button class="sound-tag" type="button" data-kind="voice" title="悬浮或触摸预载动物独白">动物独白</button>
-        <button class="sound-tag" type="button" data-kind="ambience" title="悬浮或触摸预载栖息地环境声">栖息地环境声</button>
+      <div id="soundTags" class="sound-tags" aria-label="声音资源状态">
+        <div class="sound-tag" data-kind="voice" data-state="idle" role="status" aria-disabled="true" aria-label="动物独白状态">
+          <span class="sound-tag-label">动物独白</span><small class="sound-tag-status">由“听它讲述”控制</small>
+        </div>
+        <div class="sound-tag" data-kind="ambience" data-state="idle" role="status" aria-disabled="true" aria-label="栖息地环境声状态">
+          <span class="sound-tag-label">栖息地环境声</span><small class="sound-tag-status">随物种档案淡入</small>
+        </div>
       </div>
        <div class="card-actions">
-         <button class="card-link primary voice-echo-link" id="voiceEchoBtn" type="button" title="播放当前动物独白并驱动粒子声纹">
+         <button class="card-link primary voice-echo-link" id="voiceEchoBtn" type="button" title="播放当前动物独白并驱动粒子声纹" aria-label="播放当前动物独白">
            <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4"/><path d="M8 7v10"/><path d="M12 4v16"/><path d="M16 7v10"/><path d="M20 10v4"/></svg></span>
            <span class="action-label">听它讲述</span>
          </button>
@@ -2064,7 +2036,7 @@
           <span class="gbif-toggle-emblem action-icon" aria-hidden="true">
            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-16 12 12)" opacity=".85"/><circle class="gbif-sat-dot" cx="20.2" cy="8.9" r="1.15" fill="#38f8d4" stroke="none"/><path d="M2.6 13.6a9.6 9.6 0 0 0 3.4 5" opacity=".5"/></svg>
           </span>
-          <span class="gbif-toggle-copy"><strong id="gbifToggleText">观测分布</strong><small>全球观测层</small></span>
+          <span class="gbif-toggle-copy"><strong id="gbifToggleText">查看观测分布</strong><small>当前物种 · GBIF 记录</small></span>
          </button>
          <button class="card-link" id="shareBtn" type="button" title="生成当前物种的科普海报" aria-label="生成科普海报"><span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.4"/><path d="m6.5 17 4.2-4.2 2.8 2.8 1.8-1.8 2.2 2.2"/></svg></span><span class="action-label">生成科普海报</span></button>
          <a class="card-link" id="sourceLink" href="#" target="_blank" rel="noopener"><span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 5h5v5"/><path d="m19 5-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></span><span class="action-label">权威来源</span></a>
@@ -2129,9 +2101,10 @@
     <div class="gbif-legend-note"><strong>怎么看：</strong>同一海域的位置会合并为一个聚集区；靶心大小与数字表示本次显示的位置数。浅色点列只是地球轮廓参考，不是观测数据。</div>
   </aside>
 
-  <button id="gbifModeControl" class="gbif-mode-control ui" type="button" aria-pressed="true" title="关闭全球观测图层">
+  <div id="gbifModeBadge" class="gbif-mode-badge" role="status" aria-live="polite"><strong>观测模式 · 已开启</strong><span>橙色点 = 当前物种观测分布</span></div>
+  <button id="gbifModeControl" class="gbif-mode-control ui" type="button" aria-pressed="false" title="开启全球观测模式">
     <span class="gbif-mode-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.2 2.4 3.3 5.2 3.3 8.5s-1.1 6.1-3.3 8.5c-2.2-2.4-3.3-5.2-3.3-8.5s1.1-6.1 3.3-8.5Z"/></svg></span>
-    <span class="gbif-mode-control-copy"><strong>观测模式</strong><small id="gbifModeControlText">关闭图层</small></span>
+    <span class="gbif-mode-control-copy"><strong>观测模式</strong><small id="gbifModeControlText">显示全球记录</small></span>
   </button>
 
   <!-- 底部物种轮播导航 -->
@@ -2201,12 +2174,12 @@
 
       <div class="guide-banner">
         <span class="guide-banner-icon">✦</span>
-        <span><b>操作秘诀</b>：将手掌置于摄像头前 <b>40~70 厘米</b> 处，保持光线充足。记住六个核心手势即可畅游深海；在地球上<b>竖个大拇指试试 👍</b>，或许会触发深海隐藏的终极浪漫...</span>
+        <span><b>识别提示</b>：将手掌置于摄像头前 <b>40~70 厘米</b> 处，保持光线充足。摄像头会识别六个核心手势，实时控制下潜、切换与音乐。</span>
       </div>
 
       <div class="gesture-grid">
         <!-- 1. palm -->
-        <div class="gesture-card" data-act="palm" title="点击立即模拟持续张开手掌">
+        <div class="gesture-card" data-act="palm">
           <div class="g-icon-box">
             <svg class="g-svg anim-palm" viewBox="0 0 48 48">
               <!-- 手掌与五指轮廓 -->
@@ -2230,12 +2203,11 @@
             <div class="g-meta"><span class="g-name">张开手掌 · 打开物种档案</span><span class="g-code">palm</span></div>
             <div class="g-desc">五指自然张开并保持约 1 秒，进入物种档案页并完成显影。</div>
             <div class="g-tip">无需前后移动；光线充足、手掌完整出现在取景框内即可。</div>
-            <div class="g-test-tag"><span>▶ 点击模拟</span></div>
           </div>
         </div>
 
         <!-- 2. fist -->
-        <div class="gesture-card" data-act="fist" title="点击立即模拟握拳回收">
+        <div class="gesture-card" data-act="fist">
           <div class="g-icon-box">
             <svg class="g-svg anim-fist" viewBox="0 0 48 48">
               <!-- 紧握拳骨骼与掌形 -->
@@ -2253,12 +2225,11 @@
             <div class="g-meta"><span class="g-name">握紧拳头 · 返回地球</span><span class="g-code">fist</span></div>
             <div class="g-desc">五指收拢成拳并保持约 0.3 秒，关闭物种档案、回到蓝色地球。</div>
             <div class="g-tip">全局一键归零至地球待机态，解除所有锁定；鲸落期间可跳过动画。</div>
-            <div class="g-test-tag"><span>▶ 点击模拟</span></div>
           </div>
         </div>
 
         <!-- 3. ok -->
-        <div class="gesture-card" data-act="ok" title="点击立即模拟 OK 手势固定/解锁档案">
+        <div class="gesture-card" data-act="ok">
           <div class="g-icon-box">
             <svg class="g-svg anim-ok" viewBox="0 0 48 48">
               <!-- 拇指与食指捏合形成发光全息能量圆环 (OK 圈) -->
@@ -2283,12 +2254,11 @@
             <div class="g-meta"><span class="g-name">OK 手势 · 固定档案</span><span class="g-code">ok / pinch</span></div>
             <div class="g-desc">拇指与食指捏合成圈、其余三指自然伸开，锁定当前动物标本档案；再次比 OK 解除锁定。</div>
             <div class="g-tip">固定后可从容阅读故事与科考数据，左右挥掌不再误切；需在动物显影后使用。</div>
-            <div class="g-test-tag"><span>▶ 点击模拟</span></div>
           </div>
         </div>
 
         <!-- 4. palm swipe -->
-        <div class="gesture-card" data-act="wave-left" title="点击立即模拟手掌向左挥动">
+        <div class="gesture-card" data-act="wave-left">
           <div class="g-icon-box">
             <svg class="g-svg anim-wave" viewBox="0 0 48 48">
               <!-- 手掌与滑动轨迹波纹 -->
@@ -2301,15 +2271,14 @@
             </svg>
           </div>
           <div class="g-info">
-            <div class="g-meta"><span class="g-name">手掌左右挥 · 切换物种</span><span class="g-code">palm swipe</span></div>
-            <div class="g-desc">物种页面保持张掌，向左挥动进入下一物种，向右挥动返回上一物种。</div>
-            <div class="g-tip">只在 species 模式生效；需停稳居中后再进行下一次切换。</div>
-            <div class="g-test-tag"><span>▶ 点击模拟</span></div>
+            <div class="g-meta"><span class="g-name">巴掌左右挥 · 切换物种</span><span class="g-code">palm swipe</span></div>
+            <div class="g-desc">物种页面保持张掌：向左挥巴掌进入下一个物种，向右挥巴掌返回上一个物种。</div>
+            <div class="g-tip">只在 species 模式生效；停稳后再做下一次左右挥掌。</div>
           </div>
         </div>
 
         <!-- 5. point / one -->
-        <div class="gesture-card" data-act="point" title="点击立即模拟单指旋转地球">
+        <div class="gesture-card" data-act="point">
           <div class="g-icon-box">
             <svg class="g-svg anim-point" viewBox="0 0 48 48">
               <!-- 单伸食指手势 -->
@@ -2326,12 +2295,11 @@
             <div class="g-meta"><span class="g-name">单指移动 · 旋转地球</span><span class="g-code">one / point</span></div>
             <div class="g-desc">只伸出单根食指，连续确认后用食指尖在空中拖拽即可平滑旋转三维地球。</div>
             <div class="g-tip">只在 planet 模式生效；进入物种卡片后自动释放。</div>
-            <div class="g-test-tag"><span>▶ 点击模拟</span></div>
           </div>
         </div>
 
         <!-- 6. call -->
-        <div class="gesture-card" data-act="call" title="点击立即模拟启停音乐">
+        <div class="gesture-card" data-act="call">
           <div class="g-icon-box">
             <svg class="g-svg anim-call" viewBox="0 0 48 48">
               <!-- 经典 6/Call 电话手势（拇指+小指伸出） -->
@@ -2348,13 +2316,12 @@
             <div class="g-meta"><span class="g-name">电话六 · 启停音乐</span><span class="g-code">call</span></div>
             <div class="g-desc">伸出拇指与小指的“6/call”手势，控制深海空灵环境背景音乐的播放与暂停。</div>
             <div class="g-tip">内置《跃》深海空灵旋律与海洋生物水下录音。</div>
-            <div class="g-test-tag"><span>▶ 点击模拟</span></div>
           </div>
         </div>
       </div>
 
       <!-- 深海隐藏彩蛋横幅 (Easter Egg Teaser) -->
-      <div class="guide-easter-egg" data-act="like" title="点击立即揭晓深海隐藏彩蛋">
+      <div class="guide-easter-egg" data-act="like">
         <div class="gee-icon-wrap">
           <span class="gee-sparkle">✦</span>
           <span class="gee-thumb">👍</span>
@@ -2366,7 +2333,6 @@
           </div>
           <p class="gee-desc">在<b>蓝色自转地球</b>待机时，试着对摄像头<b>竖个大拇指 👍（比个赞试试）</b>，即可唤醒万千粒子聚成的深海巨鲸，亲眼见证巨鲸落幕化作百年绿洲的深海终极浪漫。</p>
         </div>
-        <div class="g-test-tag"><span>▶ 竖个大拇指试试 👍</span></div>
       </div>
     </section>
   </div>
@@ -3285,6 +3251,8 @@ const gbifClient = CONFIG.gbifLayer.enabled ? createGbifClient({
  fetchImpl: (...args) => window.fetch(...args),
  storage: gbifStorage,
  timeoutMs: CONFIG.gbifLayer.timeoutMs,
+ retryCount: 1,
+ retryDelayMs: 220,
  ttlMs: CONFIG.gbifLayer.ttlMs,
  maxPoints: CONFIG.gbifLayer.maxSpeciesPoints
 }) : null;
@@ -3496,6 +3464,8 @@ function updateGbifUi() {
   button.hidden = true;
   if (attribution) attribution.hidden = true;
   if (gbifLegend) gbifLegend.classList.remove("visible");
+  const modeBadge = $("#gbifModeBadge");
+  if (modeBadge) modeBadge.classList.remove("visible");
   return;
  }
  button.hidden = false;
@@ -3505,9 +3475,15 @@ function updateGbifUi() {
  const modeControl = $("#gbifModeControl");
  if (modeControl) {
   modeControl.setAttribute("aria-pressed", String(gbifLayerEnabled));
-  modeControl.title = gbifLayerEnabled ? "关闭全球观测图层" : "开启全球观测图层";
+  modeControl.title = gbifLayerEnabled ? "关闭观测模式" : "开启观测模式，显示全球记录";
   const modeText = $("#gbifModeControlText");
-  if (modeText) modeText.textContent = gbifLayerEnabled ? "关闭图层" : "开启图层";
+  if (modeText) modeText.textContent = gbifLayerEnabled ? "已开启 · 显示全球记录" : "显示全球记录";
+ }
+ const modeBadge = $("#gbifModeBadge");
+ if (modeBadge) {
+  modeBadge.classList.toggle("visible", gbifLayerEnabled && lifeMode === "planet");
+  const badgeDetail = modeBadge.querySelector("span");
+  if (badgeDetail) badgeDetail.textContent = gbifLayerLoading ? "正在读取当前物种观测分布" : "橙色点 = 当前物种观测分布";
  }
  button.setAttribute("aria-busy", String(gbifLayerLoading));
  button.setAttribute("aria-pressed", String(gbifLayerEnabled));
@@ -3516,13 +3492,13 @@ function updateGbifUi() {
  if (label) {
   label.textContent = gbifLayerLoading
    ? "读取观测…"
-   : "观测分布";
+   : "查看观测分布";
  }
  if (!attribution) return;
  attribution.hidden = !gbifLayerEnabled || gbifLayerLoading || !gbifLayerPointCount;
  if (gbifLayerSource === "gbif") attribution.textContent = `${loadedSpeciesName} · GBIF 实时记录 · 显示 ${gbifLayerPointCount} 个位置 · ${gbifLayerClusterCount} 个聚集区`;
  else if (gbifLayerSource === "cache") attribution.textContent = `${loadedSpeciesName} · GBIF ${gbifLayerStale ? "离线" : "本地"}缓存 · 显示 ${gbifLayerPointCount} 个位置 · ${gbifLayerClusterCount} 个聚集区`;
- else attribution.textContent = `${loadedSpeciesName} · GBIF 暂不可用 · 显示档案栖息地`;
+ else attribution.textContent = `${loadedSpeciesName} · 档案参考点 · 显示 ${gbifLayerPointCount} 个位置 · ${gbifLayerClusterCount} 个聚集区`;
  if (gbifLegend) {
   const inPlanetMode = !document.body.classList.contains("atlas-species-mode");
   gbifLegend.classList.toggle("visible", gbifLayerEnabled && inPlanetMode);
@@ -3584,7 +3560,7 @@ async function loadGbifForCurrentSpecies({ force = false } = {}) {
  gbifLayerLoading = false;
  updateGbifUi();
  triggerSonarRipples();
- if (result.source === "fallback") toast("GBIF 暂不可用，已显示档案中的代表性栖息地");
+ if (result.source === "fallback") toast("已显示档案参考点，观测分布仍可继续浏览");
 }
 
 // 用户锁定物种后后台缓存其观测数据，之后打开观测分布可命中缓存；单请求、非批量预热。
@@ -3626,7 +3602,7 @@ async function preheatGbifSequence(speciesIndices, runId) {
 }
 
 $("#gbifToggle")?.addEventListener("click", () => {
- stopDemo("查看了观测分布");
+ stopDemo("查看当前物种观测分布");
  const returnToPlanet = lifeMode === "species" && !gbifLayerEnabled;
  toggleGbifLayer();
  if (returnToPlanet && gbifLayerEnabled) {
@@ -3636,9 +3612,9 @@ $("#gbifToggle")?.addEventListener("click", () => {
  }
 });
 $("#gbifModeControl")?.addEventListener("click", () => {
- stopDemo("关闭了观测分布");
+ stopDemo("切换观测模式");
  toggleGbifLayer();
- toast(gbifLayerEnabled ? "已开启全球观测图层" : "已关闭全球观测图层");
+ toast(gbifLayerEnabled ? "观测模式已开启 · 显示全球观测分布" : "观测模式已关闭 · 返回普通地球视图");
 });
 updateGbifUi();
 
@@ -5646,25 +5622,12 @@ function renderAtlasChatWelcome() {
  addAtlasChatMessage("assistant", "我会结合当前物种档案与海洋保护知识回答。你想先了解什么？");
 }
 
-function addRegenerateButton(answer, question) {
- const tools = document.createElement("div");
- tools.className = "chat-message-tools";
- const button = document.createElement("button");
- button.type = "button";
- button.className = "chat-regenerate";
- button.textContent = "↻ 重新生成";
- button.addEventListener("click", () => sendAtlasQuestion(question));
- tools.appendChild(button);
- answer.article.appendChild(tools);
-}
-
 function settleActiveChatAnswer(stopped = false) {
  if (!activeChatAnswer) return;
  if (activeChatAnswer.content) {
   const suffix = stopped ? "\n\n（已停止生成）" : "";
   activeChatAnswer.body.innerHTML = renderSafeMarkdown(activeChatAnswer.content + suffix);
   chatHistory.push({ role: "assistant", content: activeChatAnswer.content + suffix });
-  addRegenerateButton(activeChatAnswer, activeChatAnswer.question);
  } else {
   activeChatAnswer.article.remove();
  }
@@ -7177,86 +7140,6 @@ $("#guideBtn").addEventListener("click", () => { stopDemo("查看了手势图鉴
 $("#closeGuide").addEventListener("click", closeGestureGuide);
 guide.addEventListener("pointerdown", e => { if (e.target === guide) closeGestureGuide(); });
 
-function simulateGestureAction(act) {
-  stopDemo("检测到图鉴模拟操作");
-  if (act === "palm") {
-  if (uiState === "species" || uiState === "whaleFall") {
-  toast("palm：仅 planet 模式显影");
-  return;
-  }
-  if (uiState === "planet" || uiState === "returning") uiState = "diving";
-   targetZoom = 0.92;
-  toast("已模拟稳定张开手掌：进入连续显影预览");
-  } else if (act === "fist") {
-  if (uiState === "whaleFall") {
-  endWhaleFall(true);
-  toast("已模拟握拳：跳过鲸落彩蛋 · 回到地球");
-  } else {
-  targetZoom = 0; detailLocked = false;
-  renderDetailState();
-  uiState = lifeMode === "species" ? "returning" : "planet";
-  toast("已模拟握拳：重归自转地球");
-  }
-  } else if (act === "like") {
-  if (triggerWhaleFall()) {
-    toast("✨ 唤醒深海隐藏彩蛋 · 一鲸落 · 万物生");
-  } else {
-    toast(uiState === "whaleFall" ? "✨ 鲸落彩蛋播放中 · 生于蔚蓝 归于虚无" : "竖大拇指：深海隐藏彩蛋仅在地球待机模式触发 · 冷却 5 秒");
-  }
-  } else if (act === "peace") {
-  if (uiState === "species" && detailLocked) {
-  toast("peace：档案已固定 · 先做 OK 手势解除后再切换");
-  } else if (uiState === "species") {
-  switchSpecies(1);
-  toast("已模拟 peace：向右滑切换下一物种");
-  } else {
-  toast("peace：仅在 species 模式左右移动切换动物");
-  }
-  } else if (act === "ok") {
-  if (uiState === "species" && !detailLocked && targetZoom < 0.90) {
-  toast("ok：先让动物完整显影再固定");
-  } else if (uiState === "species") {
-  detailLocked = !detailLocked;
-  renderDetailState();
-  toast(detailLocked ? "已模拟 OK：固定当前动物档案" : "已模拟 OK：解除固定");
-  } else {
-  toast("ok：仅在 species 模式固定/解除动物");
-  }
-  } else if (act === "pinch") {
-   if (lifeMode === "planet" && uiState === "planet") {
-  dragYaw += 0.35;
-  dragVelocityX = 0.02;
-  toast("已模拟 pinch：地球向右旋转");
-  } else {
-  toast("pinch：仅在 planet 模式移动旋转地球");
-  }
-  } else if (act === "call") {
-  if (uiState === "whaleFall") {
-  toast("call：鲸落动画期间锁定");
-  } else {
-  toggleBgm();
-  }
-  }
-  else if (act === "point") {
-   if (lifeMode === "planet" && uiState === "planet") {
-    dragYaw += 0.35;
-    dragVelocityX = 0.02;
-    toast("已模拟单指移动：旋转地球");
-   } else {
-    toast("单指移动仅在地球页面旋转地球");
-   }
-  } else if (act === "wave-left") {
-   if (uiState === "species" && detailLocked) {
-    toast("左右挥掌：档案已固定 · 先做 OK 手势解除后再切换");
-   } else if (uiState === "species") {
-    switchSpecies(1);
-    toast("已模拟手掌向左挥：下一物种");
-   } else {
-    toast("左右挥掌仅在动物页面切换物种");
-   }
-  }
-}
-
 function simulateParticleTransition(preset) {
  if (!Object.prototype.hasOwnProperty.call(PARTICLE_TRANSITION_DURATIONS, preset)) return false;
  if (preset === "tide") {
@@ -7286,18 +7169,24 @@ function pointToSelect(xFrac) {
  if (idx !== speciesIdx) switchSpeciesTo(idx);
 }
 
-document.querySelectorAll(".gesture-card, .guide-easter-egg").forEach(card => {
- card.addEventListener("click", () => {
- simulateGestureAction(card.dataset.act);
- });
-});
-
 /* ================= 声纹回响：独白播放时由现有音频能量驱动粒子与声呐光环 ================= */
 const voiceEchoBtn = $("#voiceEchoBtn");
 if (voiceEchoBtn) {
  voiceEchoBtn.addEventListener("click", async () => {
   recordUserInteraction();
   stopDemo("检测到声纹回响操作");
+  const currentState = soundscape.getState();
+  if (currentState.voicePlaying) {
+   soundscape.pauseKind("voice");
+   renderSoundTags();
+   return;
+  }
+  if (currentState.voicePaused) {
+   const resumed = await soundscape.resumeKind("voice");
+   renderSoundTags();
+   if (!resumed) toast("独白暂时无法继续，请再次点击重试");
+   return;
+  }
   const species = SPECIES[speciesIdx];
   // 先作废在途的自动独白（revealComplete/切种路径），否则本次播放会被代次机制判为 interrupted
   soundscape.stopKind("voice");
@@ -7316,6 +7205,7 @@ if (voiceEchoBtn) {
    voiceEchoBtn.classList.remove("on");
    toast(result?.unavailable ? "浏览器阻止了音频播放，点击重试" : "当前动物独白暂不可用");
   }
+  renderSoundTags();
  });
 }
 
@@ -7482,36 +7372,42 @@ async function toggleBgm() {
 bgmBtn.addEventListener("click", toggleBgm);
 
 /* 可用声音资源：悬浮、聚焦或触摸时预载，离开后保留缓存。 */
-const SOUND_KIND_LABELS = {
- voice: "动物独白",
- ambience: "栖息地环境声"
-};
 function renderSoundTags() {
  const tagsEl = $("#soundTags");
  if (!tagsEl) return;
  const soundState = soundscape.getState();
- voiceEchoBtn?.classList.toggle("on", soundState.voicePlaying);
+ const voiceState = soundState.voicePlaying ? "playing" : soundState.voicePaused ? "paused" : "idle";
+ if (voiceEchoBtn) {
+  const voiceLabel = voiceEchoBtn.querySelector(".action-label");
+  const voiceIcon = voiceEchoBtn.querySelector(".action-icon");
+  voiceEchoBtn.classList.toggle("on", voiceState === "playing");
+  voiceEchoBtn.classList.toggle("paused", voiceState === "paused");
+  voiceEchoBtn.dataset.state = voiceState;
+  voiceEchoBtn.setAttribute("aria-pressed", String(voiceState === "playing"));
+  const copy = voiceState === "playing" ? "暂停独白" : voiceState === "paused" ? "继续独白" : "听它讲述";
+  voiceLabel && (voiceLabel.textContent = copy);
+  voiceEchoBtn.setAttribute("aria-label", copy);
+  voiceEchoBtn.title = voiceState === "playing" ? "暂停当前动物独白" : voiceState === "paused" ? "从暂停位置继续动物独白" : "播放当前动物独白并驱动粒子声纹";
+  if (voiceIcon) voiceIcon.innerHTML = voiceState === "playing"
+   ? '<svg viewBox="0 0 24 24"><path d="M7 5v14M17 5v14"/></svg>'
+   : voiceState === "paused"
+    ? '<svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>'
+    : '<svg viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>';
+ }
  for (const kind of ["voice", "ambience"]) {
   const tag = tagsEl.querySelector(`[data-kind="${kind}"]`);
   if (!tag) continue;
-  tag.textContent = SOUND_KIND_LABELS[kind] || kind;
-  tag.classList.toggle("on", kind === "voice" ? soundState.voicePlaying : soundscape.getKindState(kind) === "playing");
-  tag.classList.remove("loaded");
+  const state = kind === "voice" ? voiceState : soundscape.getKindState(kind) === "playing" ? "playing" : "idle";
+  tag.dataset.state = state;
+  const status = tag.querySelector(".sound-tag-status");
+  if (status) status.textContent = kind === "voice"
+   ? (state === "playing" ? "播放中 · 点击主按钮暂停" : state === "paused" ? "已暂停 · 可继续" : "由“听它讲述”控制")
+   : (state === "playing" ? "随档案淡入 · 播放中" : "随物种档案自动淡入");
  }
 }
 function onSoundscapeStatus() {
  renderSoundTags();
 }
-document.querySelectorAll("#soundTags [data-kind]").forEach(tag => {
- const preload = async () => {
-  const kind = tag.dataset.kind;
-  const loaded = await soundscape.preloadTrack(kind, SPECIES[speciesIdx].soundscape?.[kind]);
-  tag.classList.toggle("loaded", loaded);
- };
- tag.addEventListener("pointerenter", preload);
- tag.addEventListener("focus", preload);
- tag.addEventListener("pointerdown", preload);
-});
 
 /* ================= 摄像头手势识别：浏览器端 MediaPipe Hands（21 关键点 → 12 类手势） ================= */
 const video = $("#webcam"), canvasDet = $("#detCanvas"), ctxDet = canvasDet.getContext("2d");
@@ -7615,8 +7511,7 @@ function stopGesture() {
  gestureRunning = false;
  resetPalmHold();
   resetPinchTracking();
-  resetPeaceTracking();
-  resetDiscreteGestureHold();
+ resetDiscreteGestureHold();
  if (gestureStream) {
  gestureStream.getTracks().forEach(t => t.stop());
  gestureStream = null;
@@ -7703,7 +7598,6 @@ function startLandmarkLoop() {
 /* ================= 手势投票防抖状态 ================= */
 const ACTION_COOLDOWN_MS = 700;
 const DISCRETE_HOLD_MS = 300;
-const PEACE_ARM_MS = 220;
 let lastFiredGesture = null, emptyStreak = 0;
 let discreteGestureName = null, discreteGestureStartedAt = 0, discreteGestureLastSeenAt = 0;
 let palmStartedAt = null, palmLastSeenAt = 0, palmCueShown = false, palmStartZoom = 0;
@@ -7749,7 +7643,6 @@ function updatePalmCandidate(name, now) {
  if (palmCandidateStartedAt !== null && now - palmCandidateLastSeenAt <= PALM_GLITCH_GRACE_MS) return;
  resetPalmHold();
 }
-let peaceStartX = null, peaceStartAt = 0;
 const PINCH_ROTATE_CONFIRM_FRAMES = 3;
 let pinchTracking = false, pinchVotes = 0, pinchLastX = null, pinchLastY = null;
 const INDEX_ROTATE_CONFIRM_FRAMES = 2;
@@ -7767,11 +7660,6 @@ function resetIndexTracking() {
  indexVotes = 0;
  indexLastX = null;
  indexLastY = null;
-}
-
-function resetPeaceTracking() {
- peaceStartX = null;
- peaceStartAt = 0;
 }
 
 function handlePlanetPinch(cx, cy) {
@@ -7851,7 +7739,6 @@ function handleServerGesture(data) {
   resetDiscreteGestureHold();
   resetPinchTracking();
   resetIndexTracking();
-  resetPeaceTracking();
   }
   if (emptyStreak >= 6) resetPalmHold();
   // 手暂时离开镜头只暂停手势追踪，不改变当前页面。
@@ -7883,11 +7770,10 @@ function handleServerGesture(data) {
   const conf = Math.round(top.conf * 100);
   updatePalmCandidate(name, now);
   if (lastFiredGesture && name !== lastFiredGesture) lastFiredGesture = null;
-  const publicGesture = ["pinch", "palm", "peace", "fist", "call", "like", "ok", "one", "point"].includes(name);
+  const publicGesture = ["pinch", "palm", "fist", "call", "like", "ok", "one", "point"].includes(name);
   $("#gestureReadout").textContent = publicGesture ? `${name} (${conf}%)` : `已识别 · 未绑定公开动作 (${conf}%)`;
   if (name !== "pinch") resetPinchTracking();
   if (name !== "one" && name !== "point") resetIndexTracking();
-  if (name !== "peace") resetPeaceTracking();
 
   // 地球模式：只伸食指即可直接拖动。使用食指尖而不是检测框中心，
   // 这样手腕轻微晃动不会盖过真正的指向轨迹。
@@ -7973,7 +7859,12 @@ function handleServerGesture(data) {
   } else {
    palmWavePendingDirection = Math.abs(screenTravel) > 18 ? pendingDirection : 0;
   }
-  $("#gestureReadout").textContent = `palm (${conf}%) · ${palmWavePendingDirection ? "挥动确认中" : "左右挥掌切换动物"}`;
+  const waveHint = palmWavePendingDirection > 0
+    ? "左挥确认中 · 下一物种"
+    : palmWavePendingDirection < 0
+      ? "右挥确认中 · 上一物种"
+      : "左挥下一物种 · 右挥上一物种";
+  $("#gestureReadout").textContent = `palm (${conf}%) · ${waveHint}`;
   return;
  }
  if (detailLocked) {
@@ -7999,39 +7890,12 @@ function handleServerGesture(data) {
   return;
   }
 
-  // 2. peace 只在 species 模式中横向移动切换动物（diving 中暂停）。
+  // 2. peace（剪刀手）不承担物种切换；物种翻页只允许张开手掌左右挥。
   if (name === "peace") {
-  if (uiState !== "species") {
-  resetPeaceTracking();
   resetDiscreteGestureHold();
-  $("#gestureReadout").textContent = "peace (" + conf + "%) · 仅 species 模式切换动物";
-  return;
-  }
-  if (detailLocked) {
-  // 档案已固定（pin 点击 / OK 手势）：peace 不再切换动物。
-  resetPeaceTracking();
-  resetDiscreteGestureHold();
-  $("#gestureReadout").textContent = `peace (${conf}%) · 档案已固定 · 做 OK 手势解除后可切换`;
-  return;
-  }
-  const holdMs = updateDiscreteGestureHold("peace", now);
-  const cx = (x1 + x2) / 2;
-  if (holdMs < PEACE_ARM_MS) {
-  $("#gestureReadout").textContent = `peace (${conf}%) · 准备滑动 ${(Math.min(holdMs, PEACE_ARM_MS) / 1000).toFixed(1)}s`;
-  return;
-  }
-  if (peaceStartX === null) { peaceStartX = cx; peaceStartAt = now; }
-  const travel = cx - peaceStartX;
-  if (Math.abs(travel) > 36 && now - peaceStartAt < 900 && now - lastGestureActionTime > 520) {
-  const screenTravel = -travel;
-  switchSpecies(screenTravel < 0 ? 1 : -1);
-  toast(screenTravel < 0 ? "peace：向左滑，下一物种" : "peace：向右滑，上一物种");
-  lastGestureActionTime = now;
-  peaceStartX = cx; peaceStartAt = now + 280;
-  } else if (now - peaceStartAt > 950) {
-  peaceStartX = cx; peaceStartAt = now;
-  }
-  $("#gestureReadout").textContent = `peace (${conf}%) · ${Math.abs(travel) > 48 ? "已切换" : "左右移动切换动物"}`;
+  $("#gestureReadout").textContent = uiState === "species"
+    ? `peace (${conf}%) · 请改用张开手掌左右挥切换物种`
+    : `peace (${conf}%) · 物种切换使用张开手掌左右挥`;
   return;
   }
 
@@ -8144,10 +8008,9 @@ window.switchSpeciesTo = switchSpeciesTo;
 window.switchSpecies = switchSpecies;
 window.handleServerGesture = handleServerGesture;
 
-/* 调试台：window.__SIM.action(name) 模拟三帧确认后的手势动作 */
+/* 调试台：仅保留转场验证，不模拟手势动作 */
 window.__SIM = {
- action: name => simulateGestureAction(name),
- transition: preset => simulateParticleTransition(preset),
+  transition: preset => simulateParticleTransition(preset),
  transitionPresets: Object.keys(PARTICLE_TRANSITION_DURATIONS),
  transitionDurations: { ...PARTICLE_TRANSITION_DURATIONS }
 };

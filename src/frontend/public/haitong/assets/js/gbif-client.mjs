@@ -40,6 +40,8 @@ export function createGbifClient({
   now = Date.now,
   random = Math.random,
   timeoutMs = 8000,
+  retryCount = 0,
+  retryDelayMs = 180,
   ttlMs = DEFAULT_TTL,
   maxPoints = 100,
   maxFailures = 2,
@@ -58,14 +60,23 @@ export function createGbifClient({
   }
 
   async function fetchJson(url) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetchImpl(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
-      if (!response?.ok) throw new Error(`GBIF HTTP ${response?.status ?? 0}`);
-      return await response.json();
-    } finally {
-      clearTimeout(timer);
+    let attempt = 0;
+    while (true) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetchImpl(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+        if (!response?.ok) throw new Error(`GBIF HTTP ${response?.status ?? 0}`);
+        return await response.json();
+      } catch (error) {
+        const status = Number(error?.message?.match(/GBIF HTTP (\d+)/)?.[1] || 0);
+        const transient = !status || status === 408 || status === 425 || status === 429 || status >= 500;
+        if (!transient || attempt >= retryCount) throw error;
+        attempt += 1;
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt));
+      } finally {
+        clearTimeout(timer);
+      }
     }
   }
 

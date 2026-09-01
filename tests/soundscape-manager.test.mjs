@@ -25,10 +25,12 @@ function createFakeAudioElement() {
     playsInline: false,
     crossOrigin: '',
     src: '',
+    paused: true,
+    currentTime: 0,
     playbackRate: 1,
     loop: false,
-    play: () => new Promise(() => {}),
-    pause() {},
+    play() { this.paused = false; return Promise.resolve(); },
+    pause() { this.paused = true; },
     load() {},
     removeAttribute() {},
     appendChild() {},
@@ -97,4 +99,26 @@ test('循环环境声在起播后保持 playing 状态', async () => {
   const result = await manager.playTrack('ambience', { sources: [VOICE_URL] }, { loop: true, replace: true });
   assert.equal(result.ok, true);
   assert.equal(manager.getState().kinds.ambience, 'playing');
+});
+
+test('独白暂停保留播放位置并可从原位置继续', async () => {
+  const manager = createTestManager();
+  const pending = manager.playTrack('voice', { sources: [VOICE_URL] }, { loop: false, replace: true });
+  await waitTick();
+
+  const [element] = [...manager.tracks.keys()];
+  element.currentTime = 12.5;
+  assert.equal(manager.pauseKind('voice'), true);
+  assert.equal(element.paused, true);
+  assert.equal(element.currentTime, 12.5);
+  assert.equal(manager.getState().voicePlaying, false);
+  assert.equal(manager.getState().voicePaused, true);
+
+  assert.equal(await manager.resumeKind('voice'), true);
+  assert.equal(element.paused, false);
+  assert.equal(manager.getState().voicePlaying, true);
+  assert.equal(manager.getState().voicePaused, false);
+
+  manager.stopKind('voice');
+  await pending;
 });
