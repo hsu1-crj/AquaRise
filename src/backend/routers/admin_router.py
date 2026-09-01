@@ -10,12 +10,13 @@
 """
 
 import os
+from datetime import datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from auth import get_user_modules, hash_password, require_permission
+from auth import get_user_modules, group_request_item, hash_password, is_super_admin, require_permission
 from database import get_db
 from models import (
     MODULE_KEYS,
@@ -26,6 +27,7 @@ from models import (
     DigitalHumanSession,
     FaceRecord,
     GroupModule,
+    GroupSwitchRequest,
     KnowledgeDoc,
     LoginSession,
     Notification,
@@ -47,7 +49,7 @@ from schemas import (
     AdminUserUpdateRequest,
     MessageResponse,
 )
-from services.notification_hub import hub
+from services.notification_hub import hub, notify
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -58,14 +60,7 @@ SUPER_ADMIN_CODE = "super_admin"
 
 
 # ============ 工具 ============
-def _is_super_admin(db: Session, user: User) -> bool:
-    """最高管理员：role=admin（种子账号），或被归入 super_admin 组的成员（实质拥有全量权限）。"""
-    if user.role == UserRole.admin:
-        return True
-    if not user.group_id:
-        return False
-    group = db.query(UserGroup).filter(UserGroup.id == user.group_id).first()
-    return bool(group and group.code == SUPER_ADMIN_CODE)
+_is_super_admin = is_super_admin  # 共享口径见 auth.py（role=admin 或 super_admin 组成员）
 
 
 def _group_item(db: Session, group: UserGroup) -> AdminGroupItem:
@@ -288,6 +283,8 @@ async def delete_user(
     db.query(DigitalHumanSession).filter(DigitalHumanSession.user_id == user.id).delete()
     # 通知（notifications.user_id 外键无级联，需显式删除，否则注销有通知的账号会 500）
     db.query(Notification).filter(Notification.user_id == user.id).delete()
+    # 换组申请（group_switch_requests.user_id 外键无级联，同通知一并显式删除）
+    db.query(GroupSwitchRequest).filter(GroupSwitchRequest.user_id == user.id).delete()
     # 知识库文档属共享资源：不随账号删除，仅清空归属（uploaded_by 可空外键）
     db.query(KnowledgeDoc).filter(KnowledgeDoc.uploaded_by == user.id).update({KnowledgeDoc.uploaded_by: None})
     # 3) 报告与结构化分析（HTML 文件尽力清理）——reports.task_id 外键引用检测任务，
@@ -397,3 +394,84 @@ async def delete_group(
     db.delete(group)  # group_modules 由 cascade=all, delete-orphan 连带清理
     db.commit()
     return MessageResponse(message=f"已删除用户组 {group.name}")
+
+# ============ 换组申请审批（个人中心申请 → 此处处理） ============
+@router.get("/group-requests")
+async def list_group_requests(
+    status: str = Query("pending", description="按状态过滤：pending / approved / rejected / all"),
+    current_user: User = AdminGuard,
+    db: Session = Depends(get_db),
+):
+    """换组申请列表：默认待审批，最新在前"""
+    q = db.query(GroupSwitchRequest)
+    if status != "all":
+        q = q.filter(GroupSwitchRequest.status == status)
+    rows = q.order_by(GroupSwitchRequest.created_at.desc(), GroupSwitchRequest.id.desc()).limit(50).all()
+    return {"items": [group_request_item(db, r) for r in rows]}
+
+
+def _load_pending_request(db: Session, request_id: int) -> GroupSwitchRequest:
+    req = db.query(GroupSwitchRequest).filter(GroupSwitchRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="换组申请不存在")
+    if req.status != "pending":
+        raise HTTPException(status_code=400, detail="该申请已处理，不能重复审批")
+    return req
+
+
+@router.post("/group-requests/{request_id}/approve", response_model=MessageResponse)
+async def approve_group_request(
+    request_id: int,
+    current_user: User = AdminGuard,
+    db: Session = Depends(get_db),
+):
+    """批准换组申请：申请人即刻调入目标组（权限实时生效），并收到铃铛通知"""
+    req = _load_pending_request(db, request_id)
+    user = db.query(User).filter(User.id == req.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="申请人账号已注销，无法批准")
+    group = db.query(UserGroup).filter(UserGroup.id == req.to_group_id).first()
+    if not group:
+        raise HTTPException(status_code=400, detail="目标用户组已不存在，无法批准")
+    if group.code == SUPER_ADMIN_CODE:
+        raise HTTPException(status_code=400, detail="不能通过申请把用户调入超级管理员组")
+    user.group_id = group.id
+    req.status = "approved"
+    req.handled_by = current_user.id
+    req.handled_at = datetime.now()
+    db.commit()
+    # 申请人在线时即时刷新权限快照（SSE 瞬时事件，不落库）
+    _broadcast_permissions_changed(user.id)
+    notify(
+        db, user.id, "group_change_approved",
+        "换组申请已批准",
+        f"你已加入「{group.name}」，可用功能已即时更新",
+        "profile",
+        req.id,
+    )
+    return MessageResponse(message=f"已批准 {user.username} 加入「{group.name}」")
+
+
+@router.post("/group-requests/{request_id}/reject", response_model=MessageResponse)
+async def reject_group_request(
+    request_id: int,
+    current_user: User = AdminGuard,
+    db: Session = Depends(get_db),
+):
+    """驳回换组申请：分组不变，申请人收到铃铛通知"""
+    req = _load_pending_request(db, request_id)
+    user = db.query(User).filter(User.id == req.user_id).first()
+    group = db.query(UserGroup).filter(UserGroup.id == req.to_group_id).first()
+    req.status = "rejected"
+    req.handled_by = current_user.id
+    req.handled_at = datetime.now()
+    db.commit()
+    if user:
+        notify(
+            db, user.id, "group_change_rejected",
+            "换组申请未通过",
+            f"申请加入「{group.name if group else '目标用户组'}」未获批准，如有疑问请联系管理员",
+            "profile",
+            req.id,
+        )
+    return MessageResponse(message="已驳回该换组申请")

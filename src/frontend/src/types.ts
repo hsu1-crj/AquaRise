@@ -283,6 +283,35 @@ export interface UserInfo {
   permissions?: string[];
   created_at?: string;
 }
+/** 个人中心头像卡三项统计（后端 /api/v1/auth/stats） */
+export interface ProfileStats {
+  project_count: number; // 参与项目：名下检测任务覆盖的去重海域数
+  task_count: number;    // 创建任务
+  report_count: number;  // 生成报告
+}
+
+/** 个人中心「申请换组」可见的用户组（后端 /api/v1/auth/groups，排除超级管理员组） */
+export interface GroupOption {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  modules: string[];
+  module_names: string[];
+}
+
+/** 换组申请记录（个人中心 / 后台审批共用契约） */
+export interface GroupSwitchRequestInfo {
+  id: number;
+  username?: string | null;
+  from_group_name?: string | null;
+  to_group_id: number;
+  to_group_name?: string | null;
+  reason?: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at?: string | null;
+  handled_at?: string | null;
+}
 
 
 // ============ 后台管理契约（/api/v1/admin/*） ============

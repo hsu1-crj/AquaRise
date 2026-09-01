@@ -4,11 +4,11 @@ import type { FormEvent } from 'react';
 import { Shell } from './components/Shell';
 import { SeaAreaProvider } from './context/SeaAreaContext';
 import { HaitongLogo } from './components/HaitongLogo';
-import { api, clearStoredAuth, getStoredToken, storeToken } from './services/api';
+import { adminApi, api, clearStoredAuth, getStoredToken, storeToken } from './services/api';
 import { PERMISSIONS_CHANGED_EVENT } from './services/notifications';
 import { useCamera } from './services/camera';
 import { OCEAN3D_PAGE_KEYS } from './types';
-import type { PageKey, UserInfo } from './types';
+import type { AdminGroup, PageKey, UserInfo } from './types';
 const AnalysisPage = lazy(() => import('./pages/Analysis').then((module) => ({ default: module.AnalysisPage })));
 const AssistantPage = lazy(() => import('./pages/Assistant').then((module) => ({ default: module.AssistantPage })));
 const CommandScreen = lazy(() => import('./pages/CommandScreen').then((module) => ({ default: module.CommandScreen })));
@@ -24,6 +24,8 @@ const validPages: Record<PageKey, true> = { dashboard: true, ocean3d: true, dete
 
 /** 权限守卫的兜底跳转顺序：无权访问当前页时落到第一个有权限的业务页 */
 const PAGE_FALLBACK_ORDER: PageKey[] = ['dashboard', 'ocean3d', 'detection', 'history', 'analysis', 'screen', 'reports', 'assistant', 'atlas', 'admin', 'profile'];
+/** 超管分组模拟的会话内持久化 key（sessionStorage：关标签页即恢复真实视角） */
+const SIM_GROUP_KEY = 'aquarise-sim-group';
 
 /** 启动时是否已有登录态：本次会话标记存在，或本地存有 token（保持登录） */
 function hasStoredAuth(): boolean {
@@ -42,6 +44,29 @@ export default function App() {
   const [user, setUser] = useState<UserInfo | null>(null);
   // 全局搜索跳转：携带查询词（及可选目标报告）到业务页，页面挂载时据此过滤/打开
   const [searchFocus, setSearchFocus] = useState<{ page: 'history' | 'reports'; query: string; reportId?: string } | null>(null);
+  // ============ 超管分组模拟：以所选用户组的视角查看站点（仅视图层降级，后端权限不变） ============
+  const [simGroupId, setSimGroupId] = useState<number | null>(() => {
+    const raw = window.sessionStorage.getItem(SIM_GROUP_KEY);
+    return raw ? Number(raw) : null;
+  });
+  const [simGroups, setSimGroups] = useState<AdminGroup[]>([]);
+  const isSuperAdmin = !!user && (user.role === 'admin' || user.group_code === 'super_admin');
+
+  useEffect(() => {
+    if (!isSuperAdmin) { setSimGroups([]); return; }
+    adminApi.getGroups().then(setSimGroups).catch(() => setSimGroups([]));
+  }, [isSuperAdmin]);
+
+  const simGroup = simGroupId != null ? simGroups.find((g) => g.id === simGroupId) ?? null : null;
+  /** 生效用户：模拟视角下把权限/分组替换为目标组（导航、页面守卫、3D 模式锁定随之降级） */
+  const effectiveUser: UserInfo | null = user && simGroup
+    ? { ...user, permissions: simGroup.modules, group_id: simGroup.id, group_code: simGroup.code, group_name: simGroup.name }
+    : user;
+  const simulate = (groupId: number | null) => {
+    setSimGroupId(groupId);
+    if (groupId == null) window.sessionStorage.removeItem(SIM_GROUP_KEY);
+    else window.sessionStorage.setItem(SIM_GROUP_KEY, String(groupId));
+  };
 
   useEffect(() => {
     if (!authenticated) { setUser(null); return; }
@@ -68,20 +93,21 @@ export default function App() {
   }, []);
 
   // ============ 用户组权限守卫：无权访问当前页时，落到第一个有权限的页面 ============
-  // 个人中心对全员开放；user.permissions 未加载完成（null/undefined）前不拦截。
+  // 个人中心对全员开放；权限未加载完成（null/undefined）前不拦截。
   // 海洋 3D 页按模式键判定：拥有任一模式（ocean3d_monitor/science）即可进入。
+  // 超管模拟视角下按被模拟组的权限生效（effectiveUser），顶栏下拉可随时退出模拟。
   useEffect(() => {
-    if (!authenticated || !user?.permissions) return;
+    if (!authenticated || !effectiveUser?.permissions) return;
     const allowed = (target: PageKey) =>
       target === 'profile'
       || (target === 'ocean3d'
-        ? user.permissions!.some((p) => OCEAN3D_PAGE_KEYS.includes(p))
-        : user.permissions!.includes(target));
+        ? effectiveUser.permissions!.some((p) => OCEAN3D_PAGE_KEYS.includes(p))
+        : effectiveUser.permissions!.includes(target));
     if (allowed(page)) return;
     const fallback = PAGE_FALLBACK_ORDER.find(allowed) ?? 'profile';
     setPage(fallback);
     window.location.hash = fallback;
-  }, [page, user, authenticated]);
+  }, [page, effectiveUser, authenticated]);
   const navigate = (target: PageKey) => {
     setSearchFocus(null);
     setPage(target);
@@ -103,21 +129,38 @@ export default function App() {
   const logout = () => { clearStoredAuth(); setAuthenticated(false); setUser(null); };
 
   if (!authenticated) return <LoginScreen onLogin={login} />;
-  if (page === 'screen') return <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入指挥大屏…</div>}><CommandScreen onExit={() => navigate('dashboard')} /></Suspense>;
-  if (page === 'atlas') return <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入生命图谱…</div>}><MarineAtlasPage onExit={() => navigate('dashboard')} /></Suspense>;
-  return <SeaAreaProvider><Shell page={page} onNavigate={navigate} onSearchJump={searchJump} onLogout={logout} user={user}>
-    <Suspense fallback={<div className="page-state glass"><i className="loader-orbit" /><p>正在载入海洋工作台…</p></div>}>
-      {page === 'dashboard' && <Dashboard onNavigate={navigate} user={user} />}
-      {page === 'ocean3d' && <Ocean3DPage user={user} />}
-      {page === 'admin' && <AdminPage user={user} />}
-      {page === 'detection' && <Detection onNavigate={navigate} />}
-      {page === 'history' && <HistoryPage initialQuery={searchFocus?.page === 'history' ? searchFocus.query : ''} />}
-      {page === 'analysis' && <AnalysisPage />}
-      {page === 'reports' && <ReportsPage initialQuery={searchFocus?.page === 'reports' ? searchFocus.query : ''} initialReportId={searchFocus?.page === 'reports' ? searchFocus.reportId : undefined} />}
-      {page === 'assistant' && <AssistantPage user={user} />}
-      {page === 'profile' && <ProfilePage user={user} onUserUpdated={setUser} />}
-    </Suspense>
-  </Shell></SeaAreaProvider>;
+  // SeaAreaProvider 覆盖全部已认证页面：指挥大屏/生命图谱等独立全屏页同样读取侧栏已选海域，
+  // 其他标签页切换海域后重新进入大屏即使用最新选择。
+  return (
+    <SeaAreaProvider>
+      {page === 'screen'
+        ? <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入指挥大屏…</div>}><CommandScreen onExit={() => navigate('dashboard')} /></Suspense>
+        : page === 'atlas'
+          ? <Suspense fallback={<div className="page-state"><i className="loader-orbit" />正在载入生命图谱…</div>}><MarineAtlasPage onExit={() => navigate('dashboard')} /></Suspense>
+          : (
+            <Shell
+              page={page}
+              onNavigate={navigate}
+              onSearchJump={searchJump}
+              onLogout={logout}
+              user={effectiveUser}
+              simControl={isSuperAdmin ? { groups: simGroups, value: simGroup?.id ?? null, onChange: simulate } : undefined}
+            >
+              <Suspense fallback={<div className="page-state glass"><i className="loader-orbit" /><p>正在载入海洋工作台…</p></div>}>
+                {page === 'dashboard' && <Dashboard onNavigate={navigate} user={effectiveUser} />}
+                {page === 'ocean3d' && <Ocean3DPage user={effectiveUser} />}
+                {page === 'admin' && <AdminPage user={user} />}
+                {page === 'detection' && <Detection onNavigate={navigate} />}
+                {page === 'history' && <HistoryPage initialQuery={searchFocus?.page === 'history' ? searchFocus.query : ''} />}
+                {page === 'analysis' && <AnalysisPage />}
+                {page === 'reports' && <ReportsPage initialQuery={searchFocus?.page === 'reports' ? searchFocus.query : ''} initialReportId={searchFocus?.page === 'reports' ? searchFocus.reportId : undefined} />}
+                {page === 'assistant' && <AssistantPage user={effectiveUser} />}
+                {page === 'profile' && <ProfilePage user={user} onUserUpdated={setUser} />}
+              </Suspense>
+            </Shell>
+          )}
+    </SeaAreaProvider>
+  );
 }
 
 function LoginScreen({ onLogin }: { onLogin: () => void }) {

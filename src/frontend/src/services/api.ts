@@ -1,5 +1,6 @@
-import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummary, mockTrend } from '../data/mock';
-import type { AdminGroup, AdminOverview, AdminUserRow, ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanCredential, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, KnowledgeDocInfo, MarineInfo, ModuleMeta, MultiImageDetectItem, MultiImageDetectResponse, Report, ReportAnalysis, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
+import { STANDARD_SITES } from '../data/sites';
+import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSeaAreaComparison, mockSummary, mockTrend } from '../data/mock';
+import type { AdminGroup, AdminOverview, AdminUserRow, ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanCredential, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, GroupOption, GroupSwitchRequestInfo, KnowledgeDocInfo, MarineInfo, ModuleMeta, MultiImageDetectItem, MultiImageDetectResponse, ProfileStats, Report, ReportAnalysis, SeaArea, SeaAreaStat, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -418,6 +419,46 @@ export const api = {
       }),
     });
   },
+  /** 个人中心头像卡三项统计（参与项目/创建任务/生成报告，按当前账号真实统计） */
+  async getProfileStats(): Promise<ProfileStats> {
+    if (isMockMode()) { await wait(200); return { project_count: 2, task_count: mockRecords.length, report_count: mockReports.length }; }
+    return request<ProfileStats>('/api/v1/auth/stats');
+  },
+
+  /** 可申请的用户组列表（含各组功能模块中文名；排除超级管理员组） */
+  async getPublicGroups(): Promise<GroupOption[]> {
+    if (isMockMode()) {
+      await wait(200);
+      return MOCK_GROUPS.filter((g) => g.code !== 'super_admin').map((g) => ({
+        id: g.id, code: g.code, name: g.name, description: g.description ?? null,
+        modules: g.modules,
+        module_names: g.modules.map((key) => MOCK_MODULES.find((m) => m.key === key)?.name ?? key),
+      }));
+    }
+    const payload = await request<{ items: GroupOption[] }>('/api/v1/auth/groups');
+    return payload.items;
+  },
+
+  /** 我的换组申请（最新 5 条，个人中心展示审批进度） */
+  async getMyGroupRequests(): Promise<GroupSwitchRequestInfo[]> {
+    if (isMockMode()) { await wait(200); return []; }
+    const payload = await request<{ items: GroupSwitchRequestInfo[] }>('/api/v1/auth/group-requests/mine');
+    return payload.items;
+  },
+
+  /** 提交换组申请（普通用户；最高管理员审批后生效） */
+  async requestGroupSwitch(groupId: number, reason: string): Promise<GroupSwitchRequestInfo> {
+    if (isMockMode()) {
+      await wait(400);
+      const group = MOCK_GROUPS.find((g) => g.id === groupId) ?? MOCK_GROUPS[3];
+      return { id: Date.now(), to_group_id: group.id, to_group_name: group.name, reason: reason || null, status: 'pending', created_at: new Date().toISOString() };
+    }
+    return request<GroupSwitchRequestInfo>('/api/v1/auth/group-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: groupId, reason: reason.trim() || null }),
+    });
+  },
 
   /** 录入人脸（个人中心）：multipart 上传照片，一个账号最多 3 张 */
   async enrollFace(file: File, name?: string): Promise<FaceInfo> {
@@ -744,5 +785,23 @@ export const adminApi = {
   async deleteGroup(groupId: number): Promise<{ message: string }> {
     if (isMockMode()) { await wait(300); return { message: '已删除（演示）' }; }
     return request<{ message: string }>(`/api/v1/admin/groups/${groupId}`, { method: 'DELETE' });
+  },
+  /** 换组申请列表（默认待审批；status=all 取全部） */
+  async getGroupRequests(status: 'pending' | 'approved' | 'rejected' | 'all' = 'pending'): Promise<GroupSwitchRequestInfo[]> {
+    if (isMockMode()) { await wait(250); return []; }
+    const payload = await request<{ items: GroupSwitchRequestInfo[] }>(`/api/v1/admin/group-requests?status=${status}`);
+    return payload.items;
+  },
+
+  /** 批准换组申请：申请人即刻调入目标组 */
+  async approveGroupRequest(requestId: number): Promise<{ message: string }> {
+    if (isMockMode()) { await wait(300); return { message: '已批准（演示）' }; }
+    return request<{ message: string }>(`/api/v1/admin/group-requests/${requestId}/approve`, { method: 'POST' });
+  },
+
+  /** 驳回换组申请：申请人分组不变 */
+  async rejectGroupRequest(requestId: number): Promise<{ message: string }> {
+    if (isMockMode()) { await wait(300); return { message: '已驳回（演示）' }; }
+    return request<{ message: string }>(`/api/v1/admin/group-requests/${requestId}/reject`, { method: 'POST' });
   },
 };

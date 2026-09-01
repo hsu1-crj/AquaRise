@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Clock3,
   Compass,
+  Eye,
   FileBarChart,
   FileCheck2,
   FlaskConical,
@@ -29,11 +30,19 @@ import {
   X,
 } from 'lucide-react';
 import { OCEAN3D_PAGE_KEYS } from '../types';
-import type { DetectionRecord, PageKey, Report, UserInfo } from '../types';
+import type { AdminGroup, DetectionRecord, PageKey, Report, UserInfo } from '../types';
 import { api, isMockMode } from '../services/api';
 import { HaitongLogo } from './HaitongLogo';
 import { DigitalHumanIcon } from './DigitalHumanIcon';
 import { NotificationBell } from './NotificationBell';
+
+/** 超管分组模拟控制：仅超级管理员可见（App 侧判定），选择目标组后全站以该组视角渲染 */
+export interface SimControl {
+  groups: AdminGroup[];
+  /** 当前模拟的组 id；null = 真实视角 */
+  value: number | null;
+  onChange: (groupId: number | null) => void;
+}
 
 interface ShellProps {
   page: PageKey;
@@ -42,6 +51,8 @@ interface ShellProps {
   onSearchJump: (target: { page: 'history' | 'reports'; query: string; reportId?: string }) => void;
   onLogout: () => void;
   user?: UserInfo | null;
+  /** 超管分组模拟（可选）：提供后顶栏出现视角下拉框 */
+  simControl?: SimControl;
   children: ReactNode;
 }
 
@@ -81,7 +92,7 @@ const navGroups: Array<{
   },
 ];
 
-export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children }: ShellProps) {
+export function Shell({ page, onNavigate, onSearchJump, onLogout, user, simControl, children }: ShellProps) {
   // ---- 全局搜索：输入防抖拉取检测任务与报告，下拉展示匹配结果，点击跳转对应页面 ----
   const [searchText, setSearchText] = useState('');
   const [taskHits, setTaskHits] = useState<DetectionRecord[]>([]);
@@ -276,8 +287,21 @@ export function Shell({ page, onNavigate, onSearchJump, onLogout, user, children
           <div className="search-box" ref={searchBoxRef}><Search size={18} /><input ref={searchInputRef} aria-label="全局搜索" placeholder="搜索检测任务、海域或报告…" value={searchText} onChange={(event) => changeSearch(event.target.value)} onFocus={() => searchText.trim() && setDropOpen(true)} /><kbd>⌘ K</kbd>{dropOpen && <div className="search-results" role="listbox">{searching ? <div className="search-status"><LoaderCircle className="spin" />搜索中…</div> : taskHits.length === 0 && reportHits.length === 0 ? <div className="search-status">没有匹配的检测任务或报告</div> : <>{taskHits.length > 0 && <><div className="search-group">检测任务</div>{taskHits.slice(0, 6).map((item) => <button key={item.id} className="search-item" role="option" onClick={() => jumpSearch('history')}><History size={15} /><span><strong>{item.id}</strong><small>{item.createdAt} · {item.type} · {item.location} · {item.level}度</small></span></button>)}</>}{reportHits.length > 0 && <><div className="search-group">质量报告</div>{reportHits.map((item) => <button key={item.id} className="search-item" role="option" onClick={() => jumpSearch('reports', item.id)}><FileBarChart size={15} /><span><strong>{item.title}</strong><small>{item.area} · {item.createdAt.slice(0, 10)} · {item.level}度污染</small></span></button>)}</>}</>}</div>}</div>
           <div className="top-actions">
             {isMockMode() && <span className="demo-badge"><FlaskConical size={14} />演示数据</span>}
-            <NotificationBell onSearchJump={onSearchJump} />
-            <button className="user-chip" onClick={() => onNavigate('profile')}><span>{(user?.username ?? '林').slice(0, 1).toUpperCase()}</span><div><strong>{user?.username ?? '林海'}</strong><small>{user?.group_name ?? (user?.role === 'admin' ? '管理员' : '用户')}</small></div><ChevronDown size={15} /></button>
+            {simControl && (
+              <label className={`sim-select ${simControl.value != null ? 'simulating' : ''}`} title="以所选用户组的视角浏览全站（仅视图模拟，不改变真实权限）">
+                <Eye size={14} />
+                <select
+                  value={simControl.value ?? ''}
+                  onChange={(event) => simControl.onChange(event.target.value === '' ? null : Number(event.target.value))}
+                  aria-label="分组视角模拟"
+                >
+                  <option value="">真实视角 · 超级管理员</option>
+                  {simControl.groups.map((g) => <option key={g.id} value={g.id}>模拟 · {g.name}</option>)}
+                </select>
+              </label>
+            )}
+            <NotificationBell onSearchJump={onSearchJump} onNavigate={onNavigate} />
+            <button className="user-chip" onClick={() => onNavigate('profile')}><span>{(user?.username ?? '林').slice(0, 1).toUpperCase()}</span><div><strong>{user?.username ?? '林海'}</strong><small>{user?.group_name ?? (user?.role === 'admin' ? '管理员' : '用户')}</small></div></button>
           </div>
         </header>
         <div className="page-container">{children}</div>

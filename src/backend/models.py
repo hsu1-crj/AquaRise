@@ -130,6 +130,9 @@ class NotificationType(str, enum.Enum):
     task_failed = "task_failed"            # 检测任务失败
     report_ready = "report_ready"          # 质量报告生成完成
     pollution_warning = "pollution_warning"  # 污染等级告警（poor/severe）
+    group_change_request = "group_change_request"    # 用户换组申请（推给最高管理员）
+    group_change_approved = "group_change_approved"  # 换组申请已批准（推给申请人）
+    group_change_rejected = "group_change_rejected"  # 换组申请已驳回（推给申请人）
 
 
 # ============ 1. 用户表 ============
@@ -469,3 +472,31 @@ class Notification(Base):
 
     def __repr__(self):
         return f"<Notification id={self.id} user={self.user_id} type={self.type.value} read={self.is_read}>"
+# ============ 10. 换组申请表（个人中心申请 → 最高管理员审批） ============
+class GroupSwitchRequest(Base):
+    """用户换组申请：申请人在个人中心提交，最高管理员在后台管理批准/驳回。
+
+    status 流转：pending → approved / rejected（终态，不可再变更）。
+    申请人同一时刻只允许一条 pending 申请（路由层校验）。
+    批准后由审批接口直接改 users.group_id 并广播权限变更；handled_by 为软外键
+    （审批人账号后续不可注销——最高管理员保护规则保证其恒在，无需级联）。"""
+
+    __tablename__ = "group_switch_requests"
+    __table_args__ = (
+        Index("ix_group_switch_requests_status", "status", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)  # 申请人
+    from_group_id = Column(Integer, nullable=True)   # 申请时所在组（软外键，组可能后被删除）
+    to_group_id = Column(Integer, nullable=False)    # 目标组（软外键，审批时再校验仍存在）
+    reason = Column(String(255), nullable=True)      # 申请理由（选填）
+    status = Column(String(16), nullable=False, default="pending")  # pending/approved/rejected
+    handled_by = Column(Integer, nullable=True)      # 审批人 user id（软外键）
+    handled_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<GroupSwitchRequest id={self.id} user={self.user_id} status={self.status}>"

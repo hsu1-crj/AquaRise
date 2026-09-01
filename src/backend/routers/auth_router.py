@@ -11,6 +11,8 @@
 
 import re
 
+from sqlalchemy import func
+
 import config
 import captcha as captcha_mod
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -21,15 +23,30 @@ from auth import (
     create_access_token,
     get_current_user,
     get_user_modules,
+    group_request_item,
     hash_password,
+    is_super_admin,
     record_login_session,
+    super_admin_ids,
     verify_password,
 )
 from database import get_db
-from models import User, UserGroup, UserRole
+from models import (
+    MODULE_REGISTRY,
+    DetectionTask,
+    GroupSwitchRequest,
+    Report,
+    User,
+    UserGroup,
+    UserRole,
+)
+from services.notification_hub import notify
 # Jinja2 templates removed — React SPA handles all page rendering now
 from schemas import (
     ChangePasswordRequest,
+    GroupOptionItem,
+    GroupSwitchRequestCreate,
+    GroupSwitchRequestItem,
     LoginRequest,
     MessageResponse,
     ProfileUpdateRequest,
@@ -37,6 +54,7 @@ from schemas import (
     ResetPasswordRequest,
     TokenResponse,
     UserResponse,
+    UserStatsResponse,
 )
 
 router = APIRouter(tags=["auth"])
@@ -269,3 +287,117 @@ async def api_update_profile(
     db.commit()
     db.refresh(current_user)
     return user_to_response(db, current_user)
+
+# ============ 个人中心：工作量统计 + 换组申请 ============
+@router.get("/api/v1/auth/stats", response_model=UserStatsResponse)
+async def api_my_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """当前账号的工作量统计（头像卡三项，替代硬编码）：
+    参与项目 = 名下检测任务覆盖的去重海域数；创建任务 / 生成报告 = 名下记录数。"""
+    tasks = db.query(DetectionTask).filter(DetectionTask.user_id == current_user.id)
+    project_count = (
+        tasks.filter(DetectionTask.sea_area_id.isnot(None))
+        .with_entities(func.count(func.distinct(DetectionTask.sea_area_id)))
+        .scalar()
+    ) or 0
+    return UserStatsResponse(
+        project_count=project_count,
+        task_count=tasks.count(),
+        report_count=db.query(Report).filter(Report.user_id == current_user.id).count(),
+    )
+
+
+def _group_option(group: UserGroup) -> GroupOptionItem:
+    """UserGroup ORM → 个人中心「申请换组」可选项（模块 key → 中文名按注册表映射）"""
+    name_by_key = {m["key"]: m["name"] for m in MODULE_REGISTRY}
+    modules = [m.module for m in group.modules]
+    return GroupOptionItem(
+        id=group.id,
+        code=group.code,
+        name=group.name,
+        description=group.description,
+        modules=modules,
+        module_names=[name_by_key.get(key, key) for key in modules],
+    )
+
+
+
+@router.get("/api/v1/auth/groups")
+async def api_list_groups(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """可申请的用户组列表（排除超级管理员组）：个人中心展示分组及其功能"""
+    groups = (
+        db.query(UserGroup)
+        .filter(UserGroup.code != "super_admin")
+        .order_by(UserGroup.id)
+        .all()
+    )
+    return {"items": [_group_option(g) for g in groups]}
+
+
+@router.get("/api/v1/auth/group-requests/mine")
+async def api_my_group_requests(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """我的换组申请（最新 5 条，个人中心展示审批进度）"""
+    rows = (
+        db.query(GroupSwitchRequest)
+        .filter(GroupSwitchRequest.user_id == current_user.id)
+        .order_by(GroupSwitchRequest.created_at.desc(), GroupSwitchRequest.id.desc())
+        .limit(5)
+        .all()
+    )
+    return {"items": [group_request_item(db, r) for r in rows]}
+
+
+@router.post("/api/v1/auth/group-requests", response_model=GroupSwitchRequestItem)
+async def api_create_group_request(
+    body: GroupSwitchRequestCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """提交换组申请：最高管理员收到铃铛通知并在后台管理批准/驳回。
+    约束：最高管理员无需申请；目标组不能是 super_admin 或当前所在组；同时仅一条待审批。"""
+    if is_super_admin(db, current_user):
+        raise HTTPException(status_code=403, detail="最高管理员无需申请换组")
+    group = db.query(UserGroup).filter(UserGroup.id == body.group_id).first()
+    if not group:
+        raise HTTPException(status_code=400, detail="指定的用户组不存在")
+    if group.code == "super_admin":
+        raise HTTPException(status_code=400, detail="超级管理员组不接受换组申请")
+    if current_user.group_id == group.id:
+        raise HTTPException(status_code=400, detail="你已属于该用户组")
+    pending = (
+        db.query(GroupSwitchRequest)
+        .filter(
+            GroupSwitchRequest.user_id == current_user.id,
+            GroupSwitchRequest.status == "pending",
+        )
+        .first()
+    )
+    if pending:
+        raise HTTPException(status_code=400, detail="你已有一条待审批的换组申请，请等待处理结果")
+    req = GroupSwitchRequest(
+        user_id=current_user.id,
+        from_group_id=current_user.group_id,
+        to_group_id=group.id,
+        reason=(body.reason or "").strip() or None,
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    # 通知全体最高管理员（铃铛 + SSE 实时），点击通知跳后台管理处理
+    reason_text = f"：{req.reason}" if req.reason else ""
+    for admin_id in super_admin_ids(db):
+        notify(
+            db,
+            admin_id,
+            "group_change_request",
+            f"换组申请：{current_user.username}",
+            f"申请加入「{group.name}」{reason_text}"[:255],
+            "admin",
+            req.id,
+        )
+    return group_request_item(db, req)

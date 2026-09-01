@@ -4,10 +4,12 @@ import { authHeaders } from './api';
 
 export interface NotifItem {
   id: number;
-  type: string; // task_completed / task_failed / report_ready / pollution_warning
+  // task_completed / task_failed / report_ready / pollution_warning /
+  // group_change_request（→管理员）/ group_change_approved / group_change_rejected（→申请人）
+  type: string;
   title: string;
   body?: string | null;
-  linkPage?: string | null; // history / reports
+  linkPage?: string | null; // history / reports / admin（换组申请→后台审批）/ profile（审批结果→个人中心）
   refId?: number | null;
   isRead: boolean;
   createdAt: string;

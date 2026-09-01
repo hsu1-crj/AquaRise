@@ -9,8 +9,10 @@ import {
   LoaderCircle,
   RefreshCw,
   Trash2,
+  UserRoundPlus,
   XCircle,
 } from 'lucide-react';
+import type { PageKey } from '../types';
 import {
   deleteNotif,
   deleteReadNotifs,
@@ -28,6 +30,9 @@ const TYPE_META: Record<string, { icon: typeof Bell; tint: string }> = {
   task_failed: { icon: XCircle, tint: '#ff6885' },
   report_ready: { icon: FileBarChart, tint: '#38bdf8' },
   pollution_warning: { icon: AlertTriangle, tint: '#fbbf24' },
+  group_change_request: { icon: UserRoundPlus, tint: '#a78bfa' },  // 换组申请（发给最高管理员）
+  group_change_approved: { icon: CheckCircle2, tint: '#2ee6a8' },  // 申请已批准（发给申请人）
+  group_change_rejected: { icon: XCircle, tint: '#ff6885' },       // 申请被驳回（发给申请人）
 };
 const TYPE_FALLBACK = { icon: Bell, tint: '#38bdf8' };
 
@@ -46,8 +51,11 @@ function timeAgo(value: string): string {
 
 export function NotificationBell({
   onSearchJump,
+  onNavigate,
 }: {
   onSearchJump: (target: { page: 'history' | 'reports'; query: string; reportId?: string }) => void;
+  /** 业务页直接跳转（换组申请通知 → 后台管理 / 个人中心） */
+  onNavigate?: (page: PageKey) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotifItem[]>([]);
@@ -125,6 +133,11 @@ export function NotificationBell({
       markNotifRead(item.id).catch(() => {});
     }
     setOpen(false);
+    // 换组申请类通知直达对应页面（管理员 → 后台审批，申请人 → 个人中心看结果）
+    if ((item.linkPage === 'admin' || item.linkPage === 'profile') && onNavigate) {
+      onNavigate(item.linkPage);
+      return;
+    }
     onSearchJump({
       page: item.linkPage === 'reports' ? 'reports' : 'history',
       query: '',

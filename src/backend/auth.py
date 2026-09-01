@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 import config
 from database import get_db
-from models import MODULE_KEYS, GroupModule, LoginSession, User, UserRole
+from models import MODULE_KEYS, GroupModule, LoginSession, User, UserGroup, UserRole
 
 # ============ bcrypt 密码哈希 ============
 def hash_password(raw: str) -> str:
@@ -241,3 +241,44 @@ def is_privileged(db: Session, user: User) -> bool:
     """是否拥有全局数据视野（可查看/分析所有用户的报告与任务上下文）：
     最高管理员或拥有后台管理模块的用户组。"""
     return user.role == UserRole.admin or "admin" in get_user_modules(db, user)
+def super_admin_ids(db: Session) -> list[int]:
+    """全部最高管理员的用户 id：role=admin（种子账号）∪ super_admin 组成员。
+    用于换组申请等需要通知全体最高管理员的场景。"""
+    ids = {uid for (uid,) in db.query(User.id).filter(User.role == UserRole.admin).all()}
+    group = db.query(UserGroup).filter(UserGroup.code == "super_admin").first()
+    if group:
+        ids.update(
+            uid for (uid,) in db.query(User.id).filter(User.group_id == group.id).all()
+        )
+    return sorted(ids)
+def is_super_admin(db: Session, user: User) -> bool:
+    """最高管理员：role=admin（种子账号），或被归入 super_admin 组的成员（实质拥有全量权限）。"""
+    if user.role == UserRole.admin:
+        return True
+    if not user.group_id:
+        return False
+    group = db.query(UserGroup).filter(UserGroup.id == user.group_id).first()
+    return bool(group and group.code == "super_admin")
+
+
+def group_request_item(db: Session, req) -> "GroupSwitchRequestItem":
+    """GroupSwitchRequest ORM → 契约（补申请人用户名与两侧组名，软外键容忍组已删除）。
+    个人中心（看自己的申请）与后台管理（审批列表）共用。"""
+    from schemas import GroupSwitchRequestItem
+
+    from_group = (
+        db.query(UserGroup).filter(UserGroup.id == req.from_group_id).first()
+        if req.from_group_id else None
+    )
+    to_group = db.query(UserGroup).filter(UserGroup.id == req.to_group_id).first()
+    return GroupSwitchRequestItem(
+        id=req.id,
+        username=req.user.username if req.user else None,
+        from_group_name=from_group.name if from_group else None,
+        to_group_id=req.to_group_id,
+        to_group_name=to_group.name if to_group else None,
+        reason=req.reason,
+        status=req.status,
+        created_at=req.created_at,
+        handled_at=req.handled_at,
+    )

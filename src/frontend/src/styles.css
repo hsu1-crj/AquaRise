@@ -3070,6 +3070,24 @@
 .notif-del{flex-shrink:0;align-self:center;width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:var(--muted);border:1px solid transparent;background:transparent;opacity:0;transition:all .15s ease}
 .notif-li:hover .notif-del,.notif-del:focus-visible{opacity:1}
 .notif-del:hover{color:#ff8ba0;background:rgba(255,109,136,.12);border-color:rgba(255,109,136,.28)}
+/* ============================================================
+   超管分组视角模拟（顶栏下拉）+ 个人中心换组申请
+   ============================================================ */
+.sim-select{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 11px;border-radius:9px;border:1px solid var(--line);background:rgba(5,32,48,.6);color:var(--muted);font-size:11px}
+.sim-select svg{flex:none}
+.sim-select select{border:0;background:none;color:#dff6fa;outline:0;font-size:11px;max-width:170px}
+.sim-select select option{background:#073047}
+.sim-select.simulating{border-color:rgba(167,139,250,.5);background:rgba(167,139,250,.1);color:#d7c9ff}
+.sim-select.simulating svg{color:#a78bfa}
+
+.group-switch-section{margin-top:14px}
+.group-switch-current{font-size:12px;color:var(--muted)}
+.group-switch-current strong{color:#dff6fa}
+.group-switch-detail{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:rgba(5,32,48,.45)}
+.group-switch-desc{margin:0 0 10px;font-size:11.5px;color:var(--muted);line-height:1.6}
+.group-switch-history{margin-top:12px;font-size:11px;color:var(--muted)}
+.group-switch-section .primary-button{margin-top:12px}
+.group-switch-section .admin-notice{margin-top:0}
 
 /* 用户消息携带的报告附件卡片（文件与文字一同发送） */
 .og-msg-attachment {

@@ -359,3 +359,119 @@ def test_register_accepts_valid_username(db_override):
     client = make_client(db_override, None)
     resp = client.post("/api/v1/auth/register", json={"username": "海瞳_01", "password": "123456"})
     assert resp.status_code == 200
+
+# ============ 换组申请（个人中心申请 → 后台审批 → 双方收铃铛通知） ============
+def _group_id(db, code: str) -> int:
+    return db.query(UserGroup).filter(UserGroup.code == code).first().id
+
+
+def test_public_groups_exclude_super_admin(db_override, users):
+    """个人中心可见的用户组列表不含超级管理员组"""
+    client = make_client(db_override, users["public"])
+    resp = client.get("/api/v1/auth/groups")
+    assert resp.status_code == 200
+    codes = {g["code"] for g in resp.json()["items"]}
+    assert "super_admin" not in codes and "analyst" in codes
+
+
+def test_my_stats_counts_own_records(db_override, users, db_session):
+    """个人中心三项统计按账号统计：新用户为 0，产生任务/报告后对应增长"""
+    from models import DetectionTask, Report, TaskType
+
+    client = make_client(db_override, users["public"])
+    assert client.get("/api/v1/auth/stats").json() == {
+        "project_count": 0, "task_count": 0, "report_count": 0,
+    }
+    db_session.add(DetectionTask(
+        user_id=users["public"].id, task_type=TaskType.image,
+        file_name="a.jpg", file_path="x/a.jpg", sea_area_id=1,
+    ))
+    db_session.add(Report(
+        user_id=users["public"].id, report_type="single", report_path="r/1.html",
+    ))
+    db_session.commit()
+    assert client.get("/api/v1/auth/stats").json() == {
+        "project_count": 1, "task_count": 1, "report_count": 1,
+    }
+
+
+def test_group_request_submit_and_duplicate_rejected(db_override, users):
+    """普通用户可提交换组申请；重复提交待审批申请被拒"""
+    client = make_client(db_override, users["public"])
+    target = None  # 从公开组列表取目标，避免硬编码 id
+    for g in client.get("/api/v1/auth/groups").json()["items"]:
+        if g["code"] == "analyst":
+            target = g["id"]
+    resp = client.post("/api/v1/auth/group-requests", json={"group_id": target, "reason": "需要做检测"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "pending" and body["to_group_name"] == "监测分析组"
+    assert client.post("/api/v1/auth/group-requests", json={"group_id": target}).status_code == 400
+
+
+def test_group_request_guards(db_override, users, db_session):
+    """超管无需申请；不能申请 super_admin 组；不能申请当前所在组"""
+    admin_client = make_client(db_override, users["admin"])
+    assert admin_client.post(
+        "/api/v1/auth/group-requests", json={"group_id": _group_id(db_session, "analyst")}
+    ).status_code == 403
+    client = make_client(db_override, users["public"])
+    assert client.post(
+        "/api/v1/auth/group-requests", json={"group_id": _group_id(db_session, "super_admin")}
+    ).status_code == 400
+    assert client.post(
+        "/api/v1/auth/group-requests", json={"group_id": _group_id(db_session, "public")}
+    ).status_code == 400
+
+
+def test_group_request_approve_switches_group_and_notifies(db_override, users, db_session):
+    """批准：申请人调入目标组（权限即时变化），双方各收到一条铃铛通知"""
+    from models import GroupSwitchRequest, Notification
+
+    client = make_client(db_override, users["public"])
+    req_id = client.post(
+        "/api/v1/auth/group-requests", json={"group_id": _group_id(db_session, "analyst")}
+    ).json()["id"]
+    admin_client = make_client(db_override, users["admin"])
+    pending = admin_client.get("/api/v1/admin/group-requests").json()["items"]
+    assert [r["id"] for r in pending] == [req_id]
+    assert admin_client.post(f"/api/v1/admin/group-requests/{req_id}/approve").status_code == 200
+    db_session.refresh(users["public"])
+    assert users["public"].group_id == _group_id(db_session, "analyst")
+    assert "detection" in get_user_modules(db_session, users["public"])
+    req = db_session.query(GroupSwitchRequest).filter(GroupSwitchRequest.id == req_id).first()
+    assert req.status == "approved" and req.handled_by == users["admin"].id
+    # 审批结果不可二次变更
+    assert admin_client.post(f"/api/v1/admin/group-requests/{req_id}/reject").status_code == 400
+    # 通知：申请人收到 approved；最高管理员收到 request
+    types_by_user = {
+        uid: {n.type.value for n in db_session.query(Notification).filter(Notification.user_id == uid)}
+        for uid in (users["public"].id, users["admin"].id)
+    }
+    assert "group_change_approved" in types_by_user[users["public"].id]
+    assert "group_change_request" in types_by_user[users["admin"].id]
+
+
+def test_group_request_reject_keeps_group(db_override, users, db_session):
+    """驳回：申请人分组不变并收到 rejected 通知"""
+    from models import Notification
+
+    client = make_client(db_override, users["analyst"])
+    req_id = client.post(
+        "/api/v1/auth/group-requests", json={"group_id": _group_id(db_session, "commander")}
+    ).json()["id"]
+    admin_client = make_client(db_override, users["admin"])
+    assert admin_client.post(f"/api/v1/admin/group-requests/{req_id}/reject").status_code == 200
+    db_session.refresh(users["analyst"])
+    assert users["analyst"].group_id == _group_id(db_session, "analyst")
+    types = {
+        n.type.value
+        for n in db_session.query(Notification).filter(Notification.user_id == users["analyst"].id)
+    }
+    assert "group_change_rejected" in types
+
+
+def test_group_requests_require_admin(db_override, users):
+    """审批列表与操作走后台守卫：无 admin 模块的用户 403"""
+    client = make_client(db_override, users["public"])
+    assert client.get("/api/v1/admin/group-requests").status_code == 403

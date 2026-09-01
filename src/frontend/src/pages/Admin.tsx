@@ -16,11 +16,12 @@ import {
   Trash2,
   UserPlus,
   UserRound,
+  UserRoundPlus,
   Users,
   X,
 } from 'lucide-react';
 import { adminApi, clearStoredAuth } from '../services/api';
-import type { AdminGroup, AdminOverview, AdminUserRow, ModuleMeta, UserInfo } from '../types';
+import type { AdminGroup, AdminOverview, AdminUserRow, GroupSwitchRequestInfo, ModuleMeta, UserInfo } from '../types';
 
 /** 模块中文名兜底表（接口失败时矩阵仍可渲染） */
 const FALLBACK_MODULES: ModuleMeta[] = [
@@ -37,7 +38,7 @@ const FALLBACK_MODULES: ModuleMeta[] = [
   { key: 'admin', name: '后台管理', desc: '' },
 ];
 
-type AdminTab = 'overview' | 'users' | 'groups';
+type AdminTab = 'overview' | 'users' | 'groups' | 'requests';
 
 interface AdminPageProps {
   user?: UserInfo | null;
@@ -51,6 +52,7 @@ export function AdminPage({ user }: AdminPageProps) {
     { id: 'overview', label: '概览', icon: LayoutGrid },
     { id: 'users', label: '用户管理', icon: Users },
     { id: 'groups', label: '用户组管理', icon: Boxes },
+    { id: 'requests', label: '换组审批', icon: UserRoundPlus },
   ];
 
   return (
@@ -82,6 +84,7 @@ export function AdminPage({ user }: AdminPageProps) {
       {tab === 'overview' && <OverviewTab />}
       {tab === 'users' && <UsersTab currentUserId={user?.id ?? -1} />}
       {tab === 'groups' && <GroupsTab />}
+      {tab === 'requests' && <RequestsTab />}
     </div>
   );
 }
@@ -204,15 +207,25 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
 
   useEffect(load, [load]);
 
-  /** 调组：立即生效（后端按组实时计算权限，用户下次请求即受新权限约束） */
-  const changeGroup = async (row: AdminUserRow, groupId: number) => {
+  /** 调组：立即生效（后端按组实时计算权限，用户下次请求即受新权限约束）。
+      设为超级管理员组前二次确认：一旦设为其分组再也无法改变（返回 false 表示已取消，调用方还原下拉框） */
+  const changeGroup = async (row: AdminUserRow, groupId: number): Promise<boolean> => {
     setNotice('');
+    const target = groups.find((g) => g.id === groupId);
+    if (target?.code === 'super_admin') {
+      const confirmed = window.confirm(
+        `确认把「${row.username}」设置为超级管理员？\n设置后该账号的分组再也无法改变（不可调组、不可注销，密码仅本人可修改），请谨慎操作。`,
+      );
+      if (!confirmed) return false;
+    }
     try {
       const updated = await adminApi.updateUser(row.id, { group_id: groupId });
       setRows((prev) => prev.map((r) => (r.id === row.id ? updated : r)));
       setNotice(`已把 ${row.username} 调整到「${updated.group_name}」，其可用功能即时生效`);
+      return true;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '调组失败');
+      return false;
     }
   };
 
@@ -352,7 +365,13 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                           <select
                             className="admin-group-select"
                             value={row.group_id ?? ''}
-                            onChange={(event) => changeGroup(row, Number(event.target.value))}
+                            onChange={(event) => {
+                              const nextId = Number(event.target.value);
+                              void changeGroup(row, nextId).then((applied) => {
+                                // 取消/失败的调组：还原下拉框到原分组（受控值未变，DOM 已被用户改动）
+                                if (!applied) event.target.value = String(row.group_id ?? '');
+                              });
+                            }}
                             aria-label={`调整 ${row.username} 的用户组`}
                           >
                             {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -572,6 +591,104 @@ function GroupsTab() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+
+/* ============ 换组审批（个人中心申请 → 此处批准/驳回，双方收铃铛通知） ============ */
+function RequestsTab() {
+  const [items, setItems] = useState<GroupSwitchRequestInfo[]>([]);
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'all'>('pending');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError('');
+    adminApi.getGroupRequests(statusFilter)
+      .then(setItems)
+      .catch((reason: Error) => setError(reason.message || '加载失败'))
+      .finally(() => setLoading(false));
+  }, [statusFilter]);
+
+  useEffect(load, [load]);
+
+  const handle = async (req: GroupSwitchRequestInfo, action: 'approve' | 'reject') => {
+    setNotice('');
+    setError('');
+    if (action === 'approve' && !window.confirm(`确认批准「${req.username}」加入「${req.to_group_name}」？其可用功能即时生效。`)) return;
+    setBusyId(req.id);
+    try {
+      const { message } = action === 'approve'
+        ? await adminApi.approveGroupRequest(req.id)
+        : await adminApi.rejectGroupRequest(req.id);
+      setNotice(`${message}（申请人已收到铃铛通知）`);
+      load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '操作失败');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="admin-users">
+      <div className="panel glass admin-panel">
+        <div className="admin-toolbar">
+          <span className="admin-toolbar-hint"><UserRoundPlus size={15} />用户在个人中心提交的换组申请；批准后其可用功能即时生效，双方均收到铃铛通知。</span>
+          <span className="admin-toolbar-spacer" />
+          <label className="admin-select">状态
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'pending' | 'all')} aria-label="按状态过滤">
+              <option value="pending">待审批</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <button className="ghost-button" onClick={load}><RefreshCw size={14} />刷新</button>
+        </div>
+
+        {notice && <div className="admin-notice"><Check size={14} />{notice}</div>}
+        {error && !loading && <div className="admin-notice error"><X size={14} />{error}</div>}
+        {loading && <div className="page-state"><LoaderCircle className="spin" />正在加载换组申请…</div>}
+        {!loading && (
+          <div className="table-wrap admin-table-wrap">
+            <table>
+              <thead>
+                <tr><th>申请人</th><th>当前用户组</th><th>申请加入</th><th>申请理由</th><th>申请时间</th><th>状态</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {items.length === 0 && <tr><td colSpan={7} className="admin-empty">{statusFilter === 'pending' ? '暂无待审批的换组申请' : '暂无换组申请记录'}</td></tr>}
+                {items.map((req) => (
+                  <tr key={req.id}>
+                    <td><strong>{req.username ?? '—'}</strong></td>
+                    <td>{req.from_group_name ?? '未分组'}</td>
+                    <td><span className="admin-group-name">{req.to_group_name ?? '（组已删除）'}</span></td>
+                    <td>{req.reason || '—'}</td>
+                    <td>{req.created_at?.slice(0, 16).replace('T', ' ') ?? '—'}</td>
+                    <td>
+                      {req.status === 'pending'
+                        ? <span className="admin-tag">待审批</span>
+                        : req.status === 'approved'
+                          ? <span className="admin-tag tag-self">已批准</span>
+                          : <span className="admin-tag">已驳回</span>}
+                    </td>
+                    <td>
+                      {req.status === 'pending' ? (
+                        <div className="admin-row-actions">
+                          <button className="admin-action" onClick={() => void handle(req, 'approve')} disabled={busyId === req.id}><Check size={14} />批准</button>
+                          <button className="admin-action danger" onClick={() => void handle(req, 'reject')} disabled={busyId === req.id}><X size={14} />驳回</button>
+                        </div>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

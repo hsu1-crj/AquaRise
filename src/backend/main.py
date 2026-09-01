@@ -41,6 +41,7 @@ from database import (  # noqa: E402
     ensure_database_exists,
     ensure_login_session_platform_column,
     ensure_monitoring_sites_sea_area_column,
+    ensure_notification_type_enum,
     ensure_users_group_column,
 )
 from routers import (  # noqa: E402
@@ -172,6 +173,7 @@ async def lifespan(app: FastAPI):
     ensure_login_session_platform_column()
     ensure_monitoring_sites_sea_area_column()
     ensure_users_group_column()
+    ensure_notification_type_enum()
 
     db = SessionLocal()
     try:

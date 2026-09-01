@@ -127,3 +127,60 @@ def ensure_monitoring_sites_sea_area_column() -> None:
                 )
             )
             conn.commit()
+
+
+def ensure_detection_tasks_monitoring_site_column() -> None:
+    """
+    幂等迁移：为 detection_tasks 增加 monitoring_site_id 列（任务真实归属监测站的软外键）。
+    create_all 只建新表、不会 ALTER 旧表，因此启动时手动补列（MySQL 专用写法，
+    information_schema.COLUMNS 查询；本项目仅用 MySQL，可接受）。
+    缺省 NULL：旧任务无法可靠反推具体站点，保持不归属，不回填。
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = :db AND TABLE_NAME = 'detection_tasks' "
+                "AND COLUMN_NAME = 'monitoring_site_id'"
+            ),
+            {"db": DB_NAME},
+        ).scalar()
+        if not exists:
+            conn.execute(
+                text("ALTER TABLE detection_tasks ADD COLUMN monitoring_site_id INT NULL")
+            )
+            conn.execute(
+                text("CREATE INDEX ix_detection_tasks_monitoring_site_id ON detection_tasks (monitoring_site_id)")
+            )
+            conn.commit()
+
+
+def ensure_notification_type_enum() -> None:
+    """
+    幂等迁移：为 notifications.type 枚举补充换组申请相关取值
+    （group_change_request / group_change_approved / group_change_rejected）。
+    create_all 只建新表、不会 ALTER 旧表的 ENUM 定义，因此启动时手动扩枚举
+    （MySQL 专用写法，与 models.NotificationType 保持一致——新增类型时两处同改）。
+    """
+    all_values = (
+        "task_completed", "task_failed", "report_ready", "pollution_warning",
+        "group_change_request", "group_change_approved", "group_change_rejected",
+    )
+    with engine.connect() as conn:
+        column_type = conn.execute(
+            text(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = :db AND TABLE_NAME = 'notifications' "
+                "AND COLUMN_NAME = 'type'"
+            ),
+            {"db": DB_NAME},
+        ).scalar()
+        if not column_type:  # 表不存在（首次启动 create_all 已按新模型建表）无需处理
+            return
+        if all(f"'{v}'" in column_type for v in all_values):
+            return
+        enum_sql = ",".join(f"'{v}'" for v in all_values)
+        conn.execute(
+            text(f"ALTER TABLE notifications MODIFY COLUMN type ENUM({enum_sql}) NOT NULL")
+        )
+        conn.commit()

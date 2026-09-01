@@ -143,6 +143,40 @@ class ProfileUpdateRequest(BaseModel):
     """个人中心更新资料（电子邮箱 / 手机号）"""
     email: Optional[str] = Field(default=None, max_length=100)
     phone_num: Optional[str] = Field(default=None, max_length=20)
+class UserStatsResponse(BaseModel):
+    """个人中心头像卡三项统计：参与项目（去重海域数）/ 创建任务 / 生成报告"""
+    project_count: int
+    task_count: int
+    report_count: int
+
+
+class GroupOptionItem(BaseModel):
+    """个人中心「申请换组」可见的用户组（排除超级管理员组），含模块中文名"""
+    id: int
+    code: str
+    name: str
+    description: Optional[str] = None
+    modules: list[str] = []        # 功能模块 key
+    module_names: list[str] = []   # 功能模块中文名（与 modules 同序）
+
+
+class GroupSwitchRequestCreate(BaseModel):
+    """提交换组申请"""
+    group_id: int = Field(ge=1, description="目标用户组 id")
+    reason: Optional[str] = Field(default=None, max_length=200)
+
+
+class GroupSwitchRequestItem(BaseModel):
+    """换组申请记录（个人中心看自己的；后台管理看全部待审批）"""
+    id: int
+    username: Optional[str] = None        # 申请人（后台列表用）
+    from_group_name: Optional[str] = None
+    to_group_id: int
+    to_group_name: Optional[str] = None
+    reason: Optional[str] = None
+    status: str                            # pending / approved / rejected
+    created_at: Optional[datetime] = None
+    handled_at: Optional[datetime] = None
 
 
 class MessageResponse(BaseModel):
