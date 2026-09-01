@@ -1,7 +1,7 @@
 /**
  * 科普模式数字人导游坞 —— 复用魔珐数字人(OceanDigitalHuman)。
  *
- * - 配置了 VITE_DH_APP_ID / VITE_DH_APP_SECRET 且初始化成功 → 数字人开口播报;
+ * - 服务端短期凭证初始化成功 → 数字人开口播报;
  * - 未配置/失败 → 降级为拟态光核 + 浏览器语音队列(speech.ts), 不阻塞体验;
  * - 订阅场景播报总线(broadcast.ts): 垃圾投放等提示由数字人念出并显示字幕条,
  *   取代会互相遮挡的浮动卡片; 数字人播报自带队列, 不会截断上一条;
@@ -113,9 +113,9 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     const boot = async () => {
       try {
         const publicConfig = await api.getDigitalHumanConfig().catch(() => null);
-        const appId = import.meta.env.VITE_DH_APP_ID || publicConfig?.app_id || '';
-        const appSecret = import.meta.env.VITE_DH_APP_SECRET || '';
-        // 后端 enabled 只报告服务端凭证状态; 前端本地密钥可用时仍应加载真实SDK。
+        const credential = await api.getDigitalHumanCredential().catch(() => null);
+        const appId = credential?.app_id || publicConfig?.app_id || '';
+        const appSecret = credential?.credential || '';
         if (!appId || !appSecret) {
           if (!cancelled) setDhMode('offline');
           return;
@@ -123,7 +123,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
         // 后端缓存的 sdk_integrity 是旧版本哈希, @latest 文件更新后必然拦截; 不传SRI。
         await loadXmovSDK(publicConfig?.sdk_url);
         if (cancelled) return;
-        const dh = new OceanDigitalHuman({ appId, appSecret, containerId: containerIdRef.current, gatewayServer: publicConfig?.gateway_server });
+        const dh = new OceanDigitalHuman({ appId, appSecret, containerId: containerIdRef.current, gatewayServer: credential?.gateway_server || publicConfig?.gateway_server });
         dh.on('speakStart', () => setSpeaking(true));
         dh.on('speakEnd', () => setSpeaking(false));
         dh.on('error', () => setDhMode('offline'));

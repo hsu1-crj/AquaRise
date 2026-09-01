@@ -250,6 +250,13 @@ export interface DigitalHumanPublicConfig {
   sdk_integrity?: string | null;
   message?: string | null;
 }
+
+export interface DigitalHumanCredential {
+  app_id: string;
+  credential: string;
+  expires_in: number;
+  gateway_server: string;
+}
 export interface ApiValidationError {
   type?: string;
   loc?: Array<string | number>;

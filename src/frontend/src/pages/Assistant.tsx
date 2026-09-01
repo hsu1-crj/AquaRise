@@ -1096,10 +1096,11 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         if (cancelled) return;
 
         setDhLoadingText('正在连接数字人服务…');
-        const appId = import.meta.env.VITE_DH_APP_ID || publicConfig?.app_id || '';
-        const appSecret = import.meta.env.VITE_DH_APP_SECRET || '';
+        const credential = await api.getDigitalHumanCredential().catch(() => null);
+        const appId = credential?.app_id || publicConfig?.app_id || '';
+        const appSecret = credential?.credential || '';
         if (!appId || !appSecret) {
-          console.warn('[数字人] 未配置 VITE_DH_APP_ID / VITE_DH_APP_SECRET，已开启全息拟态模式');
+          console.warn('[数字人] 服务端短期凭证不可用，已开启全息拟态模式');
           if (!cancelled) {
             setDhStatus('offline');
             setDhLoadingText('数字人未配置，已激活全息 AI 模式');
@@ -1110,7 +1111,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           appId,
           appSecret,
           containerId: container!.id || 'og-sdk-container',
-          gatewayServer: publicConfig?.gateway_server,
+          gatewayServer: credential?.gateway_server || publicConfig?.gateway_server,
         });
 
         dh.on('progress', (value) => {

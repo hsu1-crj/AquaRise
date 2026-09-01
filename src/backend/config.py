@@ -4,16 +4,10 @@ import os
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from dotenv import dotenv_values, load_dotenv
+from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
-
-# During local development the only credentials may be in the frontend's
-# uncommitted `.env` (Vite exposes these as VITE_DH_*).  Read those values as a
-# fallback for the server status endpoint, while keeping a root `.env` value
-# authoritative for deployments.  The secret is never returned by the API.
-_FRONTEND_ENV = dotenv_values(PROJECT_ROOT / "src" / "frontend" / ".env")
 
 
 def _env_bool(key: str, default: bool) -> bool:
@@ -76,10 +70,9 @@ LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 # 科普类不再被引用格式绑架；此开关只是"全局强制"的兜底覆盖，默认关闭。
 LLM_REQUIRE_CITATIONS = _env_bool("LLM_REQUIRE_CITATIONS", False)
 
-# 数字人公开运行配置。按当前项目约定，浏览器凭证仍由前端环境提供；
-# 此处只负责报告真实状态和可公开的 SDK 参数，不再返回占位 token。
-DH_APP_ID = (os.getenv("DH_APP_ID") or _FRONTEND_ENV.get("VITE_DH_APP_ID") or "").strip()
-DH_APP_SECRET = (os.getenv("DH_APP_SECRET") or _FRONTEND_ENV.get("VITE_DH_APP_SECRET") or "").strip()
+# 数字人凭证只允许从服务端环境注入；禁止从前端 Vite 环境回读。
+DH_APP_ID = os.getenv("DH_APP_ID", "").strip()
+DH_APP_SECRET = os.getenv("DH_APP_SECRET", "").strip()
 DH_PROVIDER = os.getenv("DH_PROVIDER", "xmov").strip() or "xmov"
 DH_AVATAR_ID = os.getenv("DH_AVATAR_ID", "ocean_guardian_01").strip()
 DH_VOICE_ID = os.getenv("DH_VOICE_ID", "zh_female_ocean").strip()
