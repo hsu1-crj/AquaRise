@@ -649,6 +649,15 @@
   .voice-wave-icon .vw-bar:nth-child(3) { height: 60%; animation-delay: 0.2s; }
   @keyframes vwAnim { 0% { height: 30%; } 100% { height: 100%; } }
 
+  /* 档案操作统一使用同一套线性图标，避免按钮视觉重量不一致 */
+  .card-actions .action-icon {
+    width: 16px; height: 16px; flex: 0 0 16px; display: inline-grid; place-items: center;
+    color: currentColor; opacity: .92;
+  }
+  .card-actions .action-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .card-actions .action-label { min-width: 0; white-space: nowrap; }
+  .card-actions .card-link, .card-actions .card-unlock, .card-actions .gbif-toggle { letter-spacing: .01em; }
+
   .card-actions { display: grid; grid-template-columns: auto 1fr 1fr; align-items: center; gap: 9px; }
   .card-link {
     min-height: 38px; justify-content: center; padding: 0 14px; border-radius: 12px;
@@ -740,7 +749,7 @@
   .atlas-chat-chips::-webkit-scrollbar { display: none; }
   .chat-chip { flex: 0 0 auto; border: 1px solid rgba(56,248,212,0.25); border-radius: 999px; padding: 6px 10px; background: rgba(56,248,212,0.08); color: #bfeef5; font: 11px/1.2 var(--font-sans); cursor: pointer; }
   .chat-chip:hover { color: #fff; border-color: rgba(56,248,212,0.65); background: rgba(56,248,212,0.18); }
-  .atlas-chat-messages { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 6px 24px 18px; scroll-behavior: smooth; }
+  .atlas-chat-messages { min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; padding: 6px 24px 18px; scroll-behavior: smooth; }
   .chat-message { max-width: 92%; display: grid; gap: 6px; }
   .chat-message.user { align-self: flex-end; }
   .chat-message.assistant { align-self: flex-start; }
@@ -1699,15 +1708,15 @@
  .explore-status-copy small{font-size:10.5px;color:#78919e}
  .gbif-attribution{font-size:9.5px}
 
- #photoBox{border-radius:17px;border-color:rgba(179,229,231,.24);box-shadow:0 34px 100px rgba(0,0,0,.76),0 0 70px rgba(56,248,212,.12)}
+ #photoBox{border-radius:14px;border-color:rgba(179,229,231,.24);box-shadow:0 28px 78px rgba(0,0,0,.72)}
  #infoCard{
-  right:42px;top:51%;width:min(432px,38vw);padding:24px 30px 18px 28px;border:0;border-left:1px solid rgba(94,214,205,.25);border-radius:0;
-  background:linear-gradient(90deg,rgba(2,11,19,.88),rgba(2,11,19,.64) 62%,rgba(2,11,19,.32));backdrop-filter:none;-webkit-backdrop-filter:none;
-  box-shadow:none;
+  right:42px;top:51%;width:min(416px,38vw);padding:24px 24px 18px;border:1px solid rgba(143,207,211,.22);border-radius:14px;
+  background:rgba(3,16,27,.92);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  box-shadow:0 24px 64px rgba(0,0,0,.58),inset 0 1px 0 rgba(255,255,255,.06);
   max-height:calc(100vh - 108px);overflow-y:auto;overscroll-behavior:contain;
   scrollbar-width:thin;scrollbar-color:rgba(94,214,205,.32) transparent;
  }
- #infoCard.extinct-card{border-color:rgba(255,105,127,.46);background:linear-gradient(90deg,rgba(31,8,17,.88),rgba(20,6,13,.64) 62%,rgba(20,6,13,.32));box-shadow:none}
+ #infoCard.extinct-card{border-color:rgba(255,105,127,.46);background:rgba(28,9,19,.92);box-shadow:0 24px 64px rgba(0,0,0,.62),inset 0 1px 0 rgba(255,120,150,.08)}
  /* 档案头两行式布局：第一行"档号 + 就绪状态"，第二行"濒危等级 + 进度读数" */
  .card-top{flex-wrap:wrap;align-items:center;row-gap:10px;margin-bottom:12px}
  .card-kicker-group{display:contents}
@@ -1731,10 +1740,10 @@
  .card-actions{order:2}
  .credit-block{order:3;justify-content:flex-start;gap:8px;margin-top:1px}
  /* 操作区分组：讲述（主） / 助手·观测 / 海报·来源 / 返回（导航） */
- .card-actions{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"voice voice" "ask gbif" "poster source" "unlock unlock";gap:8px}
- .card-actions .card-link,.card-actions .card-unlock,.card-actions .gbif-toggle{width:100%;min-height:41px;padding:0 10px;border-radius:11px;font-size:11px}
- .card-actions .card-link{color:#cfe4e6;background:rgba(8,31,43,.46);border-color:rgba(143,207,211,.17);box-shadow:none}
- .card-actions .card-link.primary{color:#032019;background:var(--cyan);border-color:var(--cyan);box-shadow:none;min-height:46px;font-size:12.5px}
+ .card-actions{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"voice voice" "ask gbif" "poster source" "unlock unlock";column-gap:8px;row-gap:8px}
+ .card-actions .card-link,.card-actions .card-unlock,.card-actions .gbif-toggle{width:100%;min-height:42px;padding:0 14px;border-radius:10px;font-size:11px}
+ .card-actions .card-link{color:#d5e8ea;background:rgba(8,31,43,.62);border-color:rgba(143,207,211,.28);box-shadow:none}
+ .card-actions .card-link.primary{color:#032019;background:#35e6cf;border-color:#35e6cf;box-shadow:none;min-height:48px;font-size:12.5px}
  .card-actions .ask-assistant-link{grid-column:auto;color:#d6edee;background:rgba(23,86,94,.28);border-color:rgba(85,213,210,.32)}
  #voiceEchoBtn{grid-area:voice}
  #askAssistantBtn{grid-area:ask}
@@ -1742,11 +1751,79 @@
  #shareBtn{grid-area:poster}
  #sourceLink{grid-area:source}
  #unlockDetail{grid-area:unlock}
- .atlas-species-mode #infoCard .gbif-toggle{display:inline-flex;justify-content:center;background:rgba(8,31,43,.46);border-color:rgba(143,207,211,.17);box-shadow:none}
- #infoCard .gbif-toggle-emblem{width:25px;height:25px;border:0;background:transparent;box-shadow:none}
- #infoCard .gbif-toggle-copy small{display:none}
+ .atlas-species-mode #infoCard .gbif-toggle{display:inline-flex;justify-content:center;background:rgba(8,31,43,.62);border-color:rgba(143,207,211,.28);box-shadow:none}
+ .atlas-species-mode #infoCard .gbif-toggle.on{color:#032019;background:#35e6cf;border-color:#35e6cf;box-shadow:0 0 16px rgba(53,230,207,.24)}
+ #infoCard .gbif-toggle-emblem{width:16px;height:16px;border:0;background:transparent;box-shadow:none;border-radius:0}
+ #infoCard .gbif-toggle-emblem svg{width:16px;height:16px}
+ #infoCard .card-observation-link{color:#bcefee;background:rgba(16,92,99,.34);border-color:rgba(87,220,211,.46);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 0 14px rgba(56,248,212,.08)}
+ #infoCard .card-observation-link:hover,#infoCard .card-observation-link:focus-visible{color:#f0fffd;background:rgba(33,145,145,.42);border-color:#62f4e1;box-shadow:0 0 20px rgba(56,248,212,.22)}
+ #infoCard .card-observation-link .gbif-toggle-emblem{width:18px;height:18px}
+ #infoCard .card-observation-link .gbif-toggle-emblem svg{width:18px;height:18px}
+ #infoCard .gbif-toggle-copy small{display:block;font:600 9px/1 var(--font-mono);color:#83aab7;letter-spacing:.04em;white-space:nowrap}
  #infoCard .gbif-toggle-copy strong{font-size:11px;font-weight:600}
- .card-actions #sourceLink{min-height:41px;background:rgba(8,31,43,.46);border-color:rgba(143,207,211,.17);color:#9fb6c4;box-shadow:none}
+ /* GBIF 状态必须像地图图层开关：固定图标槽位，右侧状态点表达开关/加载。 */
+ #infoCard .gbif-toggle{position:relative;gap:8px;justify-content:center}
+ #infoCard .gbif-toggle::after{content:"";width:6px;height:6px;flex:none;border-radius:50%;background:#557481;box-shadow:0 0 0 3px rgba(85,116,129,.12);transition:background .2s ease,box-shadow .2s ease}
+ #infoCard .gbif-toggle:hover::after,#infoCard .gbif-toggle:focus-visible::after{background:var(--cyan);box-shadow:0 0 0 3px rgba(56,248,212,.15),0 0 10px rgba(56,248,212,.55)}
+ #infoCard .gbif-toggle.loading::after{background:#ffd166;box-shadow:0 0 0 3px rgba(255,209,102,.14),0 0 10px rgba(255,209,102,.42)}
+ #infoCard .gbif-toggle.on::after{background:#032028;box-shadow:0 0 0 3px rgba(3,32,40,.14)}
+ #infoCard .gbif-toggle.loading .gbif-toggle-copy small{color:#ffd166}
+ #infoCard .gbif-toggle.on .gbif-toggle-copy small{color:rgba(3,26,27,.78)}
+ #infoCard .gbif-toggle[aria-busy="true"]{cursor:wait}
+ /* 观测层图例：把“点”和“线”的含义直接放在地球旁，避免只看到装饰性散点。 */
+ #gbifLegend{display:none;position:fixed;right:72px;top:108px;transform:none;z-index:34;width:300px;padding:13px 15px;border:1px solid rgba(99,220,237,.36);border-radius:12px;background:rgba(3,16,27,.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);color:#c6e7ea;box-shadow:0 14px 36px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.06);pointer-events:auto}
+ #gbifLegend.visible{display:block}
+ #gbifLegend::before{content:"";position:absolute;left:14px;right:14px;top:0;height:2px;border-radius:2px;background:linear-gradient(90deg,#ffd166,#44f4d4);box-shadow:0 0 10px rgba(255,209,102,.32)}
+ .gbif-legend-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px;font:700 10px/1 var(--font-mono);letter-spacing:.12em;color:#65f0dc}
+ .gbif-legend-source{font-size:9px;font-weight:500;letter-spacing:.03em;color:#83aab7}
+ .gbif-legend-title{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:8px;color:#eefcf9;font-size:12px;font-weight:650}
+ .gbif-legend-title strong{font-size:13px;color:#fff}
+ .gbif-legend-count{white-space:nowrap;color:#ffd166;font:700 11px/1 var(--font-mono)}
+ .gbif-legend-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-2px 0 9px;padding-bottom:8px;border-bottom:1px solid rgba(126,164,177,.18);color:#ffd166;font:700 9px/1.2 var(--font-mono);letter-spacing:.04em}
+ .gbif-legend-summary span:last-child{color:#83aab7;font-weight:500}
+ .gbif-legend-items{display:flex;gap:14px;flex-wrap:wrap}
+ .gbif-legend-item{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;line-height:1.25;color:#c6e7ea}
+ .gbif-legend-symbol{position:relative;width:18px;height:12px;display:inline-block;flex:none}
+ .gbif-legend-symbol.point::before{content:"";position:absolute;left:4px;top:1px;width:11px;height:11px;border:2px solid #ffb547;border-radius:50%;box-shadow:0 0 9px rgba(255,157,37,.85)}
+ .gbif-legend-symbol.point::after{content:"";position:absolute;left:8px;top:5px;width:5px;height:5px;border-radius:50%;background:#fff0ae;box-shadow:0 0 6px #ffd166}
+ .gbif-legend-symbol.range::before{content:"";position:absolute;left:7px;top:3px;width:7px;height:7px;border-radius:50%;background:#ffd166;box-shadow:0 0 6px rgba(255,209,102,.76)}
+ .gbif-legend-symbol.reference::before{content:"";position:absolute;left:0;right:0;top:6px;border-top:2px dotted rgba(126,164,177,.68)}
+ .gbif-legend-note{margin-top:8px;color:#9ab9c5;font-size:10px;line-height:1.45}
+ .gbif-legend-note strong{color:#e5f5f2;font-weight:700}
+ #gbifClusterLabels{position:fixed;inset:0;z-index:33;pointer-events:none;overflow:hidden}
+ .gbif-cluster-label{--label-offset-y:0px;--leader-angle:-20deg;position:absolute;display:flex;align-items:baseline;gap:5px;min-width:max-content;padding:5px 8px 5px 9px;border:1px solid rgba(255,181,71,.68);border-radius:7px;background:rgba(19,12,5,.90);box-shadow:0 5px 18px rgba(0,0,0,.42),0 0 16px rgba(255,157,37,.18);color:#ffe0a1;transform:translate(16px,calc(-31px + var(--label-offset-y)));white-space:nowrap}
+ .gbif-cluster-label::before{content:"";position:absolute;left:-17px;bottom:8px;width:17px;border-top:1px solid rgba(255,181,71,.72);transform:rotate(var(--leader-angle));transform-origin:right center}
+ .gbif-cluster-label.is-left{transform:translate(-16px,calc(-31px + var(--label-offset-y))) translateX(-100%)}
+ .gbif-cluster-label.is-left::before{left:auto;right:-17px;transform-origin:left center}
+ .gbif-cluster-label.is-back{border-style:dashed;filter:saturate(.72)}
+ .gbif-cluster-label.is-back::before{border-top-style:dashed}
+ .gbif-cluster-label strong{color:#fff3c7;font:800 13px/1 var(--font-mono)}
+ .gbif-cluster-label span{color:#ffd166;font:700 9px/1 var(--font-mono)}
+ .gbif-cluster-label small{color:#c79d60;font:600 8px/1 var(--font-mono);letter-spacing:.04em}
+ .gbif-mode-control{display:none;position:fixed;left:28px;bottom:88px;z-index:36;align-items:center;gap:8px;min-height:42px;padding:0 12px 0 8px;border:1px solid rgba(255,181,71,.52);border-radius:11px;background:rgba(20,13,6,.88);box-shadow:0 8px 24px rgba(0,0,0,.42),0 0 18px rgba(255,157,37,.13);color:#ffe2a5;cursor:pointer}
+ .gbif-mode-control-icon{width:20px;height:20px;display:grid;place-items:center;color:#ffd166}
+ .gbif-mode-control-icon svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+ .gbif-mode-control-copy{display:grid;gap:3px;text-align:left}
+ .gbif-mode-control-copy strong{font:700 11px/1 var(--font-sans);color:#fff0c8}
+ .gbif-mode-control-copy small{font:600 9px/1 var(--font-mono);color:#c79d60}
+ .gbif-mode-control:hover,.gbif-mode-control:focus-visible{border-color:#ffd166;background:rgba(45,26,8,.94);box-shadow:0 8px 28px rgba(0,0,0,.5),0 0 22px rgba(255,181,71,.24);outline:none}
+ .gbif-observation-mode #gbifModeControl{display:flex}
+ .gbif-observation-mode.atlas-planet-mode #infoCard{display:none!important}
+ .gbif-observation-mode.atlas-planet-mode #photoBox{visibility:hidden!important;pointer-events:none!important}
+ @media(max-width:900px){
+   #gbifLegend{left:50%;right:auto;top:auto;bottom:calc(67px + 56px);transform:translateX(-50%);width:calc(100vw - 36px);min-width:0}
+   .gbif-legend-items{gap:9px}
+   .gbif-mode-control{left:14px;top:112px;bottom:auto;min-height:38px;padding-right:9px}
+   .gbif-mode-control-copy strong{font-size:10px}.gbif-mode-control-copy small{font-size:8px}
+   .gbif-cluster-label{transform:translate(12px,calc(-27px + var(--label-offset-y)));padding:4px 7px 4px 8px}
+   .gbif-cluster-label.is-left{transform:translate(-12px,calc(-27px + var(--label-offset-y))) translateX(-100%)}
+   .gbif-cluster-label strong{font-size:12px}
+ }
+ @media (min-width:901px) and (max-width:1200px){
+   #gbifLegend{right:18px;top:76px;width:280px;padding:11px 12px}
+   #gbifLegend .gbif-legend-note{font-size:9.5px}
+ }
+ .card-actions #sourceLink{min-height:42px;background:rgba(8,31,43,.62);border-color:rgba(143,207,211,.28);color:#b3c8d0;box-shadow:none}
  .card-actions #sourceLink:hover{color:#eaf6f3;border-color:rgba(56,248,212,.45);background:rgba(56,248,212,.08);box-shadow:none;transform:translateY(-1px)}
  .card-actions #unlockDetail{min-height:38px;color:#a8c5d4;border-color:rgba(143,207,211,.22);background:rgba(8,31,43,.3);font-weight:600;letter-spacing:.05em}
  .card-actions #unlockDetail:hover{color:#fff;border-color:rgba(56,248,212,.5);background:rgba(56,248,212,.1);transform:translateY(-1px);box-shadow:0 0 12px rgba(56,248,212,.2)}
@@ -1787,9 +1864,9 @@
   .explore-status-copy small{display:none}
   .atlas-planet-mode #controls,.atlas-species-mode #controls{top:68px;bottom:auto;left:13px}
   .fullscreen-dock-btn{padding:7px 10px}.fs-label,.fs-kbd{display:none}
-  #infoCard{left:50%;right:auto;top:auto;bottom:67px;width:calc(100vw - 24px);max-height:49vh;padding:18px 17px 14px;border-left:0;border-top:1px solid rgba(94,214,205,.24);background:linear-gradient(180deg,rgba(2,11,19,.94),rgba(2,11,19,.78));border-radius:16px}
+  #infoCard{left:50%;right:auto;top:auto;bottom:67px;width:calc(100vw - 24px);max-height:68vh;padding:15px 17px 12px;border:1px solid rgba(143,207,211,.22);background:rgba(3,16,27,.94);border-radius:14px;box-shadow:0 20px 48px rgba(0,0,0,.58)}
   #infoCard.show{transform:translateX(-50%) translateY(0)}
-  .spec-title{font-size:28px}.spec-story{-webkit-line-clamp:3}
+  .card-top{row-gap:7px;margin-bottom:8px}.spec-title{font-size:28px;margin-bottom:4px}.spec-latin{margin-bottom:9px}.spec-story{margin-bottom:8px;-webkit-line-clamp:2}.spec-tags{margin-bottom:8px}.card-footer{padding-top:9px;gap:8px}.card-actions{row-gap:6px}
   #speciesNav{bottom:10px}
   .coach-panel{width:calc(100vw - 28px)}
   .coach-steps{grid-template-columns:1fr}.coach-steps li{min-height:0}
@@ -1800,7 +1877,7 @@
   #filterHub.planet-mode .search-trigger-btn{padding-left:10px}
   #filterHub.planet-mode .search-trigger-copy small{display:none}
   .atlas-primary-action{min-width:106px}
-  .card-actions .card-link,.card-actions .card-unlock,.card-actions .gbif-toggle{min-height:38px}
+  .card-actions .card-link,.card-actions .card-unlock,.card-actions .gbif-toggle{min-height:44px}
  }
 
  </style>
@@ -1962,7 +2039,7 @@
         <span class="detail-state" id="detailState">可浏览</span>
       </div>
       <span class="iucn CR" id="iucnBadge">CR · 极危</span>
-      <span class="spec-num" id="infoNum">01/22</span>
+      <span class="spec-num" id="infoNum">第 1/22 种</span>
     </div>
     <h2 class="spec-title" id="infoCn">小头鼠海豚</h2>
     <div class="spec-latin" id="infoLa">Vaquita · <i>Phocoena sinus</i></div>
@@ -1979,21 +2056,21 @@
       </div>
        <div class="card-actions">
          <button class="card-link primary voice-echo-link" id="voiceEchoBtn" type="button" title="播放当前动物独白并驱动粒子声纹">
-           <span class="voice-wave-icon"><i class="vw-bar"></i><i class="vw-bar"></i><i class="vw-bar"></i></span>
-           <span>听它讲述</span>
+           <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4"/><path d="M8 7v10"/><path d="M12 4v16"/><path d="M16 7v10"/><path d="M20 10v4"/></svg></span>
+           <span class="action-label">听它讲述</span>
          </button>
-         <button class="card-link ask-assistant-link" id="askAssistantBtn" type="button"><span>问海瞳助手</span></button>
+         <button class="card-link ask-assistant-link" id="askAssistantBtn" type="button" title="围绕当前物种向海瞳助手提问" aria-label="问海瞳助手"><span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 8.5h11A2.5 2.5 0 0 1 20 11v5a2.5 2.5 0 0 1-2.5 2.5h-6l-3.8 2v-2H6.5A2.5 2.5 0 0 1 4 16v-5a2.5 2.5 0 0 1 2.5-2.5Z"/><path d="M8 5.5h8"/><circle cx="9" cy="13.5" r=".7" fill="currentColor" stroke="none"/><circle cx="15" cy="13.5" r=".7" fill="currentColor" stroke="none"/></svg></span><span class="action-label">问海瞳助手</span></button>
          <button class="gbif-toggle card-observation-link" id="gbifToggle" type="button" aria-pressed="false" title="查看当前物种的全球观测记录">
-          <span class="gbif-toggle-emblem" aria-hidden="true">
+          <span class="gbif-toggle-emblem action-icon" aria-hidden="true">
            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><ellipse cx="12" cy="12" rx="9.4" ry="4.4" transform="rotate(-16 12 12)" opacity=".85"/><circle class="gbif-sat-dot" cx="20.2" cy="8.9" r="1.15" fill="#38f8d4" stroke="none"/><path d="M2.6 13.6a9.6 9.6 0 0 0 3.4 5" opacity=".5"/></svg>
           </span>
-          <span class="gbif-toggle-copy"><strong id="gbifToggleText">观测分布</strong><small>全球物种记录</small></span>
+          <span class="gbif-toggle-copy"><strong id="gbifToggleText">观测分布</strong><small>全球观测层</small></span>
          </button>
-         <button class="card-link" id="shareBtn" type="button"><span>生成科普海报</span></button>
-         <a class="card-link" id="sourceLink" href="#" target="_blank" rel="noopener"><span>权威来源 ↗</span></a>
-         <button class="card-unlock" id="unlockDetail" type="button">
-          <svg class="anim-svg anim-earth" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="4.5" ry="10"/><path d="M2 12h20"/></svg>
-           <span id="unlockTxt">回到地球</span>
+         <button class="card-link" id="shareBtn" type="button" title="生成当前物种的科普海报" aria-label="生成科普海报"><span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><circle cx="9" cy="10" r="1.4"/><path d="m6.5 17 4.2-4.2 2.8 2.8 1.8-1.8 2.2 2.2"/></svg></span><span class="action-label">生成科普海报</span></button>
+         <a class="card-link" id="sourceLink" href="#" target="_blank" rel="noopener"><span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 5h5v5"/><path d="m19 5-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></span><span class="action-label">权威来源</span></a>
+         <button class="card-unlock" id="unlockDetail" type="button" title="返回自转地球视图" aria-label="返回地球">
+          <span class="action-icon" aria-hidden="true"><svg class="anim-svg anim-earth" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19"/><path d="M12 2.5c2.4 2.6 3.6 5.8 3.6 9.5s-1.2 6.9-3.6 9.5c-2.4-2.6-3.6-5.8-3.6-9.5s1.2-6.9 3.6-9.5Z"/><path d="M4.3 7.2h15.4M4.3 16.8h15.4"/></svg></span>
+           <span class="action-label" id="unlockTxt">回到地球</span>
          </button>
        </div>
     </div>
@@ -2037,6 +2114,25 @@
     <span class="explore-status-copy"><strong id="exploreStatusTitle">选择一个物种</strong><small id="exploreStatusDetail">搜索名称、学名或保护等级</small></span>
     <span class="gbif-attribution" id="gbifAttribution" aria-live="polite" hidden></span>
   </div>
+
+  <div id="gbifClusterLabels" aria-hidden="true"></div>
+
+  <aside id="gbifLegend" aria-live="polite" aria-label="全球观测图例">
+    <div class="gbif-legend-head"><span>全球观测图层</span><span class="gbif-legend-source" id="gbifLegendSource">GBIF 公开记录</span></div>
+    <div class="gbif-legend-title"><strong id="gbifLegendSpecies">当前物种</strong><span class="gbif-legend-count"><b id="gbifLegendCount">--</b> 个采样位置</span></div>
+    <div class="gbif-legend-summary"><span id="gbifLegendClusters">-- 个聚集区</span><span>当前视野</span></div>
+    <div class="gbif-legend-items">
+      <span class="gbif-legend-item"><i class="gbif-legend-symbol point" aria-hidden="true"></i>橙色靶心 = 观测聚集区</span>
+      <span class="gbif-legend-item"><i class="gbif-legend-symbol range" aria-hidden="true"></i>金色点 = 档案代表点</span>
+      <span class="gbif-legend-item"><i class="gbif-legend-symbol reference" aria-hidden="true"></i>浅色点列 = 地球轮廓参考</span>
+    </div>
+    <div class="gbif-legend-note"><strong>怎么看：</strong>同一海域的位置会合并为一个聚集区；靶心大小与数字表示本次显示的位置数。浅色点列只是地球轮廓参考，不是观测数据。</div>
+  </aside>
+
+  <button id="gbifModeControl" class="gbif-mode-control ui" type="button" aria-pressed="true" title="关闭全球观测图层">
+    <span class="gbif-mode-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.2 2.4 3.3 5.2 3.3 8.5s-1.1 6.1-3.3 8.5c-2.2-2.4-3.3-5.2-3.3-8.5s1.1-6.1 3.3-8.5Z"/></svg></span>
+    <span class="gbif-mode-control-copy"><strong>观测模式</strong><small id="gbifModeControlText">关闭图层</small></span>
+  </button>
 
   <!-- 底部物种轮播导航 -->
   <div id="speciesNav" class="ui">
@@ -2470,7 +2566,7 @@ const CONFIG = {
   enabled: true,
   maxRenderPoints: 2200,
   maxSpeciesPoints: 100,
-  pointSize: 8.5,
+  pointSize: 22,
   timeoutMs: 8000,
   ttlMs: 604800000
  },
@@ -2669,7 +2765,7 @@ let renderer, scene, camera;
 let composer = null, bloomEffect = null;
 let bloomActive = false, bloomDegradedReason = "not-initialized";
 let particleGeometry, particleMaterial, pointCloud;
-let gbifGeometry = null, gbifMaterial = null, gbifPointLayer = null, gbifPositionAttr = null;
+let gbifGeometry = null, gbifMaterial = null, gbifPointLayer = null, gbifPositionAttr = null, gbifCountAttr = null;
 let planetRoot, particleProjectionLayer;
 let positionAttr, colorAttr, sizeAttr, alphaAttr, edgeAttr;
 
@@ -2747,9 +2843,13 @@ function initGbifPointLayer() {
  if (!CONFIG.gbifLayer.enabled || !planetRoot) return;
  gbifGeometry = new THREE.BufferGeometry();
  gbifPositionAttr = new THREE.Float32BufferAttribute(
-  new Float32Array(CONFIG.gbifLayer.maxRenderPoints * 3), 3
+   new Float32Array(CONFIG.gbifLayer.maxRenderPoints * 3), 3
+ ).setUsage(THREE.DynamicDrawUsage);
+ gbifCountAttr = new THREE.Float32BufferAttribute(
+  new Float32Array(CONFIG.gbifLayer.maxRenderPoints), 1
  ).setUsage(THREE.DynamicDrawUsage);
  gbifGeometry.setAttribute("position", gbifPositionAttr);
+ gbifGeometry.setAttribute("aCount", gbifCountAttr);
  gbifGeometry.setDrawRange(0, 0);
  gbifMaterial = new THREE.ShaderMaterial({
   uniforms: {
@@ -2758,37 +2858,54 @@ function initGbifPointLayer() {
    uPointSize: { value: CONFIG.gbifLayer.pointSize }
   },
   vertexShader: `
+   attribute float aCount;
    uniform float uPixelRatio;
    uniform float uPointSize;
    varying float vFacing;
+   varying float vCount;
    void main() {
     vec3 worldDirection = normalize(mat3(modelMatrix) * position);
-    vFacing = smoothstep(-0.12, 0.22, worldDirection.z);
+    // 背面记录保留为半透明标记，避免地球自转时观测数据突然消失。
+    vFacing = smoothstep(-0.58, 0.16, worldDirection.z);
+    vCount = max(aCount, 1.0);
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mvPosition;
-    gl_PointSize = uPointSize * uPixelRatio * mix(0.72, 1.0, vFacing);
+    float countScale = 1.0 + min(sqrt(vCount) - 1.0, 7.0) * 0.09;
+    gl_PointSize = uPointSize * uPixelRatio * countScale * mix(0.88, 1.18, vFacing);
    }
   `,
   fragmentShader: `
    uniform float uTime;
    varying float vFacing;
+   varying float vCount;
    void main() {
     vec2 uv = gl_PointCoord - vec2(0.5);
     float distanceToCenter = length(uv);
-    if (distanceToCenter > 0.5 || vFacing < 0.02) discard;
-    float core = smoothstep(0.5, 0.02, distanceToCenter);
-    float pulse = 0.72 + 0.28 * sin(uTime * 2.2 + gl_FragCoord.x * 0.025);
-    vec3 color = mix(vec3(0.10, 0.92, 1.0), vec3(0.35, 1.0, 0.72), core);
-    gl_FragColor = vec4(color, core * pulse * vFacing);
+    if (distanceToCenter > 0.5) discard;
+    // 目标标记：外圈 + 实心中心，比普通地球粒子更像“地图记录点”。
+    float outerRing = 1.0 - smoothstep(0.31, 0.46, distanceToCenter);
+    outerRing *= smoothstep(0.16, 0.28, distanceToCenter);
+    float innerRing = 1.0 - smoothstep(0.15, 0.22, distanceToCenter);
+    float core = 1.0 - smoothstep(0.055, 0.12, distanceToCenter);
+    float halo = (1.0 - smoothstep(0.16, 0.5, distanceToCenter)) * (0.12 + min(vCount, 32.0) / 32.0 * 0.10);
+    // 高密度聚集区增加一圈清晰的数量层级，不把采样位置误读成普通亮点。
+    float densityRing = (1.0 - smoothstep(0.43, 0.49, distanceToCenter)) * smoothstep(0.28, 0.38, distanceToCenter);
+    densityRing *= min(1.0, 0.45 + sqrt(vCount) * 0.14);
+    float pulse = 0.76 + 0.24 * sin(uTime * 2.4 + gl_FragCoord.x * 0.018);
+    vec3 color = mix(vec3(1.0, 0.40, 0.06), vec3(1.0, 0.93, 0.50), core);
+    float alpha = max(max(max(outerRing * 1.15, innerRing * 0.86), core), densityRing * 0.92) + halo;
+    float faceAlpha = mix(0.45, 1.0, vFacing);
+    gl_FragColor = vec4(color, alpha * pulse * faceAlpha);
    }
   `,
   transparent: true,
   depthTest: false,
   depthWrite: false,
-  blending: THREE.AdditiveBlending
+  blending: THREE.NormalBlending
  });
  gbifPointLayer = new THREE.Points(gbifGeometry, gbifMaterial);
  gbifPointLayer.name = "gbif-observation-layer";
+ gbifPointLayer.renderOrder = 20;
  gbifPointLayer.frustumCulled = false;
  gbifPointLayer.visible = false;
  planetRoot.add(gbifPointLayer);
@@ -3176,8 +3293,199 @@ let gbifLayerLoading = false;
 let gbifLayerSource = "";
 let gbifLayerStale = false;
 let gbifLayerPointCount = 0;
+let gbifLayerClusterCount = 0;
+let gbifClusters = [];
 let gbifLoadedSpeciesIndex = -1;
 let gbifRequestToken = 0;
+let gbifLegendSpeciesIndex = 0;
+const gbifLegend = $("#gbifLegend");
+const gbifClusterLabels = $("#gbifClusterLabels");
+// 图例是解释层，不应把滚轮/拖拽手势继续传给底下的地球画布。
+gbifLegend?.addEventListener("wheel", event => event.stopPropagation(), { passive: true });
+gbifLegend?.addEventListener("pointerdown", event => event.stopPropagation());
+
+// GBIF 记录通常集中在同一片海域；先按地理网格聚合，避免大量点重叠成无法解释的光斑。
+function clusterGbifPoints(points) {
+ const cellSize = points.length > 80 ? 2.5 : 1.8;
+ const buckets = new Map();
+ for (const point of Array.isArray(points) ? points : []) {
+  const lon = Number(point?.[0]);
+  const lat = Number(point?.[1]);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+  const lonKey = Math.floor((lon + 180) / cellSize);
+  const latKey = Math.floor((lat + 90) / cellSize);
+  const key = `${lonKey}:${latKey}`;
+  let bucket = buckets.get(key);
+  if (!bucket) {
+   bucket = { count: 0, x: 0, y: 0, z: 0, points: [] };
+   buckets.set(key, bucket);
+  }
+  const phi = lat * Math.PI / 180;
+  const lambda = lon * Math.PI / 180;
+  const cosPhi = Math.cos(phi);
+  bucket.x += -cosPhi * Math.cos(lambda);
+  bucket.y += Math.sin(phi);
+  bucket.z += cosPhi * Math.sin(lambda);
+  bucket.count += 1;
+  bucket.points.push([lon, lat]);
+ }
+ return Array.from(buckets.values()).map(bucket => {
+  const length = Math.hypot(bucket.x, bucket.y, bucket.z) || 1;
+  const x = bucket.x / length;
+  const y = bucket.y / length;
+  const z = bucket.z / length;
+  return {
+   count: bucket.count,
+   x, y, z,
+   lat: Math.asin(y) * 180 / Math.PI,
+   lon: Math.atan2(z, -x) * 180 / Math.PI
+  };
+ }).sort((a, b) => b.count - a.count || a.lat - b.lat || a.lon - b.lon);
+}
+
+function syncGbifClusterLabels() {
+ if (!gbifClusterLabels) return;
+ const indexed = gbifClusters.map((cluster, index) => ({ cluster, index }));
+ const labelClusters = gbifClusters.length <= 6
+  ? indexed.slice(0, 6)
+  : indexed.filter(({ cluster }) => cluster.count > 1).slice(0, 8);
+ const visible = labelClusters.length ? labelClusters : indexed.slice(0, 1);
+ gbifClusterLabels.innerHTML = visible.map(({ cluster, index }) => `
+  <div class="gbif-cluster-label" data-cluster-index="${index}">
+   <strong>${cluster.count}</strong><span>个位置</span><small>观测聚集区</small>
+  </div>`).join("");
+}
+
+function updateGbifClusterLabels(earthRadius, spin, pitch) {
+ if (!gbifClusterLabels) return;
+ const nodes = gbifClusterLabels.querySelectorAll(".gbif-cluster-label");
+ const show = gbifLayerEnabled && !gbifLayerLoading && lifeMode === "planet" && zoom < 0.35 && gbifClusters.length;
+ if (!show) {
+  gbifClusterLabels.hidden = true;
+  return;
+ }
+ gbifClusterLabels.hidden = false;
+ const planetMatrix = planetRoot?.matrix?.elements;
+ if (!planetMatrix) { gbifClusterLabels.hidden = true; return; }
+ const isCompact = W <= 900;
+ const baseX = isCompact ? 12 : 16;
+ const baseY = isCompact ? -27 : -31;
+ const labelGap = isCompact ? 5 : 7;
+ const offsetStep = isCompact ? 28 : 26;
+ const forbiddenSelectors = ["#gbifLegend", "#bottomHint", "#depthScrubber", "#gbifModeControl", "#speciesNav"];
+ const readForbiddenRects = () => forbiddenSelectors.map(selector => document.querySelector(selector))
+  .filter(element => element && !element.hidden)
+  .map(element => element.getBoundingClientRect())
+  .filter(rect => rect.width > 0 && rect.height > 0);
+ let forbiddenRects = readForbiddenRects();
+ const rectsOverlap = (a, b, gap = labelGap) =>
+  a.left < b.right + gap && a.right > b.left - gap && a.top < b.bottom + gap && a.bottom > b.top - gap;
+ const inViewport = rect => rect.left >= 4 && rect.right <= W - 4 && rect.top >= 4 && rect.bottom <= H - 4;
+ const applyPlacement = (entry, side, offsetY) => {
+  entry.node.classList.toggle("is-left", side < 0);
+  entry.node.style.setProperty("--label-offset-y", `${offsetY}px`);
+  entry.node.style.left = `${entry.x}px`;
+  entry.node.style.top = `${entry.y}px`;
+  entry.node.style.transform = side > 0
+   ? `translate(${baseX}px,calc(${baseY}px + var(--label-offset-y)))`
+   : `translate(${-baseX}px,calc(${baseY}px + var(--label-offset-y))) translateX(-100%)`;
+  return entry.node.getBoundingClientRect();
+ };
+ const candidates = [];
+ nodes.forEach(node => {
+  const cluster = gbifClusters[Number(node.dataset.clusterIndex)];
+  if (!cluster) { node.hidden = true; return; }
+  // 复用地球当前 Three.js 矩阵，避免标签与实际靶心因旋转顺序产生偏移。
+  const localX = cluster.x * 1.018;
+  const localY = cluster.y * 1.018;
+  const localZ = cluster.z * 1.018;
+  const x = planetMatrix[0] * localX + planetMatrix[4] * localY + planetMatrix[8] * localZ + planetMatrix[12];
+  // WebGL 的屏幕原点在左下，而 DOM 原点在左上，因此反转 Y。
+  const y = H - (planetMatrix[1] * localX + planetMatrix[5] * localY + planetMatrix[9] * localZ + planetMatrix[13]);
+  const facingZ = (planetMatrix[2] * localX + planetMatrix[6] * localY + planetMatrix[10] * localZ) / Math.max(earthRadius, 1);
+  if (facingZ < -0.72) { node.hidden = true; return; }
+  node.hidden = false;
+  node.classList.toggle("is-back", facingZ < 0.08);
+  node.style.opacity = facingZ < 0.08 ? "0.78" : "1";
+  candidates.push({ node, cluster, x, y, preferredSide: x < W * 0.64 ? 1 : -1 });
+ });
+ // 平板横向空间有限：在四个安全候选位中选择离聚集点最远的一处，
+ // 避免固定右上角图例压住某个物种刚好位于右侧的观测标记。
+ if (W > 900 && W <= 1200 && gbifLegend?.classList.contains("visible")) {
+  const legendRect = gbifLegend.getBoundingClientRect();
+  const legendWidth = legendRect.width || 280;
+  const legendHeight = legendRect.height || 170;
+  const bottomTop = Math.max(72, H - legendHeight - 100);
+  const leftRail = Math.min(232, Math.max(18, W - legendWidth - 18));
+  const placements = [
+   { left: Math.max(18, W - legendWidth - 18), top: 72 },
+   { left: leftRail, top: 72 },
+   { left: Math.max(18, W - legendWidth - 18), top: bottomTop },
+   { left: leftRail, top: bottomTop }
+  ];
+  const uiRects = ["#exploreRail", "#filterHub", "#bottomHint", "#speciesNav", "#controls"]
+   .map(selector => document.querySelector(selector))
+   .filter(element => element && !element.hidden)
+   .map(element => element.getBoundingClientRect())
+   .filter(rect => rect.width > 0 && rect.height > 0);
+  const scorePlacement = placement => {
+   const rect = { left: placement.left, top: placement.top, right: placement.left + legendWidth, bottom: placement.top + legendHeight };
+   const targetRisk = candidates.reduce((score, entry) => {
+    const nearX = entry.x > rect.left - 76 && entry.x < rect.right + 76;
+    const nearY = entry.y > rect.top - 76 && entry.y < rect.bottom + 76;
+    return score + (nearX && nearY ? 3 : 0);
+   }, 0);
+   const uiRisk = uiRects.reduce((score, other) => score + (rectsOverlap(rect, other, 6) ? 4 : 0), 0);
+   return targetRisk + uiRisk;
+  };
+  const best = placements.slice().sort((a, b) => scorePlacement(a) - scorePlacement(b))[0];
+  if (best) {
+   gbifLegend.style.left = `${best.left}px`;
+   gbifLegend.style.right = "auto";
+   gbifLegend.style.top = `${best.top}px`;
+   gbifLegend.style.bottom = "auto";
+   forbiddenRects = readForbiddenRects();
+  }
+ } else if (gbifLegend) {
+  // 窗口跨断点调整时清掉平板阶段的内联定位，交回桌面/移动 CSS。
+  gbifLegend.style.removeProperty("left");
+  gbifLegend.style.removeProperty("right");
+  gbifLegend.style.removeProperty("top");
+  gbifLegend.style.removeProperty("bottom");
+ }
+ // 标签在小屏上很容易落到同一条水平线上；按记录量优先固定第一标签，
+ // 其余标签在上下和左右两个方向寻找不碰撞的位置，仍保留每个聚集区的数量语义。
+ candidates.sort((a, b) => b.cluster.count - a.cluster.count || a.y - b.y || a.x - b.x);
+ const occupied = [];
+ for (const entry of candidates) {
+  const offsets = [0];
+  for (let step = offsetStep; step <= Math.max(H * 0.28, offsetStep * 4); step += offsetStep) offsets.push(step, -step);
+  const sides = [entry.preferredSide, -entry.preferredSide];
+  let chosen = null;
+  let fallback = null;
+  let fallbackScore = Number.POSITIVE_INFINITY;
+  for (const side of sides) {
+   for (const offsetY of offsets) {
+    const rect = applyPlacement(entry, side, offsetY);
+    const collisionCount = occupied.filter(other => rectsOverlap(rect, other)).length
+     + forbiddenRects.filter(other => rectsOverlap(rect, other, 2)).length;
+    const viewportPenalty = inViewport(rect) ? 0 : 4;
+    const score = collisionCount * 10 + viewportPenalty + Math.abs(offsetY) / 1000;
+    if (score < fallbackScore) { fallbackScore = score; fallback = { side, offsetY, rect }; }
+    if (!collisionCount && inViewport(rect)) { chosen = { side, offsetY, rect }; break; }
+   }
+   if (chosen) break;
+  }
+  const placement = chosen || fallback;
+  if (!placement) { entry.node.hidden = true; continue; }
+  applyPlacement(entry, placement.side, placement.offsetY);
+  const anchorX = placement.side > 0 ? placement.rect.left : placement.rect.right;
+  const anchorY = placement.rect.top + placement.rect.height - 8;
+  const leaderAngle = Math.atan2(entry.y - anchorY, entry.x - anchorX) * 180 / Math.PI;
+  entry.node.style.setProperty("--leader-angle", `${Number.isFinite(leaderAngle) ? leaderAngle.toFixed(1) : -20}deg`);
+  occupied.push(placement.rect);
+ }
+}
 
 function updateGbifUi() {
  const button = $("#gbifToggle");
@@ -3187,43 +3495,69 @@ function updateGbifUi() {
  if (!CONFIG.gbifLayer.enabled) {
   button.hidden = true;
   if (attribution) attribution.hidden = true;
+  if (gbifLegend) gbifLegend.classList.remove("visible");
   return;
  }
  button.hidden = false;
  button.classList.toggle("on", gbifLayerEnabled);
  button.classList.toggle("loading", gbifLayerLoading);
+ document.body.classList.toggle("gbif-observation-mode", gbifLayerEnabled);
+ const modeControl = $("#gbifModeControl");
+ if (modeControl) {
+  modeControl.setAttribute("aria-pressed", String(gbifLayerEnabled));
+  modeControl.title = gbifLayerEnabled ? "关闭全球观测图层" : "开启全球观测图层";
+  const modeText = $("#gbifModeControlText");
+  if (modeText) modeText.textContent = gbifLayerEnabled ? "关闭图层" : "开启图层";
+ }
+ button.setAttribute("aria-busy", String(gbifLayerLoading));
  button.setAttribute("aria-pressed", String(gbifLayerEnabled));
  const loadedSpeciesName = SPECIES[gbifLoadedSpeciesIndex]?.cn || "当前物种";
  button.title = gbifLayerEnabled ? `隐藏${loadedSpeciesName}的全球观测记录` : "显示当前物种的全球观测记录";
  if (label) {
   label.textContent = gbifLayerLoading
    ? "读取观测…"
-   : gbifLayerEnabled && gbifLayerPointCount
-    ? `观测分布 · ${gbifLayerPointCount}`
-    : "观测分布";
+   : "观测分布";
  }
  if (!attribution) return;
  attribution.hidden = !gbifLayerEnabled || gbifLayerLoading || !gbifLayerPointCount;
- if (gbifLayerSource === "gbif") attribution.textContent = `${loadedSpeciesName} · GBIF 实时记录 · ${gbifLayerPointCount} 点`;
- else if (gbifLayerSource === "cache") attribution.textContent = `${loadedSpeciesName} · GBIF ${gbifLayerStale ? "离线" : "本地"}缓存 · ${gbifLayerPointCount} 点`;
+ if (gbifLayerSource === "gbif") attribution.textContent = `${loadedSpeciesName} · GBIF 实时记录 · 显示 ${gbifLayerPointCount} 个位置 · ${gbifLayerClusterCount} 个聚集区`;
+ else if (gbifLayerSource === "cache") attribution.textContent = `${loadedSpeciesName} · GBIF ${gbifLayerStale ? "离线" : "本地"}缓存 · 显示 ${gbifLayerPointCount} 个位置 · ${gbifLayerClusterCount} 个聚集区`;
  else attribution.textContent = `${loadedSpeciesName} · GBIF 暂不可用 · 显示档案栖息地`;
+ if (gbifLegend) {
+  const inPlanetMode = !document.body.classList.contains("atlas-species-mode");
+  gbifLegend.classList.toggle("visible", gbifLayerEnabled && inPlanetMode);
+  const legendSpecies = $("#gbifLegendSpecies");
+  const legendCount = $("#gbifLegendCount");
+  if (legendSpecies) legendSpecies.textContent = SPECIES[gbifLegendSpeciesIndex]?.cn || "当前物种";
+  if (legendCount) legendCount.textContent = gbifLayerLoading ? "…" : String(gbifLayerPointCount || 0);
+  const legendClusters = $("#gbifLegendClusters");
+  if (legendClusters) legendClusters.textContent = gbifLayerLoading ? "正在聚合位置…" : `${gbifLayerClusterCount || 0} 个聚集区`;
+  const legendSource = $("#gbifLegendSource");
+  if (legendSource) legendSource.textContent = gbifLayerLoading ? "正在读取…" : gbifLayerSource === "gbif" ? "GBIF 实时记录（已抽样）" : gbifLayerSource === "cache" ? "GBIF 本地缓存" : "档案代表点";
+ }
 }
 
 function updateGbifPointPositions(points) {
- if (!gbifGeometry || !gbifPositionAttr) return 0;
- const count = Math.min(Array.isArray(points) ? points.length : 0, CONFIG.gbifLayer.maxRenderPoints);
+ if (!gbifGeometry || !gbifPositionAttr || !gbifCountAttr) return 0;
+ const records = Array.isArray(points) ? points : [];
+ gbifClusters = clusterGbifPoints(records);
+ gbifLayerClusterCount = Math.min(gbifClusters.length, CONFIG.gbifLayer.maxRenderPoints);
+ syncGbifClusterLabels();
+ const count = gbifLayerClusterCount;
  const positions = gbifPositionAttr.array;
+ const counts = gbifCountAttr.array;
  for (let i = 0; i < count; i++) {
-  const lon = Number(points[i][0]) * Math.PI / 180;
-  const lat = Number(points[i][1]) * Math.PI / 180;
-  const latitudeRadius = Math.cos(lat);
-  positions[i * 3] = -latitudeRadius * Math.cos(lon) * 1.018;
-  positions[i * 3 + 1] = Math.sin(lat) * 1.018;
-  positions[i * 3 + 2] = latitudeRadius * Math.sin(lon) * 1.018;
+  const cluster = gbifClusters[i];
+  positions[i * 3] = cluster.x * 1.018;
+  positions[i * 3 + 1] = cluster.y * 1.018;
+  positions[i * 3 + 2] = cluster.z * 1.018;
+  counts[i] = cluster.count;
  }
+ for (let i = count; i < Math.min(records.length, CONFIG.gbifLayer.maxRenderPoints); i++) counts[i] = 0;
  gbifGeometry.setDrawRange(0, count);
  gbifPositionAttr.needsUpdate = true;
- return count;
+ gbifCountAttr.needsUpdate = true;
+ return records.length;
 }
 
 async function loadGbifForCurrentSpecies({ force = false } = {}) {
@@ -3233,6 +3567,9 @@ async function loadGbifForCurrentSpecies({ force = false } = {}) {
  const requestToken = ++gbifRequestToken;
  const species = SPECIES[requestedSpeciesIndex];
  gbifLayerLoading = true;
+ gbifLayerClusterCount = 0;
+ gbifClusters = [];
+ syncGbifClusterLabels();
  updateGbifUi();
  const result = await gbifClient.loadSpecies({
   slug: SPECIES_AUDIO_SLUGS[species.la] || species.la.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
@@ -3248,6 +3585,18 @@ async function loadGbifForCurrentSpecies({ force = false } = {}) {
  updateGbifUi();
  triggerSonarRipples();
  if (result.source === "fallback") toast("GBIF 暂不可用，已显示档案中的代表性栖息地");
+}
+
+// 用户锁定物种后后台缓存其观测数据，之后打开观测分布可命中缓存；单请求、非批量预热。
+function prefetchGbifForSpecies(index) {
+ if (!gbifClient || !CONFIG.gbifLayer.enabled) return;
+ if (index === gbifLoadedSpeciesIndex) return;
+ const species = SPECIES[index];
+ gbifClient.loadSpecies({
+  slug: SPECIES_AUDIO_SLUGS[species.la] || species.la.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+  scientificName: species.la,
+  fallbackPoint: SPECIES_GEO[index]
+ }).catch(() => {});
 }
 
 function toggleGbifLayer() {
@@ -3284,8 +3633,12 @@ $("#gbifToggle")?.addEventListener("click", () => {
   detailLocked = false;
   targetZoom = 0;
   uiState = "returning";
-  toast("正在返回地球 · 查看当前物种全球观测分布");
  }
+});
+$("#gbifModeControl")?.addEventListener("click", () => {
+ stopDemo("关闭了观测分布");
+ toggleGbifLayer();
+ toast(gbifLayerEnabled ? "已开启全球观测图层" : "已关闭全球观测图层");
 });
 updateGbifUi();
 
@@ -3994,6 +4347,7 @@ function syncLifeMode() {
     palmWaveArmed = true;
     beginParticleTransition("tide");
     soundscape.enterSpecies(SPECIES[speciesIdx]);
+    prefetchGbifForSpecies(speciesIdx);
   } else if (lifeMode === "planet" && previousMode === "species") {
     // 先关闭照片层，再让动物粒子沿 collapse 回收，避免末帧重新闪回旧图片。
     photoRevealSuppressed = true;
@@ -4019,6 +4373,7 @@ function syncModeUi() {
   }
   document.body.classList.toggle("atlas-planet-mode", lifeMode === "planet");
   document.body.classList.toggle("atlas-species-mode", lifeMode === "species");
+  updateGbifUi();
   syncExplorationGuidance();
 }
 let explorationGuidanceKey = "";
@@ -4464,6 +4819,42 @@ function frame(now) {
       }
       if (eh.type === 'plate') eAlpha *= 0.42;
       if (eh.type === 'migration') eAlpha *= 0.58;
+      // 打开观测层时，把背景板块/迁徙线压到辅助层，避免被误认为观测记录之间的连线。
+      if (gbifLayerEnabled) {
+        // 观测模式是数据查看态：保留清晰可辨但低亮度的地球轮廓，关闭会被误读为观测连线的装饰网络。
+        if (eh.type === 'ocean') {
+          eAlpha *= 0.12;
+          pBaseSize *= 0.55;
+          // 观测数据用橙金色表达，底图退为低饱和灰蓝，避免被误认为第二组观测点。
+          const referenceLuma = er * 0.24 + eg * 0.54 + eb * 0.22;
+          er = referenceLuma * 0.30;
+          eg = referenceLuma * 0.46;
+          eb = referenceLuma * 0.62;
+        }
+        if (eh.type === 'land') {
+          eAlpha *= 0.18;
+          pBaseSize *= 0.62;
+          const referenceLuma = er * 0.24 + eg * 0.54 + eb * 0.22;
+          er = referenceLuma * 0.34;
+          eg = referenceLuma * 0.50;
+          eb = referenceLuma * 0.62;
+        }
+        if (eh.type === 'coast') {
+          eAlpha *= 0.24;
+          pBaseSize *= 0.65;
+          const referenceLuma = er * 0.24 + eg * 0.54 + eb * 0.22;
+          er = referenceLuma * 0.36;
+          eg = referenceLuma * 0.52;
+          eb = referenceLuma * 0.64;
+        }
+        if (eh.type === 'plate' || eh.type === 'migration' || eh.type === 'grid') { eAlpha = 0; pBaseSize = 0; }
+        // 档案代表点保留为低亮度金色参照，避免和橙色 GBIF 聚集靶心混在一起。
+        if (eh.type === 'pin') {
+          if (eh.speciesIdx !== speciesIdx) { eAlpha *= 0.035; pBaseSize *= 0.46; }
+          else if (eh.pinPart === 'core') { eAlpha *= 0.50; pBaseSize *= 0.68; }
+          else { eAlpha *= 0.30; pBaseSize *= 0.52; }
+        }
+      }
       if (shapeT < 0.02) eAlpha *= 0.82 + 0.18 * nightDim;
       if (z3 < 0.0) {
         const backFade = clamp(1.0 + z3 * 1.9, 0.0, 1.0);
@@ -4924,16 +5315,18 @@ function frame(now) {
   if (gbifPointLayer) {
    gbifPointLayer.visible = gbifLayerEnabled
     && gbifLayerPointCount > 0
+    && !gbifLayerLoading
     && lifeMode === "planet"
     && uiState !== "whaleFall"
     && zoom < 0.35;
   }
+  updateGbifClusterLabels(earthRadius, spin, pitch);
   if (bloomActive && composer) composer.render(dt);
   else renderer.render(scene, camera);
 }
 /* ==================== 滚轮物理阻尼与手势交互 ==================== */
 window.addEventListener("wheel", e => {
- if (e.target.closest("#coachMarks, #gestureGuide, #spotlightModal, #infoCard")) return;
+ if (e.target.closest("#coachMarks, #gestureGuide, #spotlightModal, #infoCard, #atlasChatPanel")) return;
  e.preventDefault();
  // 鲸落演出期间忽略缩放：zoom 变化会翻转 lifeMode 并用 tide 转场覆盖鲸落，
  // 造成画面/浮层/音效三者错位数秒。演出只有握拳跳过与自然结束两个出口。
@@ -5067,6 +5460,7 @@ function switchSpeciesTo(i, { transition = true } = {}) {
  if (lifeMode === "species" || uiState === "species" || uiState === "diving") {
   speciesSoundRevealedFor = -1;
   soundscape.enterSpecies(SPECIES[i]);
+  prefetchGbifForSpecies(i);
  }
  applySpecies();
 }
@@ -5116,6 +5510,7 @@ function renderDetailState() {
 
 function applySpecies(immediate = false) {
  const s = SPECIES[speciesIdx];
+ gbifLegendSpeciesIndex = speciesIdx;
  crossfadePhoto(s, immediate);
  const box = photoBox();
  photoBoxEl.style.width = box.w + "px"; photoBoxEl.style.height = box.h + "px";
@@ -5140,7 +5535,7 @@ function applySpecies(immediate = false) {
  $("#iucnBadge").className = "iucn " + s.iucn;
  const list = visibleSpecies().map(x => x.i), pos = Math.max(0, list.indexOf(speciesIdx));
  const total = list.length || SPECIES.length; // 筛选为空时回退到全量计数，避免出现 01/01 假读数
- $("#infoNum").textContent = (pos + 1).toString().padStart(2, "0") + "/" + total.toString().padStart(2, "0");
+ $("#infoNum").textContent = "第 " + (pos + 1) + "/" + total + " 种";
  $("#infoCn").textContent = s.cn;
  $("#infoLa").innerHTML = s.en + " · <i>" + s.la + "</i> · <span style='font-size:11px;opacity:0.8;font-style:normal;'>" + (s.taxaCn || "") + "</span>";
  $("#infoStory").textContent = s.story;
@@ -5156,7 +5551,7 @@ function applySpecies(immediate = false) {
  const askAssistantBtn = $("#askAssistantBtn");
  if (askAssistantBtn) {
   askAssistantBtn.hidden = !CONFIG.atlasChat;
-  const label = askAssistantBtn.querySelector("span");
+  const label = askAssistantBtn.querySelector(".action-label");
    if (label) label.textContent = "问海瞳助手";
  }
  syncAtlasChatSpecies();
@@ -5555,7 +5950,7 @@ function renderSpotlightResults(query) {
  return;
  }
 
- spotlightHits.slice(0, 12).forEach(({ s, i }, idx) => {
+ spotlightHits.forEach(({ s, i }, idx) => {
  const item = document.createElement("div");
  item.className = "spotlight-item" + (idx === 0 ? " active" : "");
  item.setAttribute("role", "option");
@@ -5615,7 +6010,7 @@ document.querySelectorAll(".quick-chip").forEach(chip => {
 });
 
 spotlightInput.addEventListener("keydown", e => {
- const count = Math.min(12, spotlightHits.length);
+ const count = spotlightHits.length;
  if (!count) return;
  if (e.key === "ArrowDown") {
  e.preventDefault();
@@ -6904,6 +7299,8 @@ if (voiceEchoBtn) {
   recordUserInteraction();
   stopDemo("检测到声纹回响操作");
   const species = SPECIES[speciesIdx];
+  // 先作废在途的自动独白（revealComplete/切种路径），否则本次播放会被代次机制判为 interrupted
+  soundscape.stopKind("voice");
   voiceEchoBtn.classList.add("on");
   triggerSonarRipples();
   const result = await soundscape.playTrack("voice", species.soundscape?.voice, {
@@ -6913,9 +7310,11 @@ if (voiceEchoBtn) {
   });
   if (result?.ok) {
    toast(`${species.cn} · 独白声纹正在回响`);
+  } else if (result?.interrupted) {
+   voiceEchoBtn.classList.remove("on");
   } else {
    voiceEchoBtn.classList.remove("on");
-   toast("当前动物独白暂不可用");
+   toast(result?.unavailable ? "浏览器阻止了音频播放，点击重试" : "当前动物独白暂不可用");
   }
  });
 }
@@ -6954,8 +7353,10 @@ function buildDemoSequence(count = 3) {
  return pool.slice(0, Math.min(count, pool.length));
 }
 async function waitForDemoNarration(index, runId) {
- await waitFor(() => !demoMode || runId !== demoRunId || speciesNarrationFor === index, 2500);
+ const narrationReady = await waitFor(() => !demoMode || runId !== demoRunId || speciesNarrationFor === index, 2500);
  if (!demoMode || runId !== demoRunId) return false;
+ // 音频不可用时也继续自动导览，避免流程停在物种讲解而到不了鲸落阶段。
+ if (!narrationReady || speciesNarrationFor !== index) return true;
  const narration = speciesNarrationPromise;
  let narrationSettled = false;
  narration.then(() => { narrationSettled = true; }, () => { narrationSettled = true; });
@@ -6987,7 +7388,8 @@ async function runDemo(runId) {
   if (!await waitForDemoNarration(sequence[0], runId)) return;
   await sleep(reducedMotion ? 180 : 650);
 
-  // 每段第一人称独白完整结束后才切换图片，连续三种后进入鲸落。
+  // 每段第一人称独白完整结束后才切换图片，连续三种后进入鲸落；
+  // 没有可播放独白时由 waitForDemoNarration 的短超时保住同样的流程。
   for (let i = 1; i < sequence.length; i++) {
    if (!demoMode || runId !== demoRunId) return;
    switchSpeciesTo(sequence[i]);
@@ -7000,11 +7402,18 @@ async function runDemo(runId) {
   targetZoom = 0;
   detailLocked = false;
   uiState = "returning";
-  await waitFor(() => !demoMode || runId !== demoRunId || (lifeMode === "planet" && uiState === "planet" && zoom < 0.03 && speciesTransition.preset === "idle"), 4200);
+  await waitFor(() => !demoMode || runId !== demoRunId || (lifeMode === "planet" && uiState === "planet" && zoom < 0.03 && speciesTransition.preset === "idle"), 8000);
   if (!demoMode || runId !== demoRunId) return;
-  if (triggerWhaleFall()) {
-   await waitFor(() => !demoMode || runId !== demoRunId || (uiState === "planet" && speciesTransition.preset === "idle"), 6500);
+  // 回收动画可能恰好还差一帧，或上一轮鲸落仍处于冷却；在自动导览中补一次等待和重试。
+  let whaleFallStarted = triggerWhaleFall();
+  if (!whaleFallStarted) {
+   await waitFor(() => !demoMode || runId !== demoRunId || (uiState === "planet" && lifeMode === "planet" && performance.now() >= whaleFallCoolDownUntil), 6500);
+   if (!demoMode || runId !== demoRunId) return;
+   whaleFallStarted = triggerWhaleFall();
   }
+  if (whaleFallStarted) {
+   await waitFor(() => !demoMode || runId !== demoRunId || (uiState === "planet" && speciesTransition.preset === "idle"), 6500);
+ }
  }
 }
 if (demoBtn) {
@@ -7021,7 +7430,7 @@ if (demoBtn) {
   soundscape.unlock();
   demoBtn.classList.add("active");
   demoBtn.textContent = getDemoControlCopy({ active: true });
-  toast("自动导览已开启 · 将依次讲述三个物种并展示鲸落");
+  toast("自动导览已开启 · 将依次讲解三个物种档案");
   runDemo(demoRunId);
  });
 }
@@ -7803,6 +8212,7 @@ Object.defineProperty(window, "__LIFE", {
    source: gbifLayerSource,
    stale: gbifLayerStale,
    pointCount: gbifLayerPointCount,
+   clusterCount: gbifLayerClusterCount,
    speciesIndex: gbifLoadedSpeciesIndex,
    cooldown: gbifClient?.cooldown || false
   }

@@ -83,7 +83,7 @@ export function createGbifClient({
       const match = await fetchJson(matchUrl);
       if (!match?.usageKey) throw new Error('GBIF 未匹配到物种');
       const occurrenceUrl = 'https://api.gbif.org/v1/occurrence/search'
-        + `?taxonKey=${encodeURIComponent(match.usageKey)}&hasCoordinate=true&limit=200&occurrenceStatus=PRESENT`;
+        + `?taxonKey=${encodeURIComponent(match.usageKey)}&hasCoordinate=true&limit=100&occurrenceStatus=PRESENT`;
       const occurrence = await fetchJson(occurrenceUrl);
       const points = sampleOccurrencePoints(normalizeOccurrencePoints(occurrence?.results), maxPoints, random);
       if (!points.length) throw new Error('GBIF 未返回有效坐标');

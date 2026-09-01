@@ -77,7 +77,7 @@ test('过期缓存会刷新为清洗和抽样后的 GBIF 数据', async () => {
 
   assert.deepEqual(result, { points: [[-114.5, 30.8]], source: 'gbif', stale: false });
   assert.match(urls[0], /species\/match\?name=Phocoena%20sinus/);
-  assert.match(urls[1], /occurrence\/search\?taxonKey=2440223&hasCoordinate=true&limit=200&occurrenceStatus=PRESENT/);
+  assert.match(urls[1], /occurrence\/search\?taxonKey=2440223&hasCoordinate=true&limit=100&occurrenceStatus=PRESENT/);
   const cached = JSON.parse(storage.getItem('haitong-gbif-v1:vaquita'));
   assert.deepEqual(cached, { ts: 700_000_000, points: [[-114.5, 30.8]] });
 });
