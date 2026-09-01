@@ -23,6 +23,9 @@ export interface NotifPayload<T = NotifItem> {
 /** 用户组权限被管理员调整时，铃铛的 SSE 订阅把瞬时事件转成 window 事件，App 监听后重拉 /auth/me */
 export const PERMISSIONS_CHANGED_EVENT = 'auth:permissions-changed';
 
+/** 检测任务完成/失败时，铃铛的 SSE 订阅把瞬时事件转成 window 事件，检测历史页监听后实时刷新列表 */
+export const DETECTION_REFRESH_EVENT = 'detection:refresh';
+
 export interface NotifSnapshot {
   items: NotifItem[];
   unreadCount: number;

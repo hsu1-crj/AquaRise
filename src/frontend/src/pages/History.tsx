@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CalendarDays, ChevronLeft, ChevronRight, Download, FileSearch, FileText, Filter, LoaderCircle, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../services/api';
+import { DETECTION_REFRESH_EVENT } from '../services/notifications';
 import type { DetectionRecord, VideoDetectResult } from '../types';
 import { ImageDetailCard, VideoResultCard } from '../components/resultViews';
 
@@ -58,6 +59,13 @@ export function HistoryPage({ initialQuery = '' }: { initialQuery?: string }) {
     setQuery(initialQuery);
     void load(1, { level: '全部等级', query: initialQuery });
   }, [initialQuery]);
+  // 检测任务完成/失败时（SSE 通知 → window 事件）实时刷新当前列表，无需手动点刷新；
+  // 依赖 page/level/query 以便事件回调能捕获到最新的分页与筛选
+  useEffect(() => {
+    const onDetectionEvent = () => { void load(page, { level, query }); };
+    window.addEventListener(DETECTION_REFRESH_EVENT, onDetectionEvent);
+    return () => window.removeEventListener(DETECTION_REFRESH_EVENT, onDetectionEvent);
+  }, [page, level, query]);
   // 卸载时清理搜索防抖定时器
   useEffect(() => () => { if (searchTimer.current) window.clearTimeout(searchTimer.current); }, []);
 

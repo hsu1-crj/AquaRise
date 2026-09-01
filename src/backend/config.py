@@ -106,3 +106,5 @@ FACE_EMBEDDING_THRESHOLD = float(os.getenv("FACE_EMBEDDING_THRESHOLD", "0.5"))
 FACE_MODEL_PACK = os.getenv("FACE_MODEL_PACK", "buffalo_l")
 # 一个账号最多录入的人脸数
 MAX_FACES_PER_USER = int(os.getenv("MAX_FACES_PER_USER", "3"))
+# 人脸推理设备：-1=CPU；>=0=指定 GPU 设备号；留空=自动探测（有 CUDA 用 GPU(0)，否则 CPU 降级）
+FACE_CTX_ID = (os.getenv("FACE_CTX_ID", "") or "").strip()

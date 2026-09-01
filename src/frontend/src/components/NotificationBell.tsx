@@ -14,6 +14,7 @@ import {
 import {
   deleteNotif,
   deleteReadNotifs,
+  DETECTION_REFRESH_EVENT,
   getNotifications,
   markAllNotifRead,
   markNotifRead,
@@ -73,6 +74,11 @@ export function NotificationBell({
         } else if (payload.type === 'notification' && payload.item) {
           setItems((prev) => [payload.item as NotifItem, ...prev.filter((n) => n.id !== (payload.item as NotifItem).id)].slice(0, 20));
           setUnreadCount(payload.unreadCount);
+          const ntype = payload.item.type;
+          // 检测任务完成/失败：转发给在途的检测历史页实时刷新列表，避免任务完成后仍需手动刷新
+          if (ntype === 'task_completed' || ntype === 'task_failed') {
+            window.dispatchEvent(new CustomEvent(DETECTION_REFRESH_EVENT, { detail: { taskId: payload.item.refId ?? null } }));
+          }
         }
       },
       () => {

@@ -9,6 +9,8 @@
 人脸登录成功后与密码登录一致：签 JWT + 记录会话，前端接入现有 storeToken/onLogin 流程。
 """
 
+import asyncio
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
@@ -33,7 +35,10 @@ async def enroll_face(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="上传的照片不能为空")
     try:
-        record = face_service.enroll_face(db, current_user, image_bytes, name)
+        # InsightFace 推理是 CPU/GPU 密集同步调用，放线程池避免阻塞事件循环；
+        # DB 写库（create_face_record）留在事件循环线程
+        descriptor = await asyncio.to_thread(face_service.extract_feature, image_bytes)
+        record = face_service.create_face_record(db, current_user, descriptor, name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return record
@@ -79,9 +84,12 @@ async def face_login(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="上传的照片不能为空")
     try:
-        user = face_service.identify_face(db, image_bytes)
+        # InsightFace 推理是 CPU/GPU 密集同步调用，放线程池避免阻塞事件循环；
+        # 库内匹配（match_face）留在事件循环线程
+        probe = await asyncio.to_thread(face_service.extract_feature, image_bytes)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    user = face_service.match_face(db, probe)
     if user is None:
         raise HTTPException(status_code=401, detail="未识别到已注册人脸，请先登录后在人脸注册中录入")
     token = create_access_token(user)
