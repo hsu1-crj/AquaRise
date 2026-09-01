@@ -173,13 +173,19 @@ export class OceanDigitalHuman {
       return;
     }
 
-    if (opts.interrupt) {
+    // 仅在确实播报中才发打断指令——空闲态下调 interactiveIdle 会让部分 SDK 版本抛错/发错误消息
+    if (opts.interrupt && this.isSpeaking) {
       this.interactiveIdle();
     }
 
     const isStart = opts.isStart !== false;
     const isEnd = opts.isEnd !== false;
-    this.sdk.speak(text, isStart, isEnd);
+    try {
+      this.sdk.speak(text, isStart, isEnd);
+    } catch {
+      // 瞬时播报失败(打断竞态等)不致命: 复位状态, 后续播报照常
+      this.isSpeaking = false;
+    }
   }
 
   /** 处理说话队列 */

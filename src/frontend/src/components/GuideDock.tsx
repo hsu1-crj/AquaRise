@@ -2,9 +2,9 @@
  * 科普模式数字人导游坞 —— 复用魔珐数字人(OceanDigitalHuman)。
  *
  * - 服务端短期凭证初始化成功 → 数字人开口播报;
- * - 未配置/失败 → 降级为拟态光核 + 浏览器语音队列(speech.ts), 不阻塞体验;
- * - 订阅场景播报总线(broadcast.ts): 垃圾投放等提示由数字人念出并显示字幕条,
- *   取代会互相遮挡的浮动卡片; 数字人播报自带队列, 不会截断上一条;
+ * - 未配置/失败 → 降级为拟态光核 + 浏览器即时语音(speech.ts), 不阻塞体验;
+ * - 订阅场景播报总线(broadcast.ts): 垃圾投放等提示由数字人念出并在消息区留档,
+ *   新播报立即打断进行中的旧播报, 保证语音与画面事件一致;
  * - SDK 原生字幕一律隐藏(MutationObserver), 字幕统一走本坞字幕条;
  * - 问答走现有 /api/v1/chat(Ollama+RAG)。
  */
@@ -15,7 +15,7 @@ import { DigitalHumanIcon } from './DigitalHumanIcon';
 import { loadXmovSDK, OceanDigitalHuman } from '../services/digitalHuman';
 import { api, streamChat } from '../services/api';
 import type { ChatMessagePayload } from '../services/api';
-import { speakQueued, stopSpeaking } from '../services/speech';
+import { speakText, stopSpeaking } from '../services/speech';
 import { onBroadcast, type BroadcastMessage } from '../services/broadcast';
 
 interface GuideMessage {
@@ -69,11 +69,10 @@ function hideSdkSubtitles(container: HTMLElement): void {
   });
 }
 
-export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () => void }) {
+export function GuideDock({ onClose }: { onClose: () => void }) {
   const containerIdRef = useRef(`ocean3d-guide-${Math.random().toString(36).slice(2, 8)}`);
   const dhRef = useRef<OceanDigitalHuman | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
-  const voiceRef = useRef(voiceOn);
   const [dhMode, setDhMode] = useState<'boot' | 'ready' | 'offline'>('boot');
   const [speaking, setSpeaking] = useState(false);
   const msgIdRef = useRef(1);
@@ -99,7 +98,6 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     setMessages((list) => list.map((m) => (m.id === id ? { ...m, text } : m)));
   };
 
-  useEffect(() => { voiceRef.current = voiceOn; }, [voiceOn]);
 
   // 新消息/流式输出时自动滚到最新一条
   useEffect(() => {
@@ -126,7 +124,9 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
         const dh = new OceanDigitalHuman({ appId, appSecret, containerId: containerIdRef.current, gatewayServer: credential?.gateway_server || publicConfig?.gateway_server });
         dh.on('speakStart', () => setSpeaking(true));
         dh.on('speakEnd', () => setSpeaking(false));
-        dh.on('error', () => setDhMode('offline'));
+        // SDK 错误消息(code>=10000)多为打断/连续播报等瞬时错误——数字人已就绪时保持 ready,
+        // 不把整个会话永久降级成系统语音；仅初始化阶段失败才走离线降级
+        dh.on('error', () => setDhMode((mode) => (mode === 'boot' ? 'offline' : mode)));
         await dh.init();
         if (cancelled) { dh.destroy(); return; }
         dhRef.current = dh;
@@ -141,6 +141,8 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
       controllerRef.current?.abort();
       dhRef.current?.destroy();
       dhRef.current = null;
+      // 面板关闭/卸载时立即停掉降级语音(浏览器TTS), 避免"面板已关声音还在"
+      stopSpeaking();
     };
   }, []);
 
@@ -168,7 +170,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     };
   }, [dhMode]);
 
-  /** 停止播报: 立即打断数字人+浏览器语音并清空队列, 按钮切换为"开始播报" */
+  /** 停止播报: 立即打断数字人+浏览器语音, 按钮切换为"开始播报"；只控制数字人通道, 不影响页面系统语音开关 */
   const stopAll = () => {
     stopSpeaking();
     if (dhRef.current) {
@@ -183,23 +185,18 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     const last = [...messages].reverse().find((m) => m.role === 'guide' && m.text.trim());
     if (last) speakOnly(last.text);
   };
-  // 关闭语音开关时同步停掉进行中的播报; 重新打开语音时恢复播报
-  useEffect(() => {
-    if (!voiceOn) stopAll();
-    else setMutedBoth(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceOn]);
 
-  /** 仅语音播报(回答已在消息区展示, 不再叠加字幕造成"回答两次") */
+  /** 仅语音播报(回答已在消息区展示, 不再叠加字幕造成"回答两次")。新播报立即打断进行中的旧播报——
+   *  场景事件(投放/到站/回答)是最新信息, 排队续播旧消息会让语音与画面事件错位 */
   const speakOnly = (text: string) => {
-    if (!voiceRef.current || mutedRef.current) return;
+    if (mutedRef.current) return;
     const clean = cleanMarkdown(text);
     if (!clean) return;
     if (dhMode === 'ready' && dhRef.current) {
-      dhRef.current.speak(clipBySentence(clean), { isStart: true, isEnd: true });
+      dhRef.current.speak(clipBySentence(clean), { isStart: true, isEnd: true, interrupt: true });
       setSpeaking(true);
     } else {
-      speakQueued(clean);
+      speakText(clean, { force: true });
       setSpeaking(true);
       window.setTimeout(() => setSpeaking(false), Math.min(12000, clean.length * 230));
     }
@@ -218,7 +215,7 @@ export function GuideDock({ voiceOn, onClose }: { voiceOn: boolean; onClose: () 
     }, 'guide');
     return () => off();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dhMode, voiceOn]);
+  }, [dhMode]);
 
   const ask = async (question: string) => {
     const q = question.trim();

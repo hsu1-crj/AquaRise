@@ -113,10 +113,15 @@ export const KNOWLEDGE_POIS: KnowledgePoi[] = [
 
 export const POI_PROGRESS_KEY = 'ocean3d-poi-collected';
 
-/** 读取本地已收集进度（损坏数据按空处理） */
-export function loadPoiProgress(): string[] {
+/** 进度按监测站隔离：每个站点独立的 localStorage key，站点之间互不影响 */
+function progressKey(stationId: number | string): string {
+  return `${POI_PROGRESS_KEY}:${stationId}`;
+}
+
+/** 读取指定监测站已收集进度（损坏数据按空处理） */
+export function loadPoiProgress(stationId: number | string): string[] {
   try {
-    const raw = window.localStorage.getItem(POI_PROGRESS_KEY);
+    const raw = window.localStorage.getItem(progressKey(stationId));
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -126,9 +131,9 @@ export function loadPoiProgress(): string[] {
   }
 }
 
-export function savePoiProgress(ids: string[]): void {
+export function savePoiProgress(ids: string[], stationId: number | string): void {
   try {
-    window.localStorage.setItem(POI_PROGRESS_KEY, JSON.stringify(ids));
+    window.localStorage.setItem(progressKey(stationId), JSON.stringify(ids));
   } catch {
     /* 存储不可用时忽略(进度只在本次会话生效) */
   }

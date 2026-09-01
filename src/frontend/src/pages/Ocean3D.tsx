@@ -24,7 +24,8 @@ import { GARBAGE_IMPACTS, impactByKey } from '../three/impactData';
 import type { GarbageImpact } from '../three/impactData';
 import { KNOWLEDGE_POIS, loadPoiProgress, savePoiProgress } from '../data/knowledgePois';
 import type { KnowledgePoi } from '../data/knowledgePois';
-import { speakText, speakQueued, stopSpeaking } from '../services/speech';
+import { speakText, stopSpeaking } from '../services/speech';
+import { oneSitePerSeaArea } from '../services/sites';
 import { emitBroadcast, flushDropsNow, hasGuideListener, onBroadcast, reportGarbageDrop } from '../services/broadcast';
 import { GuideDock } from '../components/GuideDock';
 import { playAlertSound, playChime, playSplashSound } from '../services/sfx';
@@ -62,18 +63,9 @@ const DEMO_SITE_STATS: SiteStat[] = DEMO_GLOBE_STATIONS.map((station) => ({
   qualityScore: null, // 演示站点未检测 → 评分显示"未检测"
   lastTaskAt: null,
 }));
-// 每片海域只保留一个代表监测站（北戴河/秦皇岛/渤海湾各一处）
-const seenArea = new Set<number>();
-const sitesForMode = (siteList: SiteStat[]): SiteStat[] => {
-  if (siteList.length === 0) return DEMO_SITE_STATS;
-  seenArea.clear();
-  return siteList.filter((s) => {
-    if (s.seaAreaId == null) return true;
-    if (seenArea.has(s.seaAreaId)) return false;
-    seenArea.add(s.seaAreaId);
-    return true;
-  });
-};
+// 每片海域只保留一个代表监测站（北戴河/秦皇岛/渤海湾各一处）；空列表回退演示站点保证地球可渲染
+const sitesForMode = (siteList: SiteStat[]): SiteStat[] =>
+  siteList.length === 0 ? DEMO_SITE_STATS : oneSitePerSeaArea(siteList);
 
 /** 环境质量评分: 未检测过的站点 → null(显示"未检测");
  *  检测过的站点 → 后端 qualityScore(1-10 整数, 分越高质量越好) */
@@ -183,6 +175,9 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
   const globeActiveRef = useRef(true);
   const setGlobeMode = (active: boolean) => { globeActiveRef.current = active; setGlobeActive(active); };
   const [activeStation, setActiveStation] = useState(0);
+  // 场景回调(水面点击/投放)与轮询闭包共享的当前站点引用（回调在挂载时创建，state 闭包会过期，故走 ref）
+  const activeStationRef = useRef(0);
+  useEffect(() => { activeStationRef.current = activeStation; }, [activeStation]);
   const [pollutionOpen, setPollutionOpen] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -217,13 +212,23 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
   // 科普知识收集 + 数字人导游
   const [quiz, setQuiz] = useState<KnowledgePoi | null>(null);
   const [quizWrong, setQuizWrong] = useState<number | null>(null);
-  const [collectedPois, setCollectedPois] = useState<string[]>(() => loadPoiProgress());
+  // 科普收集进度按监测站隔离：进入站点时才按该站点加载（activeStation=0 表示地球视图，无站点进度）
+  const [collectedPois, setCollectedPois] = useState<string[]>([]);
   const [guideOpen, setGuideOpen] = useState(true);
 
   // 告警联动(首次同步只布防不触发, 之后指数≥7告警, 站点级5分钟冷却)
   const alertArmedRef = useRef(false);
   const lastAlertRef = useRef<Record<number, number>>({});
   const celebratedRef = useRef(false);
+
+  // 切换监测站 → 重载该站专属收集进度、重建漂流瓶外观（他站已收集的瓶子在本站重新出现）、重置集齐庆祝
+  useEffect(() => {
+    if (!activeStation) return;
+    const collected = loadPoiProgress(activeStation);
+    setCollectedPois(collected);
+    celebratedRef.current = false;
+    worldRef.current?.setKnowledgePOIs(KNOWLEDGE_POIS, collected);
+  }, [activeStation]);
 
   /** 进入/跃迁抵达站点 → 场景播报站点实况(数字人在线由它念, 否则页面语音兜底);
    *  科普模式数据随站点刷新, 这里把"当前海域是谁"讲给用户听 */
@@ -271,7 +276,7 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
       onWaterClick: (point) => {
         if (modeRef.current !== 'volunteer') return;
         const info = impactByKey(garbageKeyRef.current);
-        world.dropGarbage(point, garbageKeyRef.current, info?.color ?? '#ff6f91');
+        world.dropGarbage(point, garbageKeyRef.current, info?.color ?? '#ff6f91', activeStationRef.current || null);
         setDropCount((c) => c + 1);
         if (voiceOnRef.current) playSplashSound();
         if (info) reportGarbageDrop(info.name, info.chain.slice(0, 2).join('，'));
@@ -281,7 +286,8 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
     });
     worldRef.current = world;
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__oceanWorld = world;
-    world.setKnowledgePOIs(KNOWLEDGE_POIS, loadPoiProgress());
+    // 初始(地球视图)无站点进度，进入站点后由 activeStation 联动 effect 重建
+    world.setKnowledgePOIs(KNOWLEDGE_POIS, []);
     world.showGlobe(buildGlobeStations([]));
     setGlobeMode(true);
     let cancelled = false; // 卸载后不再写状态
@@ -344,11 +350,10 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
     if (mode !== 'volunteer') setPollutions([]);
   }, [mode]);
   useEffect(() => { garbageKeyRef.current = garbageKey; }, [garbageKey]);
-
-  // 广播兜底: 数字人导游坞不在线时, 投放汇总改走语音队列(导游在线时由它念, 不双声道)
+  // 广播兜底: 数字人导游坞不在线时, 投放汇总改走页面语音(新播报立即打断旧播报——用户听到的一定是最新事件, 而非排队续播旧消息)
   useEffect(() => onBroadcast((msg) => {
     if (hasGuideListener()) return;
-    if (voiceOnRef.current) speakQueued(msg.text);
+    if (voiceOnRef.current) speakText(msg.text, { force: true });
   }), []);
 
   // 科普叙事HUD: 轮询时间加速状态 + 水质 + 污染聚合面板数据(活跃垃圾按类型计数)
@@ -363,7 +368,7 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
       const nextStory = worldRef.current?.getGarbageStoryState() ?? null;
       const storyKey = nextStory ? `${nextStory.year}|${nextStory.stage}|${nextStory.stageLabel}|${nextStory.degradationYears}|${nextStory.active ? 1 : 0}` : '';
       if (storyKey !== storyKeyRef.current) { storyKeyRef.current = storyKey; setStory(nextStory); }
-      const active = worldRef.current?.getActiveGarbage() ?? [];
+      const active = worldRef.current?.getActiveGarbage(activeStationRef.current || undefined) ?? [];
       const quality = Math.max(28, 100 - active.length * 9);
       if (quality !== waterQualityValueRef.current) { waterQualityValueRef.current = quality; setWaterQuality(quality); }
       const byKey = new Map<string, number>();
@@ -412,9 +417,8 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
           lastAlertRef.current[s.id] = now;
           world.triggerAlert(s.id);
           playAlertSound();
-          if (voiceOnRef.current) {
-            speakText(`告警：${s.name}环境质量评分仅${s.qualityScore}分，水质严重恶化`, { force: true });
-          }
+          // 语音走广播总线：数字人导游在线由数字人念，导游关闭时页面兜底用系统声音念（由页面语音开关控制）
+          emitBroadcast({ kind: 'notice', text: `告警：${s.name}环境质量评分仅${s.qualityScore}分，水质严重恶化` });
         }
       }
     }).catch(() => undefined)
@@ -505,7 +509,7 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
         const summaryText = `模拟检测完成 · 检出 ${objects} 件`;
         world.finishLiveTask(summaryText);
         setLive((l) => (l ? { ...l, phase: 'done', summary: summaryText } : l));
-        if (voiceOnRef.current) speakText(`${siteCode}站${summaryText}`, { force: true });
+        emitBroadcast({ kind: 'notice', text: `${siteCode}站${summaryText}` });
       }
     }, 650);
     livePollRef.current = timer;
@@ -547,7 +551,7 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
           world.finishLiveTask(summaryText);
           setLive({ phase: 'done', kind: 'video', siteId, progress: 100, totalObjects: st.totalObjects, summary: summaryText });
           syncSites(true);
-          if (voiceOnRef.current) speakText(`${siteCode}站${summaryText}`, { force: true });
+          emitBroadcast({ kind: 'notice', text: `${siteCode}站${summaryText}` });
           return;
         }
         if (st.status === 'failed') {
@@ -610,7 +614,7 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
       world.finishLiveTask(summaryText);
       setLive({ phase: 'done', kind: 'image', siteId, progress: 100, totalObjects, summary: summaryText });
       syncSites(true);
-      if (voiceOnRef.current) speakText(`${siteCode}站联动检测完成，${summaryText}`, { force: true });
+      emitBroadcast({ kind: 'notice', text: `${siteCode}站联动检测完成，${summaryText}` });
     } catch (reason) {
       if (stale()) return;
       world.finishLiveTask('任务失败');
@@ -675,11 +679,11 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
       setCollectedPois((prev) => {
         if (prev.includes(quiz.id)) return prev;
         const next = [...prev, quiz.id];
-        savePoiProgress(next);
+        savePoiProgress(next, activeStation);
         return next;
       });
       setQuizWrong(null);
-      if (voiceOnRef.current) speakText(`${quiz.title}，答对了！${quiz.explain}`, { force: true });
+      emitBroadcast({ kind: 'notice', text: `${quiz.title}，答对了！${quiz.explain}` });
     } else {
       setQuizWrong(index);
     }
@@ -689,7 +693,7 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
   useEffect(() => {
     if (mode === 'volunteer' && !celebratedRef.current && collectedPois.length >= KNOWLEDGE_POIS.length) {
       celebratedRef.current = true;
-      if (voiceOnRef.current) speakText('恭喜你集齐了全部海洋知识徽章，你就是这片海域的守护者！', { force: true });
+      emitBroadcast({ kind: 'notice', text: '恭喜你集齐了全部海洋知识徽章，你就是这片海域的守护者！' });
     }
   }, [collectedPois, mode]);
 
@@ -765,21 +769,28 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
       </header>
       <nav className="ocean3d-panel-controls" aria-label="3D面板显示控制">
         {(mode === 'monitor'
-          ? ([['kpis', '数据总览'], ['monitor', '监测面板']] as const)
+          ? ([['kpis', '站点实况'], ['monitor', '监测面板']] as const)
           : ([['volunteer', '科普面板'], ['guide', '数字人']] as const)
         ).map(([key, label]) => <button key={key} className={visiblePanels[key] ? 'active' : ''} onClick={() => togglePanel(key)}>{label}</button>)}
       </nav>
 
 
 
-      {/* 全局KPI实数条（系统真实统计, 3D场景与项目业务接轨的门面） */}
-      {visiblePanels.kpis && mode === 'monitor' && summary && (
+      {/* 站点实况 KPI（监测模式）：聚焦站点时展示该站近 30 天聚合；地球视图未聚焦站点时展示全域合计 */}
+      {visiblePanels.kpis && mode === 'monitor' && (activeSite || summary) && (
         <div className="ocean3d-kpis">
-          <button className="ocean3d-panel-close" aria-label="关闭数据总览" onClick={() => togglePanel('kpis')}><X size={13} /></button>
-          <div className="glass"><b>{summary.totalTasks}</b><span>累计任务</span></div>
-          <div className="glass"><b>{summary.totalObjects}</b><span>检出目标</span></div>
-          <div className="glass"><b>{summary.seaAreas}</b><span>监测海域</span></div>
-          <div className="glass"><b>{summary.activeAlerts}</b><span>污染告警</span></div>
+          <button className="ocean3d-panel-close" aria-label="关闭站点实况" onClick={() => togglePanel('kpis')}><X size={13} /></button>
+          {activeSite ? (<>
+            <div className="glass"><b>{activeSite.taskCount}</b><span>站点任务</span></div>
+            <div className="glass"><b>{activeSite.totalObjects}</b><span>检出目标</span></div>
+            <div className="glass"><b>{qualityOf(activeSite) == null ? '未检测' : `${qualityOf(activeSite)}分`}</b><span>环境质量</span></div>
+            <div className="glass"><b>{activeSite.lastTaskAt ?? '—'}</b><span>最近任务</span></div>
+          </>) : summary ? (<>
+            <div className="glass"><b>{summary.totalTasks}</b><span>全域累计任务</span></div>
+            <div className="glass"><b>{summary.totalObjects}</b><span>全域检出目标</span></div>
+            <div className="glass"><b>{summary.seaAreas}</b><span>监测海域</span></div>
+            <div className="glass"><b>{summary.activeAlerts}</b><span>污染告警</span></div>
+          </>) : null}
         </div>
       )}
 
@@ -959,8 +970,9 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
           )}
 
           <div className="ocean3d-siminfo">
-            <button className="ocean3d-sync" onClick={() => { setVoiceOn((v) => !v); stopSpeaking(); }} title="语音播报与音效开关（关闭时立即停止当前播报）">
-              {voiceOn ? <Volume2 size={13} /> : <VolumeX size={13} />}{voiceOn ? '语音播报：开' : '语音播报：关'}
+            {/* 系统声音开关：只管页面兜底语音(导游关闭时)与音效；数字人播报由导游面板上的「停止播报」独立控制 */}
+            <button className="ocean3d-sync" onClick={() => { setVoiceOn((v) => !v); stopSpeaking(); }} title="系统声音开关：控制系统语音播报（数字人导游关闭时）与音效；不影响数字人播报">
+              {voiceOn ? <Volume2 size={13} /> : <VolumeX size={13} />}{voiceOn ? '系统语音：开' : '系统语音：关'}
             </button>
           </div>
           <p className="ocean3d-disclaimer"><Info size={12} />危害链与数据来自项目海洋知识库；降解年限为量级估计</p>
@@ -974,7 +986,7 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
       {visiblePanels.pollution && pollutionOpen && (
         <PollutionPanel
           items={pollutions}
-          onClearOne={(key) => { worldRef.current?.removeStoryByKey(key); }}
+          onClearOne={(key) => { worldRef.current?.removeStoryByKey(key, activeStationRef.current || undefined); }}
           onClose={() => setPollutionOpen(false)}
         />
       )}
@@ -1111,7 +1123,7 @@ export function Ocean3DPage({ user }: { user?: UserInfo | null }) {
 
       {/* 数字人导游(科普模式, 未配置数字人时降级语音模式) */}
       {visiblePanels.guide && mode === 'volunteer' && (guideOpen
-        ? <GuideDock voiceOn={voiceOn} onClose={() => setGuideOpen(false)} />
+        ? <GuideDock onClose={() => setGuideOpen(false)} />
         : (
           <button className="ocean3d-guide-reopen glass" onClick={() => setGuideOpen(true)}>
             <Volume2 size={13} />数字人导游

@@ -446,7 +446,7 @@ export class OceanWorld {
   private garbageGroup = new THREE.Group();
   private ripples: Ripple[] = [];
   private gulls: Gull[] = [];
-  private stories: Array<{ story: GarbageStory; born: number; key: string }> = [];
+  private stories: Array<{ story: GarbageStory; born: number; key: string; siteId: number | null }> = [];
 
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
@@ -1164,10 +1164,10 @@ export class OceanWorld {
     this.poiItems = [];
     this.poiHits = [];
   }
-  dropGarbage(point: THREE.Vector3, key: string, _color: string): void {
+  dropGarbage(point: THREE.Vector3, key: string, _color: string, siteId: number | null = null): void {
     // 每次投放一条独立且持久的污染叙事; 超过10条时清最早的
     const floorY = Math.min(this.underwater.getHeightAt(point.x, point.z) ?? -6, -0.8);
-    this.stories.push({ story: new GarbageStory(this.scene, point, key, floorY), born: this.clock.getElapsedTime(), key });
+    this.stories.push({ story: new GarbageStory(this.scene, point, key, floorY), born: this.clock.getElapsedTime(), key, siteId });
     if (this.stories.length > 10) {
       const oldest = this.stories.shift();
       oldest?.story.dispose();
@@ -1187,15 +1187,17 @@ export class OceanWorld {
     this.spawnRipple(point.x, point.z);
   }
 
-  /** 当前活跃污染(页面水质指标/污染列表轮询) */
-  getActiveGarbage(): Array<{ key: string; age: number }> {
+  /** 当前活跃污染(页面水质指标/污染列表轮询)；传 siteId 时只返回归属该站点的污染（科普模式按站点隔离水质） */
+  getActiveGarbage(siteId?: number): Array<{ key: string; age: number }> {
     const t = this.clock.getElapsedTime();
-    return this.stories.map((s) => ({ key: s.key, age: t - s.born }));
+    return this.stories
+      .filter((s) => siteId == null || s.siteId === siteId)
+      .map((s) => ({ key: s.key, age: t - s.born }));
   }
 
-  /** 清除指定类型最早的一条污染(3D叙事+模型一起移除) */
-  removeStoryByKey(key: string): void {
-    const idx = this.stories.findIndex((s) => s.key === key);
+  /** 清除指定类型最早的一条污染(3D叙事+模型一起移除)；传 siteId 时只清归属该站点的污染（与水质按站点隔离一致） */
+  removeStoryByKey(key: string, siteId?: number): void {
+    const idx = this.stories.findIndex((s) => s.key === key && (siteId == null || s.siteId === siteId));
     if (idx < 0) return;
     this.stories[idx].story.dispose();
     this.stories.splice(idx, 1);
