@@ -1,8 +1,8 @@
 @echo off
 chcp 936 >nul
-title 海瞳 - 海洋3D态势 启动器
+title 海瞳 - 项目一键启动器
 echo ============================================
-echo   海瞳 · 海洋 3D 态势 一键启动
+echo   海瞳 · 海洋全域智守平台 一键启动
 echo   依赖: MySQL 服务已运行 (默认本机3306)
 echo ============================================
 echo.
@@ -21,9 +21,9 @@ echo 前端60秒内未就绪, 请看 haitong-frontend 窗口里的报错。
 pause
 exit /b 1
 :ready
-start http://localhost:5173/#ocean3d
+start http://localhost:5173
 echo.
 echo 已就绪并打开浏览器! 没弹出手动访问: http://localhost:5173
-echo 登录: admin / 123456   入口: 左侧菜单「海洋 3D 态势」
+echo 登录: admin / 123456   检测/分析/报告/3D态势等各功能均从左侧菜单进入。
 echo 用完关闭两个黑窗口即可。
 pause
