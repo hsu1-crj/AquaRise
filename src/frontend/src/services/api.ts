@@ -2,6 +2,8 @@ import { createMockDetection, mockAnalysis, mockRecords, mockReports, mockSummar
 import type { AdminGroup, AdminOverview, AdminUserRow, ApiErrorShape, DetectionRecord, DetectionResult, DigitalHumanCredential, DigitalHumanPublicConfig, FaceInfo, FaceLoginResult, GroupOption, GroupSwitchRequestInfo, KnowledgeDocInfo, MarineInfo, ModuleMeta, MultiImageDetectItem, MultiImageDetectResponse, ProfileStats, Report, ReportAnalysis, SeaArea, SiteStat, StatsAnalysis, Summary, TrendPoint, UserInfo, VideoDetectResult, VideoTaskStatus } from '../types';
 
 const API_MODE = (import.meta.env.VITE_API_MODE ?? 'live') as 'mock' | 'live';
+/** mock 模式视频任务的模拟进度（taskId → 已推进百分比），getVideoStatus 轮询递增 */
+const mockVideoProgress = new Map<string, number>();
 const wait = (ms = 450) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 /** 读取图片文件真实尺寸（mock 模式生成检测框需要）；失败回退默认值 */
@@ -301,7 +303,12 @@ export const api = {
   async getVideoStatus(taskId: string | number): Promise<VideoTaskStatus> {
     if (isMockMode()) {
       await wait(500);
-      return { taskId: Number(taskId), status: 'processing', progress: 55, totalObjects: 0 };
+      // 模拟后台逐帧处理：按轮询推进进度直至完成（修复恒卡 55% 永不完成）
+      const key = String(taskId);
+      const progress = Math.min(100, (mockVideoProgress.get(key) ?? 0) + 15);
+      mockVideoProgress.set(key, progress);
+      const done = progress >= 100;
+      return { taskId: Number(taskId), status: done ? 'completed' : 'processing', progress, totalObjects: 0 };
     }
     const response = await request<{
       task_id: number; status: string; progress: number; total_objects: number;
