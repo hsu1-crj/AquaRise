@@ -60,7 +60,7 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
         api.getTrend('month'),
         api.getAnalysis(),
         // 检测历史按模块门控：无 history 模块的用户组（如指挥决策组）会 403，降级为空列表不拖垮大屏
-        api.getHistory(1, 4).catch(() => ({ items: [], total: 0 })),
+        api.getHistory(1, 9).catch(() => ({ items: [], total: 0 })),
       ]);
       setSummary(summaryData);
       setTrend(trendData);
@@ -342,7 +342,7 @@ export function CommandScreen({ onExit }: { onExit: () => void }) {
             {records.length === 0 ? (
               <div className="no-record">暂无最新监测任务</div>
             ) : (
-              records.slice(0, 4).map((record) => (
+              records.slice(0, 9).map((record) => (
                 <div key={record.id}>
                   <i className={`level-${record.level}`} />
                   <section>
