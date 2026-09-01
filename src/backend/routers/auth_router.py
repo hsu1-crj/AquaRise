@@ -34,6 +34,7 @@ from schemas import (
     MessageResponse,
     ProfileUpdateRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UserResponse,
 )
@@ -136,6 +137,7 @@ async def register_form(
     password: str = Form(...),
     confirm_password: str = Form(...),
     email: str = Form(default=""),
+    phone: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     """表单注册：校验 → 查重 → 写入。错误返回 JSON。"""
@@ -152,6 +154,7 @@ async def register_form(
             username=username,
             password_hash=hash_password(password),
             email=email.strip() or None,
+            phone_num=phone.strip() or None,
             role=UserRole.user,
             group_id=_default_group_id(db),
         )
@@ -196,6 +199,7 @@ async def api_register(body: RegisterRequest, db: Session = Depends(get_db)):
         username=username,
         password_hash=hash_password(body.password),
         email=body.email,
+        phone_num=body.phone_num,
         role=UserRole.user,
         group_id=_default_group_id(db),
     )
@@ -203,6 +207,30 @@ async def api_register(body: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     return user_to_response(db, user)
+
+
+@router.post("/api/v1/auth/reset-password", response_model=MessageResponse)
+async def api_reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """忘记密码：用户名 + 手机号 + 邮箱 三要素匹配后重置密码（无需登录）。
+
+    三要素任一不匹配统一报"账号信息不匹配"，避免枚举用户名是否存在。
+    新密码与确认密码一致性在服务端强制校验。
+    """
+    username = _validate_username(body.username)
+    if body.new_password != body.confirm_password:
+        raise HTTPException(status_code=400, detail="两次输入的密码不一致")
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少需要 6 位")
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="账号信息不匹配，请重新确认")
+    if (user.phone_num or "") != body.phone.strip():
+        raise HTTPException(status_code=400, detail="账号信息不匹配，请重新确认")
+    if (user.email or "") != body.email.strip():
+        raise HTTPException(status_code=400, detail="账号信息不匹配，请重新确认")
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return MessageResponse(message="密码重置成功，请使用新密码登录")
 
 
 @router.get("/api/v1/auth/me", response_model=UserResponse)

@@ -24,6 +24,16 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=1, max_length=20)
     password: str = Field(min_length=6)
     email: Optional[str] = Field(default=None, max_length=100)
+    phone_num: Optional[str] = Field(default=None, max_length=20)
+
+
+class ResetPasswordRequest(BaseModel):
+    """忘记密码：用户名 + 手机号 + 邮箱 三要素验证通过后重置密码（无需登录）"""
+    username: str = Field(min_length=1, max_length=50)
+    phone: str = Field(min_length=1, max_length=20)
+    email: str = Field(min_length=1, max_length=100)
+    new_password: str = Field(min_length=6, max_length=64)
+    confirm_password: str = Field(min_length=6)
 
 
 class TokenResponse(BaseModel):
