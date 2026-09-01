@@ -138,9 +138,126 @@ class _ThinkFilter:
 
 def clean_model_text(text: str) -> str:
     """清除 R1 思维标签和常见人机化前后缀。"""
-    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.I | re.S)
+    # A malformed/length-limited response can contain an opening tag without
+    # its closing partner.  Treat the remainder as hidden reasoning too;
+    # otherwise the protocol layer could accidentally expose the trace.
+    text = re.sub(r"<think\s*>.*?(?:</think\s*>|$)", "", text or "", flags=re.I | re.S)
     text = re.sub(r"</?think\s*>", "", text, flags=re.I)
     return _THINK_TRACE_RE.sub("\n", text).strip()
+
+
+_INVALID_OUTPUT_CODE = "invalid_model_output"
+_TRUNCATED_DONE_REASONS = frozenset({"length", "max_tokens", "max_token", "limit"})
+
+
+class OllamaInvalidOutputError(RuntimeError):
+    """Raised when Ollama returned no complete, user-visible answer."""
+
+    code = _INVALID_OUTPUT_CODE
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        content_length: int = 0,
+        thinking_length: int = 0,
+        done_reason: Optional[str] = None,
+    ) -> None:
+        self.reason = reason
+        self.content_length = content_length
+        self.thinking_length = thinking_length
+        self.done_reason = done_reason
+        super().__init__(f"Ollama 返回无效模型输出（{reason}）")
+
+
+def extract_visible_model_content(text: Any) -> str:
+    """Return only visible assistant text, never the model's thinking trace.
+
+    ``message.thinking`` is handled by the caller and is intentionally not
+    accepted here.  Running the same stateful filter over a complete response
+    also suppresses an unmatched ``<think>`` block, which ``clean_model_text``
+    historically could not do on its own.
+    """
+    if not isinstance(text, str):
+        return ""
+    state = _ThinkFilter()
+    visible = state.feed(text) + state.flush()
+    return clean_model_text(visible)
+
+
+def _normalise_done_reason(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _validate_model_output(
+    content: Any,
+    done_reason: Any = None,
+    *,
+    raw_content_seen: bool = False,
+    thinking_length: int = 0,
+    malformed_content: bool = False,
+    missing_done: bool = False,
+) -> str:
+    """Validate a model answer and return its cleaned visible text.
+
+    The local DeepSeek-R1 derivative sometimes reports a full reasoning trace
+    while leaving ``message.content`` empty.  Thinking is not an answer, and a
+    ``length`` finish reason means the visible answer may be incomplete.  Both
+    cases must be rejected so the caller can use its deterministic/RAG
+    fallback.
+    """
+    visible = extract_visible_model_content(content)
+    normalised_reason = _normalise_done_reason(done_reason)
+    visible_length = len(visible)
+    # An unterminated stream is incomplete regardless of whether its last
+    # line also happened to be malformed or reported a length limit.  Keep
+    # this reason stable so callers can distinguish a transport interruption
+    # from a completed but invalid model response.
+    if missing_done:
+        raise OllamaInvalidOutputError(
+            "missing_done",
+            content_length=visible_length,
+            thinking_length=thinking_length,
+            done_reason=normalised_reason or None,
+        )
+    if malformed_content:
+        raise OllamaInvalidOutputError(
+            "malformed_content",
+            content_length=visible_length,
+            thinking_length=thinking_length,
+            done_reason=normalised_reason or None,
+        )
+    if normalised_reason in _TRUNCATED_DONE_REASONS:
+        raise OllamaInvalidOutputError(
+            normalised_reason,
+            content_length=visible_length,
+            thinking_length=thinking_length,
+            done_reason=normalised_reason,
+        )
+    if not visible.strip():
+        reason = "thinking_only" if thinking_length or raw_content_seen else "empty_content"
+        raise OllamaInvalidOutputError(
+            reason,
+            content_length=0,
+            thinking_length=thinking_length,
+            done_reason=normalised_reason or None,
+        )
+    return visible
+
+
+def _sse_error_event(
+    message: str,
+    *,
+    code: str,
+    reason: Optional[str] = None,
+    done_reason: Optional[str] = None,
+) -> str:
+    payload: dict[str, str] = {"error": message, "code": code}
+    if reason:
+        payload["reason"] = reason
+    if done_reason:
+        payload["done_reason"] = done_reason
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 class OllamaClient:
@@ -172,48 +289,187 @@ class OllamaClient:
                 if response.status != 200:
                     raise RuntimeError(f"Ollama API 错误 ({response.status}): {(await response.text())[:500]}")
                 result = await response.json()
-                if result.get("message", {}).get("content"):
-                    result["message"]["content"] = clean_model_text(result["message"]["content"])
-                return result
+                if not isinstance(result, dict):
+                    raise OllamaInvalidOutputError("malformed_response")
+                message = result.get("message")
+                if not isinstance(message, dict):
+                    raise OllamaInvalidOutputError("missing_message")
+                raw_content = message.get("content", "")
+                malformed_content = raw_content not in (None, "") and not isinstance(raw_content, str)
+                raw_thinking = message.get("thinking", "")
+                thinking_length = len(raw_thinking) if isinstance(raw_thinking, str) else len(str(raw_thinking or ""))
+                raw_content_seen = isinstance(raw_content, str) and bool(raw_content.strip())
+                visible = _validate_model_output(
+                    raw_content,
+                    result.get("done_reason"),
+                    raw_content_seen=raw_content_seen,
+                    thinking_length=thinking_length,
+                    malformed_content=malformed_content,
+                )
+                # Do not return the hidden reasoning field to callers that may
+                # serialize this object or accidentally display it later.
+                sanitized = dict(result)
+                sanitized_message = dict(message)
+                sanitized_message["content"] = visible
+                sanitized_message.pop("thinking", None)
+                sanitized["message"] = sanitized_message
+                sanitized.pop("thinking", None)
+                logger.debug(
+                    "Ollama 响应通过正文门禁: content_chars=%d thinking_chars=%d done_reason=%s",
+                    len(visible),
+                    thinking_length,
+                    result.get("done_reason"),
+                )
+                return sanitized
 
     async def chat_stream(self, model: str, messages: List[Dict[str, str]], temperature: float = DEFAULT_TEMPERATURE, max_tokens: int = DEFAULT_MAX_TOKENS) -> AsyncGenerator[str, None]:
         import aiohttp
         timeout = aiohttp.ClientTimeout(total=float(os.getenv("LLM_TIMEOUT_SECONDS", "120")))
         state = _ThinkFilter()
-        started = False
+        done_seen = False
+        terminal_sent = False
+        raw_content_seen = False
+        malformed_content = False
+        thinking_length = 0
+        done_reason: Any = None
+        visible_parts: list[str] = []
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(f"{self.base_url}/api/chat", json=self._payload(model, messages, temperature, max_tokens, True)) as response:
                     if response.status != 200:
                         raise RuntimeError(f"Ollama API 错误 ({response.status}): {(await response.text())[:500]}")
                     async for raw_line in response.content:
-                        line = raw_line.decode("utf-8", errors="ignore").strip()
+                        if isinstance(raw_line, bytes):
+                            line = raw_line.decode("utf-8", errors="ignore").strip()
+                        else:
+                            line = str(raw_line).strip()
                         if not line:
                             continue
                         try:
                             data = json.loads(line)
                         except json.JSONDecodeError:
+                            # Ollama emits one JSON object per line.  A
+                            # malformed line can hide part of the answer, so
+                            # remember the protocol violation and reject the
+                            # complete stream instead of silently succeeding.
+                            malformed_content = True
                             continue
-                        content = data.get("message", {}).get("content", "")
-                        visible = state.feed(content)
-                        if not started:
-                            visible = visible.lstrip()
+                        if not isinstance(data, dict):
+                            malformed_content = True
+                            continue
+                        if data.get("error"):
+                            raise RuntimeError(str(data.get("error")))
+                        done_reason = data.get("done_reason", done_reason)
+                        message = data.get("message") or {}
+                        if not isinstance(message, dict):
+                            malformed_content = True
+                            message = {}
+                        raw_content = message.get("content", "")
+                        if raw_content is None:
+                            raw_content = ""
+                        elif not isinstance(raw_content, str):
+                            malformed_content = True
+                            raw_content = ""
+                        if raw_content.strip():
+                            raw_content_seen = True
+                        raw_thinking = message.get("thinking", "")
+                        if raw_thinking:
+                            thinking_length += len(raw_thinking) if isinstance(raw_thinking, str) else len(str(raw_thinking))
+                        visible = state.feed(raw_content)
                         if visible:
-                            started = True
-                            yield f"data: {json.dumps({'content': visible}, ensure_ascii=False)}\n\n"
+                            visible_parts.append(visible)
                         if data.get("done"):
+                            done_seen = True
                             tail = state.flush()
-                            if tail:
-                                tail = tail if started else tail.lstrip()
-                                if tail:
-                                    started = True
-                                    yield f"data: {json.dumps({'content': tail}, ensure_ascii=False)}\n\n"
+                            combined = "".join(visible_parts) + tail
+                            try:
+                                approved = _validate_model_output(
+                                    combined,
+                                    done_reason,
+                                    raw_content_seen=raw_content_seen,
+                                    thinking_length=thinking_length,
+                                    malformed_content=malformed_content,
+                                )
+                            except OllamaInvalidOutputError as exc:
+                                logger.warning(
+                                    "Ollama 流式输出未通过正文门禁: reason=%s done_reason=%s content_chars=%d thinking_chars=%d",
+                                    exc.reason,
+                                    done_reason,
+                                    exc.content_length,
+                                    thinking_length,
+                                )
+                                terminal_sent = True
+                                yield _sse_error_event(
+                                    "Ollama 返回无效模型输出，已交给安全兜底",
+                                    code=exc.code,
+                                    reason=exc.reason,
+                                    done_reason=_normalise_done_reason(done_reason) or None,
+                                )
+                                yield "data: [DONE]\n\n"
+                                return
+                            # Do not expose provisional chunks before the
+                            # terminal validation above.  A length-limited or
+                            # thinking-only response must be completely
+                            # invisible to direct low-level callers as well as
+                            # to the backend router.
+                            yield f"data: {json.dumps({'content': approved}, ensure_ascii=False)}\n\n"
+                            logger.debug(
+                                "Ollama 流式响应通过正文门禁: content_chars=%d thinking_chars=%d done_reason=%s",
+                                len(extract_visible_model_content(combined)),
+                                thinking_length,
+                                done_reason,
+                            )
+                            terminal_sent = True
                             yield "data: [DONE]\n\n"
                             return
+                    if not done_seen:
+                        # A network/proxy interruption can end the iterator
+                        # without Ollama's terminal object.  Even if some text
+                        # arrived, it is incomplete and must not be accepted.
+                        try:
+                            _validate_model_output(
+                                "".join(visible_parts) + state.flush(),
+                                done_reason,
+                                raw_content_seen=raw_content_seen,
+                                thinking_length=thinking_length,
+                                malformed_content=malformed_content,
+                                missing_done=True,
+                            )
+                        except OllamaInvalidOutputError as exc:
+                            logger.warning(
+                                "Ollama 流式响应缺少完成标记: reason=%s done_reason=%s content_chars=%d thinking_chars=%d",
+                                exc.reason,
+                                done_reason,
+                                exc.content_length,
+                                thinking_length,
+                            )
+                            terminal_sent = True
+                            yield _sse_error_event(
+                                "Ollama 流式响应未正常结束，已交给安全兜底",
+                                code=exc.code,
+                                reason=exc.reason,
+                                done_reason=_normalise_done_reason(done_reason) or None,
+                            )
+                            yield "data: [DONE]\n\n"
+                            return
+                        # Defensive fallback: `missing_done=True` should always
+                        # raise, but never allow a future validator change to
+                        # turn an unterminated stream into a success.
+                        terminal_sent = True
+                        yield _sse_error_event(
+                            "Ollama 流式响应未正常结束，已交给安全兜底",
+                            code=_INVALID_OUTPUT_CODE,
+                            reason="missing_done",
+                        )
+                        yield "data: [DONE]\n\n"
+                        return
         except Exception as exc:
             logger.exception("Ollama 流式调用失败")
-            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
-            yield "data: [DONE]\n\n"
+            if not terminal_sent:
+                terminal_sent = True
+                message = str(exc) or "Ollama 流式调用失败"
+                yield _sse_error_event(message, code="ollama_error")
+                yield "data: [DONE]\n\n"
 
     async def list_models(self) -> List[Dict[str, Any]]:
         import aiohttp
@@ -231,6 +487,7 @@ class RAGService:
         self._retriever = None
         self._initialized = False
         self._vector_ok = False
+        self._lexical_reranker = None
 
     def initialize(self):
         if self._initialized:
@@ -264,15 +521,157 @@ class RAGService:
         except Exception as exc:
             logger.warning("词法知识库重载失败: %s", exc)
 
+    def _get_lexical_reranker(self):
+        """向量库可用时提供一个轻量词法二阶段排序器。
+
+        向量相似度对“鱼类识别”“ROV 安全”“重金属超标”这类短中文问句
+        容易把相邻主题排到前面；词法层只负责实体/短语重排，不替代向量召回。
+        初始化失败时保持原向量结果，不能让排序器影响主链路可用性。
+        """
+        if self._lexical_reranker is False:
+            return None
+        if self._lexical_reranker is None:
+            try:
+                from .rag.lexical_retriever import LocalKnowledgeRetriever
+
+                self._lexical_reranker = LocalKnowledgeRetriever()
+            except Exception:
+                logger.debug("词法二阶段排序器初始化失败", exc_info=True)
+                self._lexical_reranker = False
+        return self._lexical_reranker if self._lexical_reranker is not False else None
+
+    @staticmethod
+    def _merge_ranked_results(
+        vector_results: List[Dict[str, Any]],
+        lexical_results: List[Dict[str, Any]],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """按实体词法命中 + 向量分数合并候选，并限制单文档占比。"""
+        merged: dict[str, Dict[str, Any]] = {}
+        # Keep the origin alongside each item.  Comparing dictionaries with
+        # ``item in lexical_results`` is ambiguous when the same chunk appears
+        # in both lists (and is O(n) for every candidate), which can silently
+        # classify a vector hit as lexical evidence.
+        for origin, candidates in (("vector", vector_results), ("lexical", lexical_results)):
+            for item in candidates:
+                content = str(item.get("content") or "").strip()
+                if not content:
+                    continue
+                key = re.sub(r"\s+", "", content)
+                current = merged.get(key)
+                try:
+                    score = float(item.get("score"))
+                except (TypeError, ValueError):
+                    score = 0.0
+                metadata = dict(item.get("metadata") or {})
+                source = str(item.get("source") or metadata.get("source") or "项目知识库")
+                if current is None:
+                    current = {
+                        "content": content,
+                        "source": Path(source).name,
+                        "metadata": metadata,
+                        "vector_score": 0.0,
+                        "lexical_score": 0.0,
+                    }
+                    merged[key] = current
+                elif not current.get("metadata") and metadata:
+                    current["metadata"] = metadata
+                # lexical 分数用于实体优先级；向量分数保留为语义补充。
+                score_key = "lexical_score" if origin == "lexical" else "vector_score"
+                current[score_key] = max(float(current.get(score_key, 0.0)), score)
+        ranked = []
+        for item in merged.values():
+            lexical_score = float(item.pop("lexical_score", 0.0))
+            vector_score = float(item.pop("vector_score", 0.0))
+            # 词法命中有明确实体时优先；没有词法候选的内容仍由向量分数保留。
+            item["score"] = round(max(lexical_score, vector_score), 4) or None
+            item["_rank"] = lexical_score * 1.8 + vector_score * 0.45 + (0.25 if lexical_score else 0.0)
+            ranked.append(item)
+        ranked.sort(key=lambda value: value.pop("_rank", 0.0), reverse=True)
+        selected: List[Dict[str, Any]] = []
+        source_counts: dict[str, int] = {}
+        for item in ranked:
+            source = item["source"]
+            if source_counts.get(source, 0) >= 2:
+                continue
+            selected.append(item)
+            source_counts[source] = source_counts.get(source, 0) + 1
+            if len(selected) >= limit:
+                break
+        return selected
+
+    @staticmethod
+    def _restrict_vector_sources(
+        query: str,
+        vector_results: List[Dict[str, Any]],
+        lexical_results: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Keep vector candidates on the lexical-confirmed topic source.
+
+        Vector similarity is useful for recall, but short Chinese questions
+        often rank neighbouring chapters (for example, a heavy-metal query
+        can pull the microplastics and oil bullets from the same monitoring
+        corpus).  The local lexical index has explicit entity/source guards;
+        for a single-topic query it is therefore the authority for the source
+        allow-list.  Multi-topic/comparison questions intentionally retain
+        all sources so that the answer can cover both sides.
+        """
+        if not vector_results or not lexical_results:
+            return vector_results
+        try:
+            from .rag.lexical_retriever import (
+                _allows_multiple_topic_sources,
+                _query_entity_groups,
+            )
+
+            entity_groups = _query_entity_groups(query)
+            if not entity_groups or _allows_multiple_topic_sources(query, entity_groups):
+                return vector_results
+        except Exception:
+            # A compatibility/test retriever may not expose the optional
+            # topic helpers; preserving vector recall is safer than failing
+            # the entire chat request.
+            return vector_results
+
+        def source_name(item: Dict[str, Any]) -> str:
+            metadata = item.get("metadata") or {}
+            return Path(str(item.get("source") or metadata.get("source") or "项目知识库")).name
+
+        allowed_sources = {source_name(item) for item in lexical_results if source_name(item)}
+        if not allowed_sources:
+            return vector_results
+        return [item for item in vector_results if source_name(item) in allowed_sources]
+
     def retrieve(self, query: str, k: Optional[int] = None) -> tuple[str, List[Dict[str, Any]]]:
         if not self._initialized:
             self.initialize()
         if not self._retriever:
             return "", []
         try:
-            _, raw_results = self._retriever.retrieve_for_llm(
-                query, k or int(os.getenv("RAG_TOP_K", "3"))
-            )
+            limit = max(1, int(k or os.getenv("RAG_TOP_K", "3")))
+            try:
+                _, vector_or_lexical_results = self._retriever.retrieve_for_llm(query, limit)
+            except Exception:
+                logger.debug("主 RAG 检索失败，尝试词法回退", exc_info=True)
+                vector_or_lexical_results = []
+
+            raw_results = vector_or_lexical_results or []
+            if self._vector_ok:
+                # Even an empty vector result should get a lexical chance.  A
+                # similarity threshold or a stale Chroma collection can return
+                # no candidates for a short Chinese query while the local
+                # document index still has an exact, useful match.
+                reranker = self._get_lexical_reranker()
+                if reranker is not None:
+                    try:
+                        lexical_results = reranker.search(query, max(limit * 3, 8))
+                    except Exception:
+                        logger.debug("词法补召回失败", exc_info=True)
+                        lexical_results = []
+                    raw_results = self._restrict_vector_sources(
+                        query, raw_results, lexical_results
+                    )
+                    raw_results = self._merge_ranked_results(raw_results, lexical_results, limit)
             results: List[Dict[str, Any]] = []
             source_counts: dict[str, int] = {}
             seen_content: set[str] = set()
@@ -281,7 +680,7 @@ class RAGService:
                 if not content:
                     continue
                 metadata = item.get("metadata") or {}
-                source = Path(str(metadata.get("source") or "项目知识库")).name
+                source = Path(str(item.get("source") or metadata.get("source") or "项目知识库")).name
                 normalized = re.sub(r"\s+", "", content)
                 if normalized in seen_content or source_counts.get(source, 0) >= 2:
                     continue
@@ -293,7 +692,7 @@ class RAGService:
                     "score": item.get("score"),
                 })
                 source_counts[source] = source_counts.get(source, 0) + 1
-                if len(results) >= (k or int(os.getenv("RAG_TOP_K", "3"))):
+                if len(results) >= limit:
                     break
             context = "\n\n".join(
                 f"[S{item['id']}] 来源：{item['source']}\n{item['content']}"

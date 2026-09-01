@@ -724,6 +724,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [lastQuestion, setLastQuestion] = useState('');
+  // 只有完整收到并校验过的回答才允许生成建议追问；失败/中断的残片不能作为上下文。
+  const [answerComplete, setAnswerComplete] = useState(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -743,6 +745,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const controller = useRef<AbortController | null>(null);
+  const activeAssistantIdRef = useRef<string | null>(null);
   // 同步 busy 标志给 ref，供挂载后的历史刷新判断是否已有新的在途提问。
   const busyRef = useRef(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -1138,6 +1141,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       setBusy(true);
       busyRef.current = true;
       setError('');
+      setAnswerComplete(false);
       setDhSubtitle('');
       stickToBottomRef.current = true;
 
@@ -1158,6 +1162,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         ...nextMessages,
         { id: assistantId, role: 'assistant', content: '', timestamp: currentTime },
       ]);
+      activeAssistantIdRef.current = assistantId;
 
       const abortController = new AbortController();
       controller.current = abortController;
@@ -1166,6 +1171,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       let markFinished = () => {};
       const finished = new Promise<void>((resolve) => { markFinished = resolve; });
       pendingChatStream = { sessionId, finished };
+      let fullContent = '';
 
       if (dhOn && dhReady && dhRef.current) {
         setDhStatus('thinking');
@@ -1182,7 +1188,6 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             .map(({ role, content }) => ({ role, content })),
         ];
 
-        let fullContent = '';
         // 纯文本/拟态模式：开启舞台打字机字幕（真数字人模式仍由队列驱动）
         if (!(dhOn && dhReady)) {
           stageTextRef.current = '';
@@ -1225,6 +1230,11 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           },
         );
 
+        // streamChat 已验证 [DONE] 与至少一段可见正文；保留本地断言，
+        // 防止未来替换实现时空回答再次静默落到页面。
+        if (!fullContent.trim()) throw new Error('AI 助手未返回有效内容');
+        setAnswerComplete(true);
+
         // 生成结束播报
         if (dhOn && dhReady && dhRef.current && fullContent && !dhMuted) {
           setDhStatus('speaking');
@@ -1244,8 +1254,13 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         // A stopped request can finish after a newer request has started. Do not
         // let the stale request overwrite the active request's UI state.
         if (controller.current !== abortController) return;
+        setAnswerComplete(false);
         if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
           setError(reason instanceof Error ? reason.message : '对话生成中断或服务响应超时');
+        }
+        if (!fullContent.trim()) {
+          // 不留下没有正文的“空气泡”；错误提示统一由下方 banner 呈现。
+          setMessages((current) => current.filter((item) => item.id !== assistantId));
         }
         setDhStatus(dhOn && dhReady ? 'idle' : 'offline');
         if (dhOn && dhReady) setDhSubtitle('');
@@ -1255,6 +1270,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         // Always release the busy lock, while preserving a newer request's lock.
         markFinished();
         if (pendingChatStream?.sessionId === sessionId) pendingChatStream = null;
+        if (activeAssistantIdRef.current === assistantId) activeAssistantIdRef.current = null;
         if (controller.current !== abortController) return;
         busyRef.current = false;
         setBusy(false);
@@ -1428,6 +1444,13 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     controller.current?.abort();
     stopSubtitleQueue();
     stopStageSubtitle();
+    setAnswerComplete(false);
+    const activeAssistantId = activeAssistantIdRef.current;
+    if (activeAssistantId) {
+      // 先同步清掉空泡，避免停止后立刻发新问题导致旧流的 catch 无法再清理。
+      setMessages((current) => current.filter((item) => item.id !== activeAssistantId || item.content.trim()));
+      activeAssistantIdRef.current = null;
+    }
     busyRef.current = false;
     setBusy(false);
     setDhSubtitle('');
@@ -1473,6 +1496,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     setSessionId(fresh);
     setMessages([]);
     setError('');
+    setAnswerComplete(false);
     setDhSubtitle('');
   };
 
@@ -1480,23 +1504,46 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     const lines = messages.map((m) => {
       const author = m.role === 'assistant' ? '海洋守护者 AI' : userName;
       const time = m.timestamp ? ` [${m.timestamp}]` : '';
-      return `### ${author}${time}\n\n${m.content}\n`;
+      const attachment = m.attachment
+        ? `\n> 关联质量报告：${m.attachment.label}${m.attachment.meta ? `\n> 报告摘要：${m.attachment.meta.replace(/\r?\n/g, ' ')}` : ''}\n`
+        : '';
+      return `### ${author}${time}${attachment}\n${m.content}\n`;
     });
-    const header = `# 海瞳 · 海洋守护者对话记录\n生成时间：${new Date().toLocaleString()}\n\n---\n\n`;
+    const boundReport = activeReportContext
+      ? `\n当前绑定质量报告：${activeReportContext.title}${activeReportContext.summary ? `\n报告摘要：${activeReportContext.summary.replace(/\r?\n/g, ' ')}` : ''}\n`
+      : '';
+    const header = `# 海瞳 · 海洋守护者对话记录\n生成时间：${new Date().toLocaleString()}${boundReport}\n---\n\n`;
     downloadExport(header + lines.join('\n---\n\n'), `海洋守护者对话记录_${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown;charset=utf-8');
     setExportOpen(false);
   };
 
   const exportChatJson = () => {
     const payload = {
-      schema: 'haitong.chat-export.v1',
+      schema: 'haitong.chat-export.v2',
       title: '海瞳 · 海洋守护者对话记录',
       exportedAt: new Date().toISOString(),
       sessionId,
       model: 'ds-ocean_mingzhe',
       user: userName,
+      activeReportContext: activeReportContext
+        ? {
+            reportId: activeReportContext.reportId ?? null,
+            documentId: activeReportContext.documentId ?? null,
+            title: activeReportContext.title,
+            summary: activeReportContext.summary ?? '',
+          }
+        : null,
       messageCount: messages.length,
-      messages: messages.map(({ id, role, content, timestamp, liked }) => ({ id, role, content, timestamp, liked: Boolean(liked) })),
+      messages: messages.map(({ id, role, content, timestamp, liked, attachment }) => ({
+        id,
+        role,
+        content,
+        timestamp,
+        liked: Boolean(liked),
+        attachment: attachment
+          ? { label: attachment.label, meta: attachment.meta ?? '' }
+          : null,
+      })),
     };
     downloadExport(JSON.stringify(payload, null, 2), `海洋守护者对话记录_${new Date().toISOString().slice(0, 10)}.json`, 'application/json;charset=utf-8');
     setExportOpen(false);
@@ -1515,14 +1562,24 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       const rendered = DOMPurify.sanitize(String(marked.parse(message.content, { breaks: true })), {
         USE_PROFILES: { html: true },
       });
+      const answerRoot = document.createElement('div');
+      answerRoot.innerHTML = `<div class="og-markdown-body">${rendered}</div>`;
+      highlightKeyFacts(answerRoot);
+      cardifyAnswer(answerRoot);
+      const formatted = answerRoot.innerHTML;
+      const attachment = message.attachment
+        ? `<div class="attachment" style="margin:0 0 14px;padding:10px 12px;border:1px solid rgba(138,240,191,.3);border-radius:10px;background:rgba(138,240,191,.08)"><strong style="display:block;color:#8af0bf;font-size:11px">关联质量报告</strong><span style="display:block;color:#effffc;font-size:13px">${escapeExportHtml(message.attachment.label)}</span>${message.attachment.meta ? `<small style="display:block;color:#8ba9b4;font-size:11px">${escapeExportHtml(message.attachment.meta)}</small>` : ''}</div>`
+        : '';
       return `<article class="message ${roleClass}">
         <div class="message-meta"><span class="avatar">${message.role === 'assistant' ? 'AI' : escapeExportHtml(userName.slice(0, 1).toUpperCase())}</span><div><strong>${escapeExportHtml(roleLabel)}</strong><time>${escapeExportHtml(message.timestamp ?? `消息 ${index + 1}`)}</time></div></div>
-        <div class="message-body">${rendered}</div>
+        ${attachment}
+        <div class="message-body">${formatted}</div>
       </article>`;
     }).join('');
     const html = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>海瞳 · 海洋守护者对话记录</title>
 <style>
+.og-markdown-body{color:#d7e7ea}.og-markdown-body p{margin:7px 0}.og-markdown-body h1,.og-markdown-body h2,.og-markdown-body h3,.og-markdown-body h4{color:#fff;line-height:1.35}.og-markdown-body ul,.og-markdown-body ol{margin:8px 0;padding-left:20px}.og-markdown-body li{margin:4px 0}.og-markdown-body mark.og-hl{background:linear-gradient(transparent 58%,rgba(27,231,255,.3) 58%);color:#f2feff;font-weight:600;padding:0 1px;border-radius:2px}.og-markdown-body strong{color:#fff}.og-markdown-body .og-ans-conclusion{background:linear-gradient(135deg,rgba(56,248,212,.14),rgba(27,231,255,.06));border:1px solid rgba(56,248,212,.4);border-radius:12px;padding:10px 14px;margin:0 0 10px;font-weight:600;color:#eafffe}.og-markdown-body .og-ans-card{background:rgba(6,24,40,.55);border:1px solid rgba(135,222,255,.18);border-left:3px solid #59e6ef;border-radius:12px;padding:10px 14px;margin:0 0 10px}.og-markdown-body .og-ans-card-head{color:#59e6ef;font-weight:700;letter-spacing:.04em;margin:0 0 6px}.og-markdown-body .og-ans-card-list{margin:0;padding-left:18px}.og-markdown-body .og-ans-list{padding-left:18px}.og-markdown-body .og-pri-badge{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;font-weight:700;font-size:11px}.og-pri-badge.pri-p0{background:rgba(255,104,133,.2);color:#ff8ba0;border:1px solid rgba(255,104,133,.5)}.og-pri-badge.pri-p1{background:rgba(255,181,71,.18);color:#ffc97e;border:1px solid rgba(255,181,71,.5)}.og-pri-badge.pri-p2{background:rgba(27,231,255,.16);color:#7fe8ff;border:1px solid rgba(27,231,255,.5)}
 :root{color-scheme:dark;--ink:#dceff3;--muted:#8ba9b4;--line:rgba(125,224,238,.18);--cyan:#59e6ef;--deep:#071723;--panel:rgba(12,35,49,.82);--accent:#8af0bf}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0%,#123b4a 0,#071723 38%,#041019 100%);color:var(--ink);font:15px/1.75 Inter,"Microsoft YaHei",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:56px 28px 72px}.hero{border:1px solid var(--line);background:linear-gradient(135deg,rgba(23,74,89,.72),rgba(7,27,40,.76));border-radius:22px;padding:34px 38px;box-shadow:0 24px 80px rgba(0,0,0,.22)}.kicker{color:var(--cyan);font-size:11px;letter-spacing:.18em;text-transform:uppercase}.hero h1{margin:10px 0 4px;font-size:32px;letter-spacing:.01em}.hero p{margin:0;color:var(--muted)}.meta{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:24px;color:#b9d3d9;font-size:12px}.meta span{padding-right:20px;border-right:1px solid var(--line)}.meta span:last-child{border:0}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 30px}.stat{padding:17px 18px;border:1px solid var(--line);border-radius:14px;background:rgba(8,29,42,.7)}.stat b{display:block;color:#fff;font-size:24px}.stat span{color:var(--muted);font-size:12px}.section-title{display:flex;justify-content:space-between;align-items:center;margin:30px 0 12px;color:#bfe9ed;font-size:13px;letter-spacing:.08em}.section-title span{color:var(--muted);font-size:11px;letter-spacing:0}.message{margin:13px 0;padding:20px 22px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}.message.user{border-left:3px solid #75a8ff}.message.assistant{border-left:3px solid var(--accent)}.message-meta{display:flex;align-items:center;gap:10px;margin-bottom:12px}.avatar{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:rgba(89,230,239,.15);color:var(--cyan);font-size:10px;font-weight:700}.user .avatar{background:rgba(117,168,255,.16);color:#a8c5ff}.message-meta strong{display:block;font-size:13px}.message-meta time{display:block;color:var(--muted);font-size:11px}.message-body{color:#d7e7ea}.message-body p{margin:7px 0}.message-body h1,.message-body h2,.message-body h3{color:#fff;line-height:1.3}.message-body code{padding:2px 5px;border-radius:5px;background:rgba(0,0,0,.3);color:#b7f6db}.message-body pre{padding:14px;overflow:auto;background:#041018;border-radius:10px}.message-body blockquote{margin:10px 0;padding-left:14px;border-left:2px solid var(--cyan);color:#b4d1d6}.message-body a{color:var(--cyan)}.footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;display:flex;justify-content:space-between;gap:15px}@media(max-width:640px){.wrap{padding:24px 14px 40px}.hero{padding:25px 22px;border-radius:16px}.hero h1{font-size:25px}.stats{grid-template-columns:repeat(2,1fr)}.meta span{border:0}.message{padding:16px}.footer{display:block}.footer span{display:block;margin-top:5px}}
  </style></head><body><main class="wrap"><header class="hero"><div class="kicker">HAITONG · OCEAN GUARDIAN</div><h1>海洋守护者对话记录</h1><p>面向海洋垃圾识别、污染分析与治理研判的可追溯聊天流水</p><div class="meta"><span>导出时间：${escapeExportHtml(dateLabel)}</span><span>会话：${escapeExportHtml(sessionId.slice(0, 18))}</span><span>模型：ds-ocean_mingzhe</span></div></header><section class="stats"><div class="stat"><b>${messages.length}</b><span>消息总数</span></div><div class="stat"><b>${userMessages}</b><span>提问</span></div><div class="stat"><b>${assistantMessages}</b><span>回答</span></div><div class="stat"><b>${citationCount}</b><span>证据标记</span></div></section><div class="section-title"><span>聊天记录</span><span>按时间顺序整理 · 原文安全渲染</span></div><section>${transcript}</section><footer class="footer"><span>海瞳智慧海洋环境治理平台</span><span>本记录由海洋守护者对话模块生成 · ${escapeExportHtml(dateLabel)}</span></footer></main></body></html>`;
     downloadExport(html, `海洋守护者对话记录_${dateKey}.html`, 'text/html;charset=utf-8');
@@ -1748,7 +1805,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           )}
 
           {/* 建议追问（证据锚定：空结果时整块隐藏） */}
-          {!busy && lastAssistantMessage && (
+          {!busy && answerComplete && lastAssistantMessage && !error && (
             <FollowUpSuggestions
               sessionId={sessionId}
               userQuestion={lastUserMessage}

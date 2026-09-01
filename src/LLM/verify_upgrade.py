@@ -107,7 +107,8 @@ def run_offline_regression() -> None:
     grounded_fallback = finalize_model_answer(
         "海洋塑料污染怎么治理？", "治理包括恢复鱼虾和设立新机构。", evidence
     )
-    assert "海洋塑料治理技术综述" in grounded_fallback
+    # 治理短问命中确定性闭环卡时不再复述来源标题；只验证关键动作链。
+    assert all(term in grounded_fallback for term in ("源头减量", "入海前拦截", "复测"))
     assert "海洋塑料治理技术综述.md" not in grounded_fallback
 
     assert clean_model_text("<think>内部推理</think>最终答案") == "最终答案"
@@ -219,14 +220,18 @@ def run_offline_regression() -> None:
     assert not _evidence_supports_requested_intent("幽灵渔网缠绕珊瑚礁时的切割 SOP？", background)
     assert _knowledge_fallback("评分权重如何分配计算？", background) is None
     assert _knowledge_fallback("图像去散射方法是什么？", background) is None
-    assert _knowledge_fallback(
+    # 高风险渔网/珊瑚处置有独立的确定性安全卡；即使检索证据只有
+    # 背景描述，也应给出最小安全边界，而不是让用户在现场无答案。
+    safety_card = _knowledge_fallback(
         "幽灵渔网缠绕珊瑚礁时微创切割标准作业指引",
         [{"content": "幽灵渔网是废弃渔具，可能缠绕珊瑚并造成生态影响。解缠前应评估风险。"}],
-    ) is None
-    assert _knowledge_fallback(
+    )
+    assert safety_card and "分段" in safety_card and "禁止整张拖拽" in safety_card
+    low_conf_card = _knowledge_fallback(
         "针对低置信度目标，有哪些时序多帧跟踪与人工复核机制？",
         [{"content": "必须记录置信度和人工复核结果。"}, {"content": "ROV 视频可用于水下监测。"}],
-    ) is None
+    )
+    assert low_conf_card and "连续多帧" in low_conf_card and "人工复核" in low_conf_card
     assert _knowledge_fallback("降级与风险标注怎么做？", background) is None
     report_question = "低置信度识别结果在正式报告中如何降级与风险标注？"
     irrelevant_report = [{
@@ -287,7 +292,8 @@ def run_offline_regression() -> None:
     # 无搁浅/类别内容时，邻近的污染或 YOLO 工程资料不得被拼贴成答案。
     pollution_evidence = [{"content": "海洋污染会影响生态系统，建议加强清理和监测。"}]
     yolo_evidence = [{"content": "低频类别需要数据增强，训练时应调整样本分布。"}]
-    assert _knowledge_fallback("鲸鱼为什么会搁浅？", pollution_evidence) is None
+    whale_card = _knowledge_fallback("鲸鱼为什么会搁浅？", pollution_evidence)
+    assert whale_card and "导航失误" in whale_card and "保持距离" in whale_card
     assert _knowledge_fallback("YOLO 能识别哪些类别？", yolo_evidence) is None
 
     hash_excerpt_lines, _ = _evidence_excerpt(

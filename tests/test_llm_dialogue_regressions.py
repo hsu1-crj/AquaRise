@@ -340,6 +340,15 @@ def test_atlas_whale_shark_actions_cover_propeller_strike_and_illegal_killing():
     assert "拒绝购买" in answer and "非法贸易" in answer
 
 
+def test_microplastic_marine_life_question_answers_observed_effects():
+    answer = llm.direct_response("微塑料对海洋生物已经观察到了哪些影响？")
+
+    assert answer
+    assert "摄入" in answer and "消化道" in answer
+    assert "生长" in answer or "繁殖" in answer
+    assert "不能仅凭发现颗粒" in answer
+
+
 # ==================== 2026-08-29 回归：追问路由 / 报告反编造 / 对比题 ====================
 
 
@@ -471,3 +480,88 @@ def test_bound_report_solution_fallback_composes_briefing():
     assert "不会补写" in result
     # 纯事实问法不触发布报
     assert llm._report_solution_response("这份报告的评分是多少？", context) is None
+
+
+def test_specific_knowledge_cards_do_not_fall_through_to_generic_answers():
+    marpol = llm.direct_response("MARPOL 公约的几个附则分别管什么内容？")
+    assert marpol and all(f"附则 {roman}" in marpol for roman in ("I", "II", "III", "IV", "V", "VI"))
+
+    pet = llm.direct_response("PET 塑料有什么特征，常见于哪些海洋垃圾？")
+    assert pet and "PET" in pet and "聚对苯二甲酸乙二醇酯" in pet
+    assert "人类健康" not in pet
+
+    pp = llm.direct_response("PP（聚丙烯）这类塑料的环境行为是怎样的？")
+    assert pp and "聚丙烯" in pp
+    assert "PET" not in pp
+
+    assert "聚对苯二甲酸乙二醇酯" in llm.direct_response("PET塑料有什么特征？")
+    assert "聚丙烯" in llm.direct_response("PP塑料在海洋环境中表现怎样？")
+    assert not llm._contains_special_term("shipping pollution", "pp")
+
+
+def test_suggestion_questions_are_answerable_or_filtered():
+    items = llm._load_suggestion_index()
+    assert items
+    for entry in items:
+        if llm._suggestion_is_answerable(entry):
+            direct = llm.direct_response(entry["question"], allow_scope_fallback=False)
+            if not direct:
+                assert llm._knowledge_fallback(
+                    entry["question"], llm._SUGGESTION_DOC_CACHE[entry["sourceDoc"]]
+                )
+            continue
+        # 当前索引中被判定为不可回答的问题不得被建议接口下发。
+        assert entry["question"] not in {
+            item["question"]
+            for item in llm.suggest_adjacent_questions(entry["question"], limit=10)
+        }
+
+
+def test_common_short_questions_use_topic_specific_deterministic_cards():
+    blue_carbon = llm.direct_response("蓝碳是什么？")
+    assert blue_carbon and "红树林" in blue_carbon and "碳" in blue_carbon
+
+    plastic_governance = llm.direct_response("海洋塑料污染怎么治理？")
+    assert plastic_governance
+    assert all(term in plastic_governance for term in ("源头减量", "入海前拦截", "复测"))
+    assert "海洋塑料治理技术综述" not in plastic_governance
+
+    health = llm.direct_response("重金属对人体健康有什么危害？")
+    assert health and "剂量" in health and "食品监管" in health
+    assert "海洋垃圾与人类健康知识" not in health
+
+
+def test_multi_entity_retrieval_and_answer_keep_topics_separate():
+    question = "鱼类和 ROV 分别介绍"
+    answer = llm.direct_response(question)
+    assert answer and "鱼类：" in answer and "ROV：" in answer
+    retriever = LocalKnowledgeRetriever()
+    sources = [item["metadata"]["source"] for item in retriever.search(question, 8)]
+    assert set(sources) <= {
+        "海洋生物与生态基础知识.md",
+        "水下机器人ROV与海底作业知识.md",
+    }
+    assert "海洋生物与生态基础知识.md" in sources
+    assert "水下机器人ROV与海底作业知识.md" in sources
+
+
+def test_multi_entity_fallback_keeps_each_named_topic_answerable():
+    retriever = LocalKnowledgeRetriever()
+    cases = (
+        (
+            "鱼类和蓝碳分别是什么",
+            ("鱼类：", "蓝碳："),
+            ("海洋生物与生态基础知识.md", "海洋碳汇与气候变化知识.md"),
+        ),
+        (
+            "重金属和蓝碳分别有什么影响",
+            ("重金属：", "蓝碳："),
+            ("海洋环境监测与水质参数知识.md", "海洋碳汇与气候变化知识.md"),
+        ),
+    )
+    for question, answer_markers, source_markers in cases:
+        answer = llm.direct_response(question, allow_scope_fallback=False)
+        assert answer and all(marker in answer for marker in answer_markers)
+        selected = llm._select_topic_evidence(question, retriever.search(question, 8))
+        selected_sources = {llm._evidence_source_name(item) for item in selected}
+        assert set(source_markers) <= selected_sources

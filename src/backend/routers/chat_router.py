@@ -55,7 +55,13 @@ def _extract_user_message(body: SpaChatRequest) -> str:
 
 def _build_messages(body: SpaChatRequest, message: str):
     items = [{"role": m.role, "content": m.content} for m in body.messages if m.content.strip()]
-    if not any(m["role"] == "user" for m in items):
+    # `message` is the current turn in the legacy payload.  A request may also
+    # carry prior `messages`; checking only for any user message would silently
+    # omit the current turn and make the model answer the previous question.
+    # Keep an already-present final user turn to avoid duplicating modern payloads.
+    if not items or not (
+        items[-1]["role"] == "user" and items[-1]["content"].strip() == message.strip()
+    ):
         items.append({"role": "user", "content": message})
     return items
 
@@ -251,6 +257,17 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
     async def event_stream():
         full = ""
         used_ollama = False
+        # Keep the last assistant turn available even when Ollama is offline.
+        # The fallback path also needs it to answer referential follow-ups
+        # (for example, "那成本呢？") without losing the conversation topic.
+        previous_assistant = next(
+            (
+                item.content.strip()
+                for item in reversed(body.messages)
+                if item.role == "assistant" and item.content.strip()
+            ),
+            "",
+        )
         try:
             # 身份、寒暄、范围边界和高风险常识先走确定性回答，防止 1.5B 模型胡编。
             # 选中报告/导入文档后，必须让请求进入带上下文的模型链路；
@@ -261,7 +278,9 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
                 message, allow_scope_fallback=not follow_up
             )
             if direct:
-                async for chunk in llm_stub.generate_chat_stream(message):
+                # direct_response 已经完成了物种档案/安全规则匹配，不能再回到
+                # 通用 fallback，否则当前物种语境会被泛化答案覆盖。
+                async for chunk in llm_stub.stream_text(direct):
                     full += chunk
                     yield _sse(chunk)
             else:
@@ -362,7 +381,10 @@ async def chat(body: SpaChatRequest, request: Request, current_user: User = Depe
                         full = ""
                 if not used_ollama:
                     async for chunk in llm_stub.generate_chat_stream(
-                        message, report_context=report_context
+                        message,
+                        report_context=report_context,
+                        allow_scope_fallback=not follow_up,
+                        history_note=previous_assistant,
                     ):
                         full += chunk
                         yield _sse(chunk)

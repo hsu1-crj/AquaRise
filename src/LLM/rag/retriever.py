@@ -8,9 +8,40 @@ class OceanRetriever:
         self.k = 5
 
     def search(self, query: str, k: Optional[int] = None) -> List[Dict]:
-        retriever = self.kb.get_retriever(k or self.k)
+        limit = k or self.k
+        # LangChain 的普通 ``retriever.invoke`` 只返回文档，不带相似度，
+        # 这会让上层无法区分强证据和“碰巧同词”的片段。优先调用 Chroma
+        # 的带相关性分数接口；旧版/测试替身没有该接口时再退回原路径。
+        vector_store = getattr(self.kb, "vector_store", None)
+        if vector_store is not None and hasattr(vector_store, "similarity_search_with_relevance_scores"):
+            try:
+                pairs = vector_store.similarity_search_with_relevance_scores(query, k=limit)
+                results: List[Dict] = []
+                for doc, score in pairs:
+                    metadata = dict(getattr(doc, "metadata", {}) or {})
+                    try:
+                        normalized_score = float(score)
+                    except (TypeError, ValueError):
+                        normalized_score = metadata.get("score")
+                    results.append({
+                        "content": str(getattr(doc, "page_content", "") or ""),
+                        "metadata": metadata,
+                        "score": normalized_score,
+                    })
+                return results
+            except Exception:
+                # 兼容旧 Chroma、简化测试替身和没有持久化集合的开发环境。
+                pass
+        retriever = self.kb.get_retriever(limit)
         docs = retriever.invoke(query)
-        return [{"content": d.page_content, "metadata": d.metadata, "score": d.metadata.get("score")} for d in docs]
+        return [
+            {
+                "content": d.page_content,
+                "metadata": dict(d.metadata or {}),
+                "score": (d.metadata or {}).get("score"),
+            }
+            for d in docs
+        ]
 
     def format_context(self, query: str, k: Optional[int] = None) -> str:
         results = self.search(query, k)

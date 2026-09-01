@@ -115,6 +115,8 @@ DOMAIN_TERMS = (
     "图像", "多帧", "时序", "跟踪", "追踪", "机制", "方法", "去散射", "超分辨率", "类别",
     "生命图谱", "指挥大屏", "污染分析", "检测历史", "报告页", "海洋守护者",
     "深海", "水深", "降解", "降解周期", "石油泄漏", "溢油", "油污",
+    # 生物/水质问法有时不带“海洋”二字；保留这些业务实体，避免被当成范围外问题。
+    "鱼类", "鱼", "动物", "重金属", "铅", "汞", "镉", "砷", "超标", "水质",
 )
 
 THINK_TRACE_RE = re.compile(
@@ -153,6 +155,37 @@ _NAMED_DOCUMENT_LEADING_RE = re.compile(
 def is_domain_question(message: str) -> bool:
     q = (message or "").strip().lower()
     return any(term.replace(" ", "") in q.replace(" ", "") for term in DOMAIN_TERMS)
+
+
+_CREATIVE_REQUEST_RE = re.compile(
+    r"(?:帮我|请|给我|能否|可以).{0,12}(?:写|创作|编写|拟一|来一).{0,12}(?:诗|诗歌|文案|口号|宣传语|标语|歌词)"
+    r"|(?:写|创作|编写|拟一).{0,12}(?:海洋|环保|海滩|垃圾|塑料).{0,12}(?:诗|文案|口号|宣传语|标语|歌词)",
+    re.I,
+)
+
+
+def is_creative_request(message: str) -> bool:
+    """创作请求走独立回答路径，不能被知识库摘录冒充成成品。"""
+    return bool(_CREATIVE_REQUEST_RE.search((message or "").strip()))
+
+
+def _creative_response(message: str) -> str:
+    """提供短小、无外部事实断言的海洋环保宣传诗/文案。"""
+    q = (message or "").lower()
+    if "口号" in q or "标语" in q or "宣传语" in q:
+        return "少一点塑料，多一片清澈；垃圾不入海，蓝色常在。"
+    if "文案" in q:
+        return "让每一次选择都少一件一次性塑料，让每一片海岸都多一份清澈。守护海洋，从把垃圾带回岸上开始。"
+    return (
+        "海风捎来蓝色的信，\n"
+        "说礁石仍在等清晨；\n"
+        "少一袋漂流的塑料，\n"
+        "多一群自在的鱼。\n\n"
+        "把垃圾带回岸上，\n"
+        "把清澈留给潮汐；\n"
+        "今天守住一片海，\n"
+        "明天海也守护你。"
+    )
 
 
 # 指代/超短追问识别：这类问题单独看常常不命中任何领域词（如"那成本呢？"、"你说的
@@ -489,6 +522,24 @@ def is_strong_evidence_question(question: str, evidence: Sequence[dict[str, Any]
     return score >= 0.32
 
 
+_BLUE_CARBON_ANCHORS = (
+    "红树林", "海草床", "盐沼", "滨海湿地", "固碳", "碳储", "碳埋藏",
+)
+
+
+def _blue_carbon_answer_is_grounded(question: str, answer: str) -> bool:
+    """蓝碳不能只凭同名词放行，至少要说明其生态系统/固碳语义。"""
+    if not re.search(r"蓝碳", question or "", re.I):
+        return True
+    text = _strip_think(answer or "").lower()
+    if not any(anchor.lower() in text for anchor in _BLUE_CARBON_ANCHORS):
+        return False
+    # 小模型常把蓝碳误解释成燃料/有机物；这类答案即使重复了“蓝碳”也不能放行。
+    if re.search(r"蓝碳.{0,20}(?:燃料|有机物|化合物|材料|塑料)|(?:燃料|有机物|化合物|材料|塑料).{0,20}蓝碳", text):
+        return False
+    return True
+
+
 def is_acceptable_model_answer(
     answer: str,
     question: str,
@@ -511,6 +562,8 @@ def is_acceptable_model_answer(
     if _has_material_microplastic_confusion(raw):
         return False
     if _has_material_pairing_error(raw):
+        return False
+    if not _blue_carbon_answer_is_grounded(question, raw):
         return False
     # "## 标题"开头说明模型在复述知识库文档结构而非回答问题（实测出现在
     # "为什么海洋塑料污染这么难治理"），整段退回兜底链。
@@ -576,7 +629,9 @@ def is_acceptable_model_answer(
     if core_topics and not any(term.lower() in answer_lower for term in core_topics):
         return False
     for key, aliases in _SPECIAL_TERM_ALIASES.items():
-        if key in query_lower and not any(alias in answer_lower for alias in aliases):
+        if _contains_special_term(question, key) and not any(
+            _contains_special_term(answer_lower, alias) for alias in aliases
+        ):
             return False
 
     # 只对高风险术语检查必需要素，避免拦截自然表达
@@ -885,12 +940,28 @@ _QUERY_SIGNAL_TERMS = {
     "pet", "hdpe", "聚合物", "材料", "紫外", "老化", "光氧化", "水解", "耐候", "性能", "对比",
 }
 _SPECIAL_TERM_ALIASES = {
+    "pet": ("pet", "聚对苯二甲酸乙二醇酯"),
+    "pp": ("pp", "聚丙烯"),
+    "hdpe": ("hdpe", "高密度聚乙烯"),
+    "ldpe": ("ldpe", "低密度聚乙烯"),
     "usv": ("usv", "无人艇", "无人船"),
     "rfid": ("rfid", "射频识别", "射频标签"),
     "rov": ("rov", "遥控水下机器人"),
+    "aldfg": ("aldfg", "幽灵渔网", "废弃渔具"),
+    "marpol": ("marpol", "附则", "防污染"),
     "声呐": ("声呐", "声纳", "声学"),
     "样方": ("样方", "样带"),
 }
+
+
+def _contains_special_term(text: str, term: str) -> bool:
+    """ASCII 标识按完整 token 匹配，中文术语仍按普通包含关系匹配。"""
+    lowered = (text or "").lower()
+    if re.fullmatch(r"[a-z0-9_+#.-]+", term, re.I):
+        return term.lower() in {
+            token.lower() for token in re.findall(r"[A-Za-z0-9_+#.-]+", text or "")
+        }
+    return term.lower() in lowered
 
 
 def _substantive_query_terms(text: str) -> set[str]:
@@ -994,11 +1065,172 @@ def _has_substantive_evidence_overlap(message: str, evidence: Sequence[dict[str,
     if not _evidence_supports_requested_intent(message, evidence):
         return False
     # 专用标识符不能只靠“塑料/海洋”等泛词擦边命中；缺少其本身的资料时不拼贴兜底。
-    query_lower = (message or "").lower()
     for key, aliases in _SPECIAL_TERM_ALIASES.items():
-        if key in query_lower and not any(alias in "\n".join(contents).lower() for alias in aliases):
+        if _contains_special_term(message, key) and not any(
+            _contains_special_term("\n".join(contents).lower(), alias) for alias in aliases
+        ):
             return False
     return True
+
+
+def _evidence_source_name(item: dict[str, Any]) -> str:
+    metadata = item.get("metadata") or {}
+    return Path(str(item.get("source") or metadata.get("source") or "项目知识库")).name
+
+
+_TOPIC_ENTITY_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("fish", ("鱼类", "鱼", "animal_fish", "鳍", "鳞", "鳃")),
+    ("blue_carbon", ("蓝碳", "红树林", "海草床", "盐沼", "滨海湿地", "碳汇")),
+    ("heavy_metals", ("重金属", "铅", "汞", "镉", "砷")),
+    ("rov", ("rov", "遥控水下机器人")),
+)
+_EXPLICIT_MULTI_ENTITY_RE = re.compile(
+    r"分别|各自|分开(?:介绍|说明)?|还是|对比|比较|同时(?:讨论|涉及|包含)",
+    re.I,
+)
+
+
+def _requested_topic_entities(message: str) -> list[tuple[str, tuple[str, ...]]]:
+    """Return explicit object groups in the question.
+
+    Entity matching is deliberately conservative: generic words such as
+    ``海洋`` and ``处理`` are not enough to select a document.  A query with
+    one explicit object (for example ``重金属``) must not borrow sentences
+    about neighbouring objects from the same monitoring chapter.
+    """
+    requested: list[tuple[str, tuple[str, ...]]] = []
+    for name, aliases in _TOPIC_ENTITY_GROUPS:
+        if any(
+            _contains_special_term(message, alias)
+            if re.fullmatch(r"[A-Za-z0-9_+#.-]+", alias)
+            else alias in (message or "").lower()
+            for alias in aliases
+        ):
+            requested.append((name, aliases))
+    return requested
+
+
+def _content_has_topic_entity(content: str, aliases: tuple[str, ...]) -> bool:
+    return any(
+        _contains_special_term(content, alias)
+        if re.fullmatch(r"[A-Za-z0-9_+#.-]+", alias)
+        else alias in (content or "").lower()
+        for alias in aliases
+    )
+
+
+def _select_topic_evidence(
+    message: str, evidence: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """把同一轮证据收敛到主主题，避免 Top-K 跨文档拼成答非所问。
+
+    向量召回常把“ROV 流程”与溢油、“鱼类识别”与垃圾分类一起返回。
+    除非问题明确要求并列/对比，否则只保留主题得分最高的来源；并列问题最多保留
+    两个来源。该函数只做证据选择，不改变原始分数，方便日志和引用追踪。
+    """
+    if not evidence:
+        return []
+    query_terms = _substantive_query_terms(message)
+    requested_entities = _requested_topic_entities(message)
+    # If the query names an object, discard chunks that do not mention that
+    # object at all.  This is the important guard against a heavy-metal query
+    # receiving a neighbouring microplastics or oil sentence.
+    if requested_entities:
+        matching = [
+            item for item in evidence
+            if any(_content_has_topic_entity(str(item.get("content") or ""), aliases)
+                   for _name, aliases in requested_entities)
+        ]
+        if matching:
+            evidence = matching
+        else:
+            return []
+    if len(evidence) <= 1:
+        return list(evidence)
+    if not query_terms:
+        return list(evidence[:2])
+    # “流程和安全”“识别和记录”仍是一个主题的复合意图；只有明显的
+    # 并列/对比结构才允许第二个来源，避免把相邻文档拼进答案。
+    explicit_multi = bool(_EXPLICIT_MULTI_ENTITY_RE.search(message or ""))
+    groups: dict[str, list[tuple[float, int, dict[str, Any]]]] = {}
+    for index, item in enumerate(evidence):
+        content = str(item.get("content") or "")
+        overlap = len(query_terms & _substantive_query_terms(content))
+        # 实体/意图词的同源命中权重高于泛词，保证“重金属超标”不会被塑料段落抢走。
+        entity_bonus = 0
+        for _name, aliases in requested_entities:
+            entity_bonus += 5 if _content_has_topic_entity(content, aliases) else -4
+        intent_bonus = 0
+        if _METHOD_INTENT_RE.search(message or "") and re.search(r"方法|方案|步骤|流程|操作|安全|记录", content, re.I):
+            intent_bonus += 2
+        if _MECHANISM_INTENT_RE.search(message or "") and re.search(r"机制|原理|原因|导致|影响", content, re.I):
+            intent_bonus += 2
+        try:
+            raw_score = float(item.get("score") or 0)
+        except (TypeError, ValueError):
+            raw_score = 0.0
+        score = overlap * 2.0 + entity_bonus + intent_bonus + min(raw_score, 2.0) * 0.15
+        groups.setdefault(_evidence_source_name(item), []).append((score, -index, item))
+    ranked_groups = sorted(
+        groups.items(),
+        key=lambda pair: max((entry[0] for entry in pair[1]), default=0),
+        reverse=True,
+    )
+    if not ranked_groups:
+        return list(evidence[:2])
+    selected_sources: list[str] = []
+    if explicit_multi and requested_entities:
+        # 显式并列问题必须覆盖每个点名的实体。仅按来源总分取前两名会把
+        # “重金属和蓝碳分别……”中的第二个主题压掉，尤其当两个主题的
+        # 词法重叠不同、但各自都有真实证据时。优先选择尚未使用的来源，
+        # 这样一份同时提到多个实体的背景文档不会独占所有名额。
+        for _name, aliases in requested_entities:
+            entity_groups = [
+                (source, entries)
+                for source, entries in groups.items()
+                if any(
+                    _content_has_topic_entity(str(item.get("content") or ""), aliases)
+                    for _, _, item in entries
+                )
+            ]
+            if not entity_groups:
+                continue
+            unused = [pair for pair in entity_groups if pair[0] not in selected_sources]
+            pools = unused or entity_groups
+
+            def entity_source_key(pair: tuple[str, list[tuple[float, int, dict[str, Any]]]]) -> tuple[int, float]:
+                source, entries = pair
+                strongest = max(
+                    (
+                        sum(
+                            1
+                            for alias in aliases
+                            if _content_has_topic_entity(str(item.get("content") or ""), (alias,))
+                        ),
+                        score,
+                    )
+                    for score, _index, item in entries
+                )
+                return strongest
+
+            best_source = max(pools, key=entity_source_key)[0]
+            if best_source not in selected_sources:
+                selected_sources.append(best_source)
+        if not selected_sources:
+            selected_sources.append(ranked_groups[0][0])
+    else:
+        selected_sources.append(ranked_groups[0][0])
+        if explicit_multi and len(ranked_groups) > 1:
+            # 第二来源必须有实质重叠，不能因为“和”出现在普通句子里就引入噪声。
+            second_score = max((entry[0] for entry in ranked_groups[1][1]), default=0)
+            first_score = max((entry[0] for entry in ranked_groups[0][1]), default=0)
+            if second_score > 0 and second_score >= first_score * 0.45:
+                selected_sources.append(ranked_groups[1][0])
+    selected: list[dict[str, Any]] = []
+    for source in selected_sources:
+        candidates = sorted(groups[source], key=lambda entry: (entry[0], entry[1]), reverse=True)
+        selected.extend(item for _, _, item in candidates[:2])
+    return selected or list(evidence[:2])
 
 
 def _evidence_excerpt(
@@ -1017,8 +1249,14 @@ def _evidence_excerpt(
     hash_artifact_re = re.compile(
         r"^.{1,80}\s*[-–—]\s*[a-f0-9]{20,}_?\.(?:jpg|jpeg|png|html|md|txt)$", re.I
     )
+    requested_entities = _requested_topic_entities(message)
+    method_query = bool(_METHOD_INTENT_RE.search(message or ""))
+    mechanism_query = bool(_MECHANISM_INTENT_RE.search(message or ""))
     candidates: list[tuple[int, int, str, int]] = []
-    for item_index, item in enumerate(evidence[:2]):
+    # `_select_topic_evidence` has already narrowed sources.  Inspect every
+    # retained chunk (not just the first two input items), then rank sentences
+    # by object and intent coverage.
+    for item_index, item in enumerate(evidence):
         content = str(item.get("content") or "")
         parts = re.split(r"(?<=[。！？；])|\n+", content)
         for part_index, part in enumerate(parts):
@@ -1038,11 +1276,43 @@ def _evidence_excerpt(
                 continue
             if sentence.startswith(("以下内容介绍", "本文介绍")):
                 continue
+            if requested_entities:
+                entity_hit = any(
+                    _content_has_topic_entity(sentence, aliases)
+                    for _name, aliases in requested_entities
+                )
+                # ROV safety bullets often use ``系缆/电池/声呐`` without
+                # repeating “ROV”; retain those only when the sentence itself
+                # carries a clear safety/operation signal.
+                rov_context = any(name == "rov" for name, _ in requested_entities)
+                if not entity_hit and not (
+                    rov_context
+                    and re.search(r"系缆|螺旋桨|障碍物|声呐|电池|回收|作业区|潜水员", sentence, re.I)
+                ):
+                    continue
             overlap = len(query_terms & _query_terms(sentence))
             source_bonus = max(0, 6 - item_index * 3)
             action_bonus = sum(8 for term in action_terms if action_query and term in sentence)
             intent_bonus = sum(18 for term in intent_terms if intent_query and term in sentence)
-            candidates.append((overlap + source_bonus + action_bonus + intent_bonus, -part_index, sentence, item_index + 1))
+            topic_bonus = 0
+            if requested_entities and any(
+                _content_has_topic_entity(sentence, aliases)
+                for _name, aliases in requested_entities
+            ):
+                topic_bonus += 14
+            if method_query and re.search(
+                r"方法|方案|步骤|流程|操作|安全|记录|识别|分类|检查|采集|处理|复核|监测|复采",
+                sentence,
+                re.I,
+            ):
+                topic_bonus += 10
+            if mechanism_query and re.search(
+                r"机制|原理|原因|导致|影响|过程|形成|富集|传递",
+                sentence,
+                re.I,
+            ):
+                topic_bonus += 10
+            candidates.append((overlap + source_bonus + action_bonus + intent_bonus + topic_bonus, -part_index, sentence, item_index + 1))
     candidates.sort(reverse=True)
     selected: list[tuple[int, str]] = []
     seen_sentences: set[str] = set()
@@ -1056,7 +1326,7 @@ def _evidence_excerpt(
         total += len(sentence)
         if len(selected) >= 4:
             break
-    items_by_id = {index + 1: evidence[index] for index in range(min(len(evidence), 2))}
+    items_by_id = {index + 1: evidence[index] for index in range(len(evidence))}
     for source_id, _sentence in selected:
         item = items_by_id.get(source_id, {})
         source = str(item.get("source") or (item.get("metadata") or {}).get("source") or "项目知识库")
@@ -1065,12 +1335,129 @@ def _evidence_excerpt(
     return selected, sources
 
 
+def _blue_carbon_fallback(message: str, evidence: Sequence[dict[str, Any]]) -> Optional[str]:
+    """蓝碳定义使用同一主题的短答，避免把海洋碳循环背景整段念给用户。"""
+    if not re.search(r"蓝碳", message or "", re.I):
+        return None
+    # Require ecosystem and carbon-storage language in the same chunk.  A
+    # generic sentence mentioning only “碳汇” must not unlock a blue-carbon
+    # answer when the rest of the evidence is about plastics or water quality.
+    grounded = False
+    for item in evidence or []:
+        text = str(item.get("content") or "")
+        for sentence in re.split(r"(?<=[。！？；.!?;])|\n+", text):
+            if not re.search(r"红树林|海草床|盐沼|滨海湿地", sentence):
+                continue
+            if not re.search(r"固碳|碳储|碳埋藏|储存的碳|碳汇", sentence):
+                continue
+            # A sentence that merely says an item is *not* documented is not
+            # evidence for the definition.
+            if re.search(r"没有|未(?:说明|提及|覆盖)|不含|无(?:关|法)", sentence):
+                continue
+            grounded = True
+            break
+        if grounded:
+            break
+    if not grounded:
+        return None
+    if re.search(r"(?:什么是|是什么|定义|含义|指什么|介绍)", message or ""):
+        return (
+            "蓝碳通常指红树林、海草床和盐沼等滨海湿地生态系统固定并储存的碳。"
+            "它们面积未必很大，但单位面积的碳储量和埋藏效率较高，同时还提供护岸、育幼和水质净化等生态功能。"
+            "具体碳储量会随区域、土壤和测量口径变化，不能用一个数字代表所有蓝碳生态系统。"
+        )
+    return None
+
+
+def _multi_entity_direct_response(message: str) -> Optional[str]:
+    """Answer short, explicitly independent multi-topic questions by entity.
+
+    The regular model/RAG path remains responsible for compound questions. This
+    narrow card only handles ``分别/各自`` style prompts where a single answer
+    would otherwise silently omit one of the named topics.
+    """
+    query = (message or "").strip().lower()
+    if not _EXPLICIT_MULTI_ENTITY_RE.search(query):
+        return None
+    requested_positions: list[tuple[int, str]] = []
+    for name, aliases in _TOPIC_ENTITY_GROUPS:
+        if any(
+            _contains_special_term(query, alias)
+            if re.fullmatch(r"[A-Za-z0-9_+#.-]+", alias)
+            else alias in query
+            for alias in aliases
+        ):
+            # Preserve the order in which entities occur in the user's text;
+            # this keeps a “重金属和蓝碳” answer from opening with blue carbon.
+            positions = [
+                query.find(alias.lower())
+                for alias in aliases
+                if (alias.lower() in query if not re.fullmatch(r"[A-Za-z0-9_+#.-]+", alias) else _contains_special_term(query, alias))
+            ]
+            requested_positions.append((min(positions) if positions else len(query), name))
+    requested = [name for _position, name in sorted(requested_positions)]
+    if len(requested) < 2:
+        return None
+    asks_impact = bool(re.search(r"影响|危害|作用|风险|好处|意义", query))
+    sections: list[str] = []
+    if "fish" in requested:
+        sections.append(
+            "鱼类：" + (
+                "是海洋食物网的重要消费者，低氧、污染、噪声和栖息地破坏都可能改变其活动与分布；"
+                "具体影响要结合物种、区域和监测时间判断。"
+                if asks_impact else
+                "可先看有鳍、鳞、鳃、体形和游动方式；反光、透明或运动模糊画面应标记为待人工复核，"
+                "记录类别、数量、时间/帧号、深度、站位和置信度。"
+            )
+        )
+    if "blue_carbon" in requested:
+        sections.append(
+            "蓝碳：" + (
+                "红树林、海草床和盐沼等滨海湿地既能固定并储存碳，也能防浪固滩、提供育幼栖息地和净化水质；"
+                "垃圾覆盖与机械扰动会削弱这些功能。"
+                if asks_impact else
+                "通常指红树林、海草床和盐沼等滨海湿地生态系统固定并储存的碳；"
+                "它们还具有防浪固滩、育幼栖息和水质净化等功能，具体碳储量要结合区域和测量口径判断。"
+            )
+        )
+    if "heavy_metals" in requested:
+        sections.append(
+            "重金属：铅、汞、镉、砷等可能来自工业排放或历史沉积；风险取决于元素、剂量、暴露时间和途径，"
+            "不能只凭检出就断定已经造成健康伤害。"
+        )
+    if "rov" in requested:
+        sections.append(
+            "ROV：遥控水下机器人通过系缆由母船供电并回传数据，通常搭载摄像头、声呐和深度计；"
+            "作业前检查海况、系缆、密封和电量，下潜定位后按航线采集，回收前确认没有缠绕。"
+        )
+    return "\n".join(sections) if sections else None
+
+
+def _usable_deterministic_fallback(message: str) -> Optional[str]:
+    """把已经通过业务规则的专用卡复用于兜底，避免再摘录相邻文档。
+
+    ``direct_response`` 也包含“请提供报告信息/超出范围”这类导航文案；这些
+    不是知识答案，不能挡住有价值的证据摘录，因此在这里排除。
+    """
+    answer = direct_response(message, allow_scope_fallback=False)
+    if not answer:
+        return None
+    if re.search(r"超出我的专业范围|不是行家|要分析检测结果.*提供|请提供.*(?:报告|数据)|知识库里没有.*具体数据", answer):
+        return None
+    return answer
+
+
 def _knowledge_fallback(
     message: str, evidence: Optional[Sequence[dict[str, Any]]] = None
 ) -> Optional[str]:
     """模型不可用或被质量门禁拦截时，返回可追溯的知识库证据。"""
+    if is_creative_request(message):
+        return None
     if not is_domain_question(message):
         return None
+    deterministic = _usable_deterministic_fallback(message)
+    if deterministic:
+        return deterministic
     results: Sequence[dict[str, Any]] = evidence or []
     if not results:
         try:
@@ -1086,6 +1473,20 @@ def _knowledge_fallback(
     if not results:
         named_entities = _named_document_entities(message)
         return _missing_named_document_response(named_entities) if named_entities else None
+    # 先按主题收敛证据，再做句子摘录；否则相邻文档的“处理/海洋/检测”
+    # 泛词会让兜底答案看起来像把知识库目录拼在一起。
+    results = _select_topic_evidence(message, results)
+    blue_carbon = _blue_carbon_fallback(message, results)
+    if blue_carbon:
+        return blue_carbon
+    # For a definition question, weak chunks that merely repeat “蓝碳” (or
+    # deny that the source covers it) must never be emitted as a knowledge
+    # excerpt.  Returning no answer lets the caller use the explicit
+    # “资料不足” path instead of reading a misleading sentence verbatim.
+    if re.search(r"蓝碳", message or "", re.I) and re.search(
+        r"什么是|是什么|定义|含义|指什么|介绍", message or "", re.I
+    ):
+        return None
     # 有检索分数或引用编号仍不代表答到了问题；没有实质词重叠时禁止拼贴弱相关资料。
     if not _has_substantive_evidence_overlap(message, results):
         return None
@@ -1136,7 +1537,10 @@ def _knowledge_fallback(
     def display_source(name: str) -> str:
         return re.sub(r"\.(md|markdown)$", "", name) or name
 
-    items_by_id = {index + 1: results[index] for index in range(min(len(results), 2))}
+    # `_evidence_excerpt` may retain up to two chunks from each of two
+    # explicitly requested topics; keep the complete mapping so citations do
+    # not silently fall back to the generic “项目知识库” label.
+    items_by_id = {index + 1: results[index] for index in range(len(results))}
     doc_names: list[str] = []
     referenced_docs: dict[int, str] = {}
     for source_id, _sentence in excerpt_lines:
@@ -1631,6 +2035,10 @@ def _direct_response_core(message: str, allow_scope_fallback: bool = True) -> Op
     if not q:
         return "你好呀，有什么想了解的海洋环保话题吗？比如检测报告、垃圾分类或者污染治理。"
 
+    # 创作是生成任务，不是知识检索任务。先给成品，避免 RAG 把文档段落当成诗歌。
+    if is_creative_request(message):
+        return _creative_response(message)
+
     if re.search(r"爸爸|父亲|母亲|妈妈|父母|家人|家长|你爸|你爹|老爸|老妈|亲爹", q):
         return family_statement()
     if re.search(r"谁开发|开发者|项目作者|作者|谁做的|谁创建|项目是谁|谁制作|谁写的|谁设计|制作者|创始人|开发这个项目|aquarise.*作者", q):
@@ -1695,6 +2103,75 @@ def _direct_response_core(message: str, allow_scope_fallback: bool = True) -> Op
     math_response = _deterministic_math_response(message)
     if math_response:
         return math_response
+
+    multi_entity_response = _multi_entity_direct_response(message)
+    if multi_entity_response:
+        return multi_entity_response
+
+    if re.search(r"蓝碳", q) and re.search(r"什么是|是什么|定义|含义|指什么|介绍", q):
+        return (
+            "蓝碳通常指红树林、海草床和盐沼等滨海湿地生态系统固定并储存的碳。"
+            "这些生态系统单位面积的碳储量和埋藏效率较高，同时还能防浪固滩、提供育幼栖息地并净化水质。"
+            "具体碳储量会随区域、土壤和测量口径变化，不能用一个数字代表所有蓝碳生态系统。"
+        )
+
+    # 明确的多实体问题要分别给出两段短答，不能要求一个知识库片段
+    # 同时包含鱼类和 ROV，否则检索会为空或把两类内容硬拼在一起。
+    if (
+        re.search(r"鱼类|鱼", q)
+        and (_contains_special_term(q, "rov") or "遥控水下机器人" in q)
+        and re.search(r"分别|各自|介绍|比较|区别", q)
+    ):
+        return (
+            "鱼类：水下识别先看有鳍、鳞、鳃、体形和游动方式；反光、透明和运动模糊画面要标记为待人工复核，"
+            "记录类别、数量、帧号、深度、站位和置信度。\n"
+            "ROV：遥控水下机器人由母船通过系缆供电并回传数据，通常搭载摄像头、声呐、深度计和作业工具；"
+            "作业前检查海况、系缆、密封和电量，下潜定位后按航线采集，回收前确认没有缠绕。"
+        )
+
+    # 识别类问题需要回答“看什么、记什么、如何复核”，不能把相邻的 ROV
+    # 采集参数或垃圾类别文档拼成鱼类答案。
+    if re.search(r"鱼类|鱼", q) and re.search(r"识别|辨认|区分|记录|类别|分类", q):
+        return (
+            "水下画面里的鱼类，先按‘是否为生物目标’做初筛，再看有鳍、鳞、鳃、体形和游动方式；"
+            "反光鳞片、透明体和运动模糊容易与塑料碎片混淆，拿不准就标为待人工复核。"
+            "记录时至少保存类别（如 animal_fish 或能确认的物种名）、数量、时间戳/帧号、深度、站位、"
+            "图像质量和置信度，并保留原图或视频片段。只有在形态和证据足够时才细分到物种，"
+            "不要把模型一次预测直接当成正式统计。"
+        )
+
+    # ROV 流程/安全与 ROV 概念是两种意图；流程题必须覆盖作业前、下潜、采集、回收和风险控制。
+    if (_contains_special_term(q, "rov") or "遥控水下机器人" in q) and re.search(
+        r"流程|作业|安全|步骤|怎么做|如何操作|规范", q, re.I
+    ) and not re.search(r"切割|微创|解缠|打捞", q, re.I):
+        return (
+            "ROV 海底作业可按四步执行：作业前确认海况、水深、底质和目标位置，检查系缆、密封、"
+            "电池与照明；下潜时缓慢下降，用深度计和声呐定位并记录母船 GPS；采集时保持稳定航速和高度，"
+            "按航线或样方拍摄并记录时间、深度、站位；回收前检查缠绕，随后缓慢回收、清洗设备并导出数据。"
+            "安全上要让系缆避开螺旋桨和障碍物，能见度低时用声呐辅助避障，不强行进入狭窄空间；"
+            "与潜水员作业保持联络，电池型 ROV 预留返航电量和回收窗口。"
+        )
+
+    # “报告中重金属超标怎么处理”是处置流程，不是报告里的混淆风险提示。
+    if re.search(r"重金属|铅|汞|镉|砷", q) and re.search(r"超标|处理|怎么办|处置|异常", q):
+        return (
+            "重金属超标先不要仅凭一次结果下结论：核对采样点、时间、深度、单位、检出限和适用的现行海水/水质标准，"
+            "同时检查仪器校准和空白样；确认异常后按同一方法复采或送有资质实验室复核。"
+            "在复核期间，按主管部门要求对相关水域或水产品采取风险提示和必要的使用限制，"
+            "再结合铅、汞、镉、砷的具体浓度追查工业排放、历史沉积等来源并形成处置记录。"
+            "没有检测数值和适用海域类别时，我不能替报告判定污染等级或直接给出安全阈值。"
+        )
+    if (
+        re.search(r"重金属|铅|汞|镉|砷", q)
+        and re.search(r"人体|健康|海产品|水产品|食用|摄入|危害|风险|暴露", q)
+        and not re.search(r"(?:处理|处置|怎么办|复核|复测).{0,12}(?:超标|重金属)|(?:超标|重金属).{0,12}(?:处理|处置|怎么办|复核|复测)", q)
+    ):
+        return (
+            "重金属的健康风险取决于具体元素、剂量、暴露时间和途径，不能只凭“检出”二字判断已经致病。"
+            "海产品或水产品摄入是常见关注场景；铅、汞、镉、砷在长期或较高暴露下可能影响神经系统、肾脏或骨骼，"
+            "但不同化学形态和人群的风险差异很大。食用安全应以合规检测和食品监管公告为准；若有明确暴露、持续症状或特殊人群风险，"
+            "请咨询医生或当地卫生监管部门，不要自行采用“排毒”处理。"
+        )
     platform_lookup = not re.search(
         r"导入|上传|分析|解读|这份|《|》|请|帮我|概括|风险等级|关键发现|依据", q
     )
@@ -1714,6 +2191,51 @@ def _direct_response_core(message: str, allow_scope_fallback: bool = True) -> Op
         return scope_response()
 
     # 以下是核心专业知识，需要保持权威性但可以更亲和
+    # 具体意图卡必须放在宽泛的主题卡之前，否则“几个附则”会被 MARPOL
+    # 垃圾卡抢答成附则 V，造成典型的答非所问。
+    if re.search(r"marpol|附则", q) and re.search(r"几个|分别|各个|各附则|六个|内容", q):
+        return (
+            "MARPOL 的六个附则分别针对不同污染物：附则 I 管油类污染，附则 II 管散装有毒液体物质，"
+            "附则 III 管包装形式有害物质，附则 IV 管船舶生活污水，附则 V 管船舶垃圾（其中塑料禁止排放入海），"
+            "附则 VI 管船舶空气污染。具体适用区域、排放条件和现行修正案仍应以船旗国、港口国及适用海域的规定为准。"
+        )
+    if (
+        re.search(r"幽灵渔网|aldfg|幽灵捕捞", q)
+        and re.search(r"什么是|是什么|为何|为什么|称为", q)
+        and not re.search(r"切割|微创|标准作业|操作|步骤|流程|rov|潜水员|解缠", q, re.I)
+    ):
+        return (
+            "ALDFG 是 Abandoned, Lost or Discarded Fishing Gear 的缩写，指被遗弃、丢失或丢弃后留在海里的渔具。"
+            "其中仍能继续捕获海洋生物的废弃渔网常被称为“幽灵渔网”，因为它不需要人为操作也可能持续缠绕、捕捞并伤害动物。"
+            "这类网具还可能磨损珊瑚和海草，并释放纤维状微塑料。"
+        )
+    if re.search(r"废弃渔具|幽灵渔网|aldfg", q) and re.search(r"微塑料", q) and re.search(r"关系|如何|为什么", q):
+        return (
+            "废弃渔具与微塑料污染有两条主要联系：一是尼龙、聚乙烯等网具长期受紫外线、海水和摩擦作用会老化，"
+            "逐步释放纤维状微塑料；二是遗失网具会缠绕和磨损礁石、船体及海底沉积物，产生更多碎片。"
+            "这类网具还可能吸附其他污染物并被生物摄入，但具体释放量和生态风险要以现场材质、粒径和浓度检测为准。"
+        )
+    if re.search(r"混淆风险|混淆提示|混淆", q) and re.search(
+        r"什么意思|什么.*意思|如何|怎么|怎么处理|怎么办", q
+    ):
+        return (
+            "报告里的“混淆风险”表示模型看到的目标可能同时像两个类别，不能把当前类别当成完全确定。"
+            "常见例子包括塑料袋与海草、绳索与鳗鱼、贝壳或金属罐与反光碎片。"
+            "遇到这类提示，应回看原图，结合形态和现场上下文人工复核；确认不了时按“待人工确认”记录，不要直接纳入正式统计。"
+        )
+    if (_contains_special_term(q, "rov") or "遥控水下机器人" in q) and re.search(r"基本构成|构成|哪几部分|组成", q):
+        return (
+            "ROV（遥控水下机器人）通常由五部分组成：承载设备的耐压框架，负责进退和悬停的推进系统，"
+            "供电与回传数据的系缆/通信系统，摄像头、声呐、深度计等传感器，以及采样臂、网兜和切割工具等作业工具。"
+            "具体配置会随水深、任务和载荷变化，不能把某一套设备清单当成所有 ROV 的固定标准。"
+        )
+    if re.search(r"样方|样方法", q) and re.search(r"怎么|如何|具体|步骤|流程", q):
+        return (
+            "海滩垃圾监测的样方方法，先按岸线长度、潮汐和垃圾分布划定具有代表性的固定样方，"
+            "再在同一边界内按统一路线捡拾并记录垃圾类别、数量或重量、材质和坐标。"
+            "每次复测要保持样方面积、筛选口径和时间条件尽量一致，并记录天气、潮汐和清理是否发生，"
+            "这样不同日期的数据才可以比较。"
+        )
     if re.search(r"(?:你|您).{0,4}(?:刚才|前面|上一轮).{0,8}3\s*年.{0,8}(?:降解|分解).{0,4}(?:完|掉)", q) and re.search(r"对吗|是不是|没错吧|正确吗", q):
         return (
             "不对，我需要纠正这个前提：如果你指的是上一轮的塑料饮料瓶，常见海洋垃圾科普估算约为450年，"
@@ -1824,7 +2346,8 @@ def _direct_response_core(message: str, allow_scope_fallback: bool = True) -> Op
             "3. 用途：PET 以透明包装瓶为主；HDPE 偏硬质容器和管道。\n"
             "回收代码只标识主要树脂类型，实际能不能回收还要看清洗程度和当地回收设施，以当地体系为准。"
         )
-    if all(term in q for term in ("pet", "hdpe")) and re.search(r"紫外|uv|老化|耐候|更耐|对比|比较", q):        return (
+    if all(term in q for term in ("pet", "hdpe")) and re.search(r"紫外|uv|老化|耐候|更耐|对比|比较", q):
+        return (
             "以下为通识判断：在都未使用耐候添加剂（尤其是紫外稳定剂）、厚度和加工条件相近时，PET 通常比 HDPE 更耐紫外线老化。"
             "PET 主链中的芳香环让结构相对刚性、耐候性通常更好；HDPE 的碳氢链在紫外照射和氧气共同作用下更容易发生光氧化，"
             "随后出现表面粉化、脆化和强度下降。不过这不是所有制品都适用的固定结论：添加剂、颜料、结晶度、厚度、"
@@ -1864,6 +2387,31 @@ def _direct_response_core(message: str, allow_scope_fallback: bool = True) -> Op
             "二是吸入，例如室内外空气和尘埃中的微塑料纤维或颗粒。完整健康皮肤对较大颗粒有屏障作用，"
             "日常环境下经皮吸收的证据仍有限，通常不列为主要途径。检出或暴露不等于已经造成具体疾病，"
             "不同粒径和暴露剂量的健康影响仍需更多研究。"
+        )
+    if (_contains_special_term(q, "pet") or "聚对苯二甲酸乙二醇酯" in q) and re.search(r"特征|常见于|哪些.*垃圾|是什么", q):
+        return (
+            "PET（聚对苯二甲酸乙二醇酯）透明、较硬并有一定弹性，常见于饮料瓶和其他包装瓶，瓶底通常能看到凸起点。"
+            "在海洋环境中它会长期持留，光照和机械磨损会让制品逐步老化、碎裂成微塑料，而不是到某个年限自动消失。"
+        )
+    if (_contains_special_term(q, "pp") or "聚丙烯" in q) and re.search(r"环境行为|环境中|特征|怎样|如何", q):
+        return (
+            "PP（聚丙烯）常见于瓶盖、餐盒以及部分绳索和渔网，密度通常小于水，完整制品可能漂浮。"
+            "它在海洋中会长期持留，受到紫外线、氧气和机械磨损后逐步老化并碎裂成微塑料；"
+            "实际漂浮或沉降还会受附着生物、污染物和水动力影响，不能只按材质做绝对判断。"
+        )
+    if re.search(r"不同塑料|各类塑料|塑料材质", q) and re.search(r"降解|环境行为|差别|差在哪里", q):
+        return (
+            "不同塑料的环境行为主要差在材质结构、添加剂、厚度和所处环境。PE 薄膜、PET 瓶、PP 瓶盖等都可能长期持留，"
+            "光照、氧气和磨损通常先让它们老化、变脆并碎裂成微塑料，而不是真正矿化消失。"
+            "因此不能只用一个“几年”给所有塑料排序；更可靠的比较要固定温度、光照、厚度和海水条件，并结合回收路径评估。"
+        )
+    if "微塑料" in q and re.search(r"海洋生物|鱼类|贝类|浮游|海龟|鲸|海豚", q) and re.search(r"影响|危害|观察|发现|作用", q):
+        return (
+            "针对海洋生物，目前较常见的观察包括：浮游生物、贝类和鱼类等可能摄入微塑料，"
+            "颗粒在消化道中造成刺激、假饱腹或摄食改变；较小颗粒还可能引发组织炎症或生理应激。"
+            "部分研究观察到生长、繁殖或能量分配受到影响，但结果会随物种、粒径、暴露浓度和实验时长变化。"
+            "微塑料还可能携带或吸附其他污染物，不过不能仅凭发现颗粒就断定一定发生了生物富集或种群受损，"
+            "现场样品、组织检测和对照实验仍是确认具体影响的依据。"
         )
     if "微塑料" in q and re.search(r"危害|影响|人体|健康|是什么|定义|多大|疾病|5mm|5毫米", q):
         return (
@@ -1942,6 +2490,19 @@ def _direct_response_core(message: str, allow_scope_fallback: bool = True) -> Op
             "2. 分布太广：从海面、水体到海底和生物体内都有，深海和远海的垃圾收集成本极高。\n"
             "3. 来源分散：城市径流、船舶丢弃、渔业活动、河流输入都在持续补入，只捞不堵源头永远追不上。\n"
             "所以治理重心在源头减量和入海前拦截，清理只是补救手段。"
+        )
+    if (
+        re.search(r"海洋塑料|海洋垃圾|塑料污染|塑料垃圾", q)
+        and re.search(r"怎么治理|如何治理|治理措施|治理方案|治理|解决", q)
+        and not re.search(r"为什么|原因|难治理|治理难", q)
+    ):
+        return (
+            "海洋塑料污染要按“减量—拦截—清理—复测”闭环治理：\n"
+            "1. 源头减量：减少一次性塑料，落实生产者责任延伸（EPR）和押金返还等回收机制；\n"
+            "2. 入海前拦截：在河口、港湾和排水通道布设围栏或收集设施，先评估水文、泄洪、通航和鱼类迁移影响；\n"
+            "3. 分区清理：岸线和海底先调查垃圾位置、材质及缠绕对象，渔网、尖锐物和含油/化学品容器交专业团队处理，避免拖拽珊瑚；\n"
+            "4. 分类回收与复测：记录数量、重量、去向和处置成本，沿同一航线或样方复测，判断治理是否真的减少了输入。\n"
+            "没有一种设备能覆盖所有海域和垃圾类型，具体方案要结合当地水动力、生态敏感区和监管要求校准。"
         )
     if (
         re.search(r"^rov\b|什么是rov|rov是什么|介绍一下rov|rov（", q)
@@ -2085,7 +2646,8 @@ def _report_solution_response(message: str, report_context: str) -> Optional[str
     conclusion: list[str] = []
     level = sections.get("风险等级") or sections.get("污染等级")
     if level:
-        conclusion.append("污染等级" + level[0])
+        # 保留标签与值之间的标点，便于前端/回归检查按报告字段读取。
+        conclusion.append("污染等级：" + level[0])
     if sections.get("评分"):
         conclusion.append("评分 " + sections["评分"][0])
     if sections.get("目标数量"):
@@ -2230,6 +2792,9 @@ _SUGGESTION_BLACKLIST_RE = re.compile(
     re.I,
 )
 _SUGGESTION_INDEX_CACHE: dict[str, Any] = {"mtime": None, "items": []}
+_SUGGESTION_ANSWERABILITY_CACHE: dict[tuple[str, str, float], bool] = {}
+_SUGGESTION_DOC_CACHE: dict[str, list[dict[str, Any]]] = {}
+_SUGGESTION_DOC_MTIME: dict[str, float] = {}
 
 
 def _suggestion_index_path() -> str:
@@ -2243,8 +2808,16 @@ def _load_suggestion_index() -> list[dict[str, Any]]:
     try:
         mtime = path.stat().st_mtime
     except OSError:
+        _SUGGESTION_INDEX_CACHE.update({"path": str(path), "mtime": None, "items": []})
+        _SUGGESTION_ANSWERABILITY_CACHE.clear()
+        _SUGGESTION_DOC_CACHE.clear()
+        _SUGGESTION_DOC_MTIME.clear()
         return []
-    if _SUGGESTION_INDEX_CACHE["mtime"] == mtime:
+    path_key = str(path.resolve())
+    if (
+        _SUGGESTION_INDEX_CACHE.get("path") == path_key
+        and _SUGGESTION_INDEX_CACHE["mtime"] == mtime
+    ):
         return _SUGGESTION_INDEX_CACHE["items"]
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2259,8 +2832,12 @@ def _load_suggestion_index() -> list[dict[str, Any]]:
         for entry in payload
         if isinstance(payload, list) and isinstance(entry, dict)
     ] if isinstance(payload, list) else []
+    _SUGGESTION_INDEX_CACHE["path"] = path_key
     _SUGGESTION_INDEX_CACHE["mtime"] = mtime
     _SUGGESTION_INDEX_CACHE["items"] = items
+    _SUGGESTION_ANSWERABILITY_CACHE.clear()
+    _SUGGESTION_DOC_CACHE.clear()
+    _SUGGESTION_DOC_MTIME.clear()
     return items
 
 
@@ -2272,6 +2849,51 @@ def _is_usable_suggestion(question: str, asked_norms: set[str]) -> bool:
         return False
     compact = re.sub(r"[^\w\u4e00-\u9fff]+", "", text.lower())
     return compact not in asked_norms
+
+
+def _suggestion_is_answerable(entry: dict[str, str]) -> bool:
+    """追问必须能走通真实回答链路，不能只凭关键词相似度下发。"""
+    question = entry.get("question", "")
+    if direct_response(question, allow_scope_fallback=False):
+        return True
+    source_doc = Path(entry.get("sourceDoc", "")).name
+    try:
+        # 这里不导入重量级 rag 包：追问筛选只需核对其标注来源文档，
+        # 直接读取并缓存该文档即可，避免首个聊天请求触发 LangChain 初始化。
+        index_root = Path(_suggestion_index_path()).resolve().parent
+        doc_path = (index_root / source_doc).resolve()
+        # sourceDoc 来自维护的索引，但仍拒绝路径穿越，避免建议接口读取任意文件。
+        if index_root not in doc_path.parents:
+            return False
+        doc_mtime = doc_path.stat().st_mtime
+        doc_key = str(doc_path.resolve())
+        answerability_key = (question, doc_key, doc_mtime)
+        cached = _SUGGESTION_ANSWERABILITY_CACHE.get(answerability_key)
+        if cached is not None:
+            return cached
+        if (
+            doc_key not in _SUGGESTION_DOC_CACHE
+            or _SUGGESTION_DOC_MTIME.get(doc_key) != doc_mtime
+        ):
+            text = doc_path.read_text(encoding="utf-8", errors="ignore")
+            parts = [part.strip() for part in re.split(r"(?=^#{1,3}\s)", text, flags=re.M) if part.strip()]
+            chunks = [
+                {"content": part, "source": source_doc, "metadata": {"source": source_doc}}
+                for part in parts if len(part) >= 25
+            ]
+            # 兼容旧调用方/测试按 sourceDoc 文件名取缓存；canonical key 仍是绝对路径。
+            _SUGGESTION_DOC_CACHE[doc_key] = chunks
+            _SUGGESTION_DOC_CACHE[source_doc] = chunks
+            _SUGGESTION_DOC_MTIME[doc_key] = doc_mtime
+            _SUGGESTION_DOC_MTIME[source_doc] = doc_mtime
+        results = _SUGGESTION_DOC_CACHE.get(doc_key, [])
+    except Exception:
+        return False
+    # 相关证据并不等于最终能回答；必须实际跑过展示给用户的兜底链路。
+    # 这样可拦住“建议按钮能出现，点击后却回答不上来”的伪可回答项。
+    answerable = bool(results) and bool(_knowledge_fallback(question, results))
+    _SUGGESTION_ANSWERABILITY_CACHE[answerability_key] = answerable
+    return answerable
 
 
 def suggest_adjacent_questions(
@@ -2310,7 +2932,15 @@ def suggest_adjacent_questions(
             continue
         scored.append((score, -keyword_hits, -order, {"question": question, "sourceDoc": entry.get("sourceDoc") or ""}))
     scored.sort(reverse=True)
-    return [entry for _, _, _, entry in scored[: max(1, limit)]]
+    # 先按话题相关性截取小候选集，再做真实可回答性校验；否则每次聊天都要扫描
+    # 全部索引并逐条加载/检索知识库，首个追问请求会产生几十秒延迟。
+    selected: list[dict[str, str]] = []
+    for _, _, _, entry in scored:
+        if _suggestion_is_answerable(entry):
+            selected.append(entry)
+            if len(selected) >= max(1, limit):
+                break
+    return selected
 
 
 def _friendly_unknown(message: str) -> str:
@@ -2335,8 +2965,16 @@ async def generate_chat_stream(
     message: str,
     evidence: Optional[Sequence[dict[str, Any]]] = None,
     report_context: Optional[str] = None,
+    allow_scope_fallback: bool = True,
+    history_note: str = "",
 ) -> AsyncGenerator[str, None]:
-    response = _fallback_response(message, evidence, report_context)
+    response = _fallback_response(
+        message,
+        evidence,
+        report_context,
+        allow_scope_fallback=allow_scope_fallback,
+        history_note=history_note,
+    )
     # 按词组/短句输出，速度自然且不会像逐字符机器人。
     async for piece in stream_text(response):
         yield piece

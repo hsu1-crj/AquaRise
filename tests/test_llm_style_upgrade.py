@@ -410,9 +410,10 @@ def test_ghost_net_disposal_route_preserves_operation_and_recycling_guards():
     recycling = llm.direct_response("渔网怎么回收？")
     assert recycling is None or "别直接拖拽" not in recycling
 
-    # 蓝碳属于海洋领域，但没有确定性卡，应继续交给 RAG + 本地模型。
+    # 蓝碳定义有稳定的知识库口径，优先走短答，避免把整段文档原样念出。
     assert llm.is_domain_question("什么是蓝碳？")
-    assert llm.direct_response("什么是蓝碳？") is None
+    blue_carbon = llm.direct_response("什么是蓝碳？")
+    assert blue_carbon and "红树林" in blue_carbon and "海草床" in blue_carbon
 
 
 def test_model_answer_gate_rejects_near_duplicate_paragraphs():

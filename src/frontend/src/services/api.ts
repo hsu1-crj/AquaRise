@@ -529,29 +529,87 @@ export async function streamChat(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let doneSeen = false;
+  let receivedContent = false;
+
+  // SSE 事件可能以 LF 或 CRLF 分隔。只接受后端约定的 JSON data 事件，
+  // 协议注释/未知 payload 不能悄悄变成用户可见正文。
+  const consumeEvent = (event: string): void => {
+    if (doneSeen) return;
+    const dataLines = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim());
+    if (dataLines.length === 0) return;
+    const data = dataLines.join('\n').trim();
+    if (!data) return;
+    if (data === '[DONE]') {
+      doneSeen = true;
+      if (!receivedContent) throw new Error('AI 助手未返回有效内容');
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      throw new Error('AI 助手返回了无效的流式数据');
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('AI 助手返回了无效的流式数据');
+    }
+
+    const record = parsed as {
+      content?: unknown;
+      delta?: { content?: unknown } | null;
+      thinking?: unknown;
+      error?: unknown;
+    };
+    if (record.error) throw new Error(String(record.error));
+
+    const hasContent = Object.prototype.hasOwnProperty.call(record, 'content');
+    const hasDeltaContent = Boolean(
+      record.delta &&
+      typeof record.delta === 'object' &&
+      Object.prototype.hasOwnProperty.call(record.delta, 'content'),
+    );
+    const hasThinking = Object.prototype.hasOwnProperty.call(record, 'thinking');
+    if (!hasContent && !hasDeltaContent && !hasThinking) {
+      throw new Error('AI 助手返回了无效的流式数据');
+    }
+
+    let part = '';
+    if (hasContent) {
+      if (typeof record.content !== 'string') throw new Error('AI 助手返回了无效的流式数据');
+      part = record.content;
+    } else if (hasDeltaContent) {
+      if (typeof record.delta?.content !== 'string') throw new Error('AI 助手返回了无效的流式数据');
+      part = record.delta.content;
+    }
+    // thinking 字段只作为“无可见正文”的合法事件处理，绝不展示思维内容。
+    if (!part.trim()) return;
+    receivedContent = true;
+    onChunk(part);
+  };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split('\n\n');
+    const events = buffer.split(/\r?\n\r?\n/);
     buffer = events.pop() ?? '';
     for (const event of events) {
-      for (const line of event.split('\n')) {
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
-        if (!data || data === '[DONE]') continue;
-        try {
-          const parsed = JSON.parse(data) as { content?: string; delta?: { content?: string }; error?: string };
-          // 后端在模型故障时发送 {"error": ...} 事件，必须显式失败而不是静默输出空回复。
-          if (parsed.error) throw new Error(parsed.error);
-          onChunk(parsed.content ?? parsed.delta?.content ?? '');
-        } catch (parseError) {
-          if (parseError instanceof Error && parseError.message && !(parseError instanceof SyntaxError)) throw parseError;
-          onChunk(data);
-        }
-      }
+      consumeEvent(event);
+      if (doneSeen) return;
     }
   }
+
+  // TextDecoder(stream=true) 会保留未完成的 UTF-8 字节；必须 flush，
+  // 同时处理没有以空行结尾的最后一个 SSE 事件。
+  buffer += decoder.decode();
+  if (buffer.trim()) consumeEvent(buffer);
+  if (!doneSeen) throw new Error('AI 助手流式响应未正常结束');
+  if (!receivedContent) throw new Error('AI 助手未返回有效内容');
 }
 
 // ============ 后台管理 API（/api/v1/admin/*，要求「后台管理」模块权限） ============
