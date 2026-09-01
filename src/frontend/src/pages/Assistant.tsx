@@ -80,6 +80,8 @@ const SESSION_KEY = 'aquarise-chat-session';
  */
 interface InflightChat {
   sessionId: string;
+  /** 原始请求的中止控制器，供切页重挂载后的停止按钮继续控制同一条流 */
+  controller: AbortController;
   /** 已生成的累积文本 */
   content: string;
   /** 流是否仍在生成（未到 [DONE]/失败/手动停止） */
@@ -922,6 +924,9 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   // 组件卸载时释放资源。注意：不中断进行中的对话流——让请求在后台跑完，
   // 后端才会把回答落库；否则“思考中切页再返回”会在历史里只剩提问没有回答。
   useEffect(() => {
+    // React.StrictMode 在开发环境会执行一次 setup -> cleanup -> setup。
+    // 每次 setup 都要恢复挂载标志，否则首轮 cleanup 后流式 chunk 会被永久忽略。
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       stopSubtitleQueue();
@@ -999,11 +1004,22 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           ...base,
           { id: bubbleId, role: 'assistant', content: inflight.content, timestamp: formatCurrentTime() },
         ]);
+        controller.current = inflight.controller;
+        activeAssistantIdRef.current = bubbleId;
+        busyRef.current = true;
+        setBusy(true);
+        setAnswerComplete(false);
         setInflightBubbleId(bubbleId);
         unsub = subscribeInflight(sessionId, (content, finished) => {
           if (cancelled) return;
           if (finished) {
             unsub?.();
+            if (controller.current === inflight.controller) {
+              controller.current = null;
+              busyRef.current = false;
+              setBusy(false);
+            }
+            if (activeAssistantIdRef.current === bubbleId) activeAssistantIdRef.current = null;
             if (inFlightChat !== inflight) return; // 已被新提问接管，交给新流
             setInflightBubbleId(null);
             getChatHistory(sessionId)
@@ -1225,7 +1241,13 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       controller.current = abortController;
 
       // 登记在途请求：切页卸载不中止，重挂载后据此恢复流式气泡并订阅增量。
-      const chat: InflightChat = { sessionId, content: '', active: true, listeners: new Set() };
+      const chat: InflightChat = {
+        sessionId,
+        controller: abortController,
+        content: '',
+        active: true,
+        listeners: new Set(),
+      };
       inFlightChat = chat;
       let fullContent = '';
 
