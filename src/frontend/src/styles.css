@@ -3284,3 +3284,26 @@
   font-size: 10px;
   color: var(--coral);
 }
+
+/* --- 侧栏导航溢出滚动：功能按钮超出高度时 nav 区域可上下滚动，品牌区与底部操作保持固定 --- */
+.sidebar nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(43, 220, 249, 0.45) transparent;
+  padding-right: 2px;
+}
+
+.sidebar nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar nav::-webkit-scrollbar-thumb {
+  background: rgba(43, 220, 249, 0.4);
+  border-radius: 3px;
+}
+
+.sidebar nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(43, 220, 249, 0.62);
+}
