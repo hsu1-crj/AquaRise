@@ -415,6 +415,7 @@ class Report(Base):
     report_type = Column(SAEnum(ReportType), nullable=False)
     report_path = Column(String(500), nullable=False)
     summary = Column(Text, nullable=True)
+    sea_area_id = Column(Integer, nullable=True)  # 报告所属海域（软外键 → sea_areas.id；批量/综合报告为统一海域，混域为 NULL）
     created_at = Column(DateTime, default=datetime.now)
 
     task = relationship("DetectionTask")

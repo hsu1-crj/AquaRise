@@ -3307,3 +3307,21 @@
 .sidebar nav::-webkit-scrollbar-thumb:hover {
   background: rgba(43, 220, 249, 0.62);
 }
+
+/* --- 报告卡片海域标签（综合报告同海域约束的可视提示） --- */
+.report-area-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(92, 218, 255, 0.22);
+  background: rgba(43, 220, 249, 0.08);
+  color: var(--cyan);
+  font-size: 9px;
+  font-style: normal;
+}
+
+.report-select input:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}

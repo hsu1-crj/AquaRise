@@ -319,8 +319,11 @@ def _build_report_html(task: DetectionTask, sea_area_name: str = "近岸监测�
 </body></html>"""
 
 
-def _to_frontend_report(report: Report) -> FrontendReport:
-    """Report ORM → 前端 FrontendReport 形状（title/area/score 由关联任务推导）"""
+def _to_frontend_report(report: Report, area_names: dict[int, str] | None = None) -> FrontendReport:
+    """Report ORM → 前端 FrontendReport 形状（title/area/score 由关联任务推导，海域按归属数据填充）"""
+    names = area_names or {}
+    sea_area_id = report.sea_area_id or (report.task.sea_area_id if report.task else None)
+    sea_area_name = names.get(sea_area_id) if sea_area_id else None
     # 批量报告（report_type=custom, task_id=None）：聚合信息存放在 summary 中
     if report.report_type == ReportType.custom and not report.task_id:
         m = re.match(
@@ -332,7 +335,7 @@ def _to_frontend_report(report: Report) -> FrontendReport:
             return FrontendReport(
                 id=f"RPT-{report.id}",
                 title=f"多图批量识别质量报告（{count} 张）",
-                area="近岸监测点",
+                area=sea_area_name or "近岸监测点",
                 createdAt=f"{report.created_at:%Y-%m-%d %H:%M}" if report.created_at else "",
                 level=level,
                 score=score,
@@ -340,6 +343,8 @@ def _to_frontend_report(report: Report) -> FrontendReport:
                 status="已生成",
                 summary=report.summary or "",
                 reportUrl=f"/api/v1/reports/{report.id}/preview",
+                seaAreaId=sea_area_id,
+                seaAreaName=sea_area_name,
             )
         m2 = re.match(
             r"综合报告：汇总 (\d+) 份报告，检出 (\d+) 个垃圾目标，综合污染等级 (\S+)，平均质量分 (\d+)",
@@ -350,7 +355,7 @@ def _to_frontend_report(report: Report) -> FrontendReport:
             return FrontendReport(
                 id=f"RPT-{report.id}",
                 title=f"综合质量评估报告（{count} 份）",
-                area="多区汇总",
+                area=sea_area_name or "多区汇总",
                 createdAt=f"{report.created_at:%Y-%m-%d %H:%M}" if report.created_at else "",
                 level=level,
                 score=score,
@@ -358,6 +363,8 @@ def _to_frontend_report(report: Report) -> FrontendReport:
                 status="已生成",
                 summary=report.summary or "",
                 reportUrl=f"/api/v1/reports/{report.id}/preview",
+                seaAreaId=sea_area_id,
+                seaAreaName=sea_area_name,
             )
 
     task = (
@@ -368,7 +375,7 @@ def _to_frontend_report(report: Report) -> FrontendReport:
     level_raw = task.pollution_level.value if (task and task.pollution_level) else None
     level = pollution_level_zh(level_raw)
     object_count = task.total_objects if task else 0
-    area = "近岸监测点"
+    area = sea_area_name or "近岸监测点"
     title = f"任务 {report.task_id or '-'} 海域污染质量报告"
     if task and task.file_name:
         base = os.path.splitext(os.path.basename(task.file_name))[0]
@@ -385,7 +392,10 @@ def _to_frontend_report(report: Report) -> FrontendReport:
         status="已生成",
         summary=report.summary or "",
         reportUrl=f"/api/v1/reports/{report.id}/preview",
+        seaAreaId=sea_area_id,
+        seaAreaName=sea_area_name,
     )
+
 
 
 @router.get("/", response_model=FrontendReportListResponse)
@@ -398,7 +408,8 @@ async def list_reports(
     if not is_privileged(db, current_user):
         query = query.filter(Report.user_id == current_user.id)
     rows = query.order_by(Report.id.desc()).all()
-    items = [_to_frontend_report(r) for r in rows]
+    area_names = {a.id: a.name for a in db.query(SeaArea).all()}
+    items = [_to_frontend_report(r, area_names) for r in rows]
     return FrontendReportListResponse(items=items, total=len(items))
 
 
@@ -616,6 +627,7 @@ def _generate_report_for_task(db: Session, task: DetectionTask, user_id: int, re
         report_type=_resolve_report_type(report_type),
         report_path=path,
         summary=f"任务 {task.id}（{task.file_name}）共检出 {task.total_objects} 个垃圾",
+        sea_area_id=task.sea_area_id,
     )
     db.add(report)
     db.commit()
@@ -747,6 +759,8 @@ def _generate_batch_report(db: Session, tasks: list[DetectionTask], user_id: int
         report_type=ReportType.custom,
         report_path=path,
         summary=summary,
+        # 批次内任务同海域时记录归属（混域批量保持 NULL，前端显示「未指定海域」）
+        sea_area_id=next(iter(area_ids)) if len(area_ids) == 1 else None,
     )
     db.add(report)
     db.commit()
@@ -884,12 +898,18 @@ def _build_comprehensive_report_html(reports: list[Report], sea_area_name: str =
 </div></body></html>"""
 
 
+def _report_sea_area_id(report: Report) -> int | None:
+    """报告的海域归属：优先报告自身记录（批量/综合报告无 task），否则取关联任务的海域"""
+    return report.sea_area_id or (report.task.sea_area_id if report.task else None)
+
+
 def _generate_comprehensive_report(db: Session, reports: list[Report], user_id: int, report_type: str) -> Report:
-    """把多份报告聚合保存为一条综合报告记录，返回 Report。"""
-    sea_area_ids = {r.task.sea_area_id for r in reports if r.task and r.task.sea_area_id}
+    """把多份报告聚合保存为一条综合报告记录，返回 Report。
+    综合报告限定同一海域（端点已校验）：海域名取该统一海域，而非任意第一份。"""
+    sea_area_ids = {sid for r in reports if (sid := _report_sea_area_id(r)) is not None}
     sea_name = "近岸监测点"
-    if sea_area_ids:
-        area = db.query(SeaArea).filter(SeaArea.id.in_(sea_area_ids)).first()
+    if len(sea_area_ids) == 1:
+        area = db.query(SeaArea).filter(SeaArea.id == next(iter(sea_area_ids))).first()
         sea_name = area.name if area else sea_name
 
     os.makedirs("reports", exist_ok=True)
@@ -905,13 +925,13 @@ def _generate_comprehensive_report(db: Session, reports: list[Report], user_id: 
         f"综合报告：汇总 {len(reports)} 份报告，检出 {total_objects} 个垃圾目标，"
         f"综合污染等级 {pollution_level_zh(worst)}，平均质量分 {avg_score}"
     )
-
     report = Report(
         task_id=None,
         user_id=user_id,
         report_type=ReportType.custom,
         report_path=path,
         summary=summary,
+        sea_area_id=next(iter(sea_area_ids)) if len(sea_area_ids) == 1 else None,
     )
     db.add(report)
     db.commit()
@@ -935,7 +955,7 @@ async def create_report(
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
     report = _generate_report_for_task(db, task, current_user.id, body.format)
-    return _to_frontend_report(report)
+    return _to_frontend_report(report, {a.id: a.name for a in db.query(SeaArea).all()})
 
 
 @router.post("/batch", response_model=FrontendReport)
@@ -955,7 +975,7 @@ async def create_batch_report(
     if len(tasks) != len(set(body.task_ids)):
         raise HTTPException(status_code=404, detail="部分任务不存在或无权访问")
     report = _generate_batch_report(db, tasks, current_user.id, body.format)
-    return _to_frontend_report(report)
+    return _to_frontend_report(report, {a.id: a.name for a in db.query(SeaArea).all()})
 
 
 @router.post("/comprehensive", response_model=FrontendReport)
@@ -964,7 +984,8 @@ async def create_comprehensive_report(
     current_user: User = Depends(require_permission("reports")),
     db: Session = Depends(get_db),
 ):
-    """基于用户勾选的已有报告聚合生成一份综合报告（Reports 页「创建综合报告」）。"""
+    """基于用户勾选的已有报告聚合生成一份综合报告（Reports 页「创建综合报告」）。
+    综合报告限定同一海域：勾选跨海域报告直接 400，避免聚合出错误的海域名。"""
     if not body.report_ids:
         raise HTTPException(status_code=400, detail="请先勾选至少一份报告")
     reports = (
@@ -974,8 +995,12 @@ async def create_comprehensive_report(
     )
     if len(reports) != len(set(body.report_ids)):
         raise HTTPException(status_code=404, detail="部分报告不存在或无权访问")
+    # 同海域约束：综合报告只能汇总同一海域的报告（None=历史报告未记录海域，自为一组）
+    area_keys = {_report_sea_area_id(r) for r in reports}
+    if len(area_keys) > 1:
+        raise HTTPException(status_code=400, detail="综合报告只能汇总同一海域的报告，请取消勾选其他海域的报告")
     report = _generate_comprehensive_report(db, reports, current_user.id, body.format)
-    return _to_frontend_report(report)
+    return _to_frontend_report(report, {a.id: a.name for a in db.query(SeaArea).all()})
 
 
 @router.post("/generate", response_model=ReportInfo)

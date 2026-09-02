@@ -204,6 +204,8 @@ export interface Report {
   status: '已生成' | '生成中';
   summary: string;
   reportUrl?: string; // HTML 报告预览地址（GET /api/v1/reports/{id}/preview）
+  seaAreaId?: number | null;   // 所属海域 id（综合报告要求同海域汇总；历史报告为空）
+  seaAreaName?: string | null; // 所属海域名
 }
 
 export interface ReportSolution {

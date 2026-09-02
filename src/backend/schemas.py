@@ -541,6 +541,8 @@ class FrontendReport(BaseModel):
     status: str          # 已生成 / 生成中
     summary: str
     reportUrl: str = ""  # 可打开的 HTML 报告预览地址（GET /api/v1/reports/{id}/preview）
+    seaAreaId: int | None = None    # 所属海域 id（综合报告要求同海域汇总，前端据此约束勾选）
+    seaAreaName: str | None = None  # 所属海域名（北戴河/秦皇岛/渤海湾；历史报告为空）
 
 
 class FrontendReportListResponse(BaseModel):

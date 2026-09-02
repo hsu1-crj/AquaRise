@@ -207,3 +207,25 @@ def ensure_notification_type_enum() -> None:
             text(f"ALTER TABLE notifications MODIFY COLUMN type ENUM({enum_sql}) NOT NULL")
         )
         conn.commit()
+
+def ensure_reports_sea_area_column() -> None:
+    """
+    幂等迁移：为 reports 增加 sea_area_id 列（报告所属海域，软外键 → sea_areas.id）。
+    create_all 只建新表、不会 ALTER 旧表，因此启动时手动补列（MySQL 专用写法，
+    information_schema.COLUMNS 查询；本项目仅用 MySQL，可接受）。
+    缺省 NULL：历史报告无法可靠反推海域，保持不归属，前端显示「未指定海域」。
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = :db AND TABLE_NAME = 'reports' "
+                "AND COLUMN_NAME = 'sea_area_id'"
+            ),
+            {"db": DB_NAME},
+        ).scalar()
+        if not exists:
+            conn.execute(
+                text("ALTER TABLE reports ADD COLUMN sea_area_id INT NULL")
+            )
+            conn.commit()
