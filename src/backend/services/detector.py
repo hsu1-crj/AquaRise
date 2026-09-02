@@ -332,6 +332,57 @@ def _decode_image(image_bytes: bytes):
     height, width = img.shape[:2]
     return img, height, width
 
+# ---------- 海底素材校验 ----------
+# 非海底素材（纯白/纯色/文档截图等）直接拒绝，不入库不产生"未检出=优"的假结果。
+# 判据按演示素材实测标定：真实海底图水色占比 ≥0.44，文档/曲线图 ≤0.08，纯白图为 0。
+_UNDERWATER_MIN_RATIO = 0.15  # 水色像素占比下限（绿/青/蓝域，留足暗光/强光样本余量）
+_BLANK_STD = 6.0              # 通道标准差低于此值视为纯色/空白画面
+
+
+def _check_underwater_frame(img) -> str | None:
+    """单帧海底素材判据：返回 None=通过，否则返回拒绝原因（路由层转 400）。"""
+    import cv2
+
+    if float(img.std()) < _BLANK_STD:
+        return "画面为纯色或空白，非海底素材，请上传水下拍摄的素材"
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    h, s, _v = cv2.split(hsv)
+    ratio = float(((h >= 60) & (h <= 140) & (s > 25)).mean())
+    if ratio < _UNDERWATER_MIN_RATIO:
+        return "该素材疑似非海底画面（画面中几乎无海水蓝绿色域），请上传水下拍摄的素材"
+    return None
+
+
+def check_underwater_image(image_bytes: bytes) -> str | None:
+    """图片海底素材校验：返回 None=通过，否则返回拒绝原因。"""
+    img, _, _ = _decode_image(image_bytes)
+    return _check_underwater_frame(img)
+
+
+def check_underwater_video(file_path: str) -> str | None:
+    """视频海底素材校验：均匀抽 5 帧，过半帧非海底画面才拒绝（允许片头黑场等个别帧）。"""
+    import cv2
+
+    cap = cv2.VideoCapture(file_path)
+    if not cap.isOpened():
+        return "视频文件损坏或无法解析"
+    try:
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        if total <= 0:
+            return "视频文件损坏或无法解析"
+        fails = 0
+        sample_count = 5
+        for k in range(sample_count):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * k / sample_count))
+            ok, frame = cap.read()
+            if not ok or frame is None or _check_underwater_frame(frame):
+                fails += 1
+        if fails > sample_count / 2:
+            return "该视频疑似非海底素材（多数抽帧画面中几乎无海水蓝绿色域），请上传水下拍摄的视频"
+        return None
+    finally:
+        cap.release()
+
 # ---------- 强光/暗光自适应预处理 ----------
 # 训练数据集全量做过 CLAHE 增强并含 0.55~0.75 暗化副本（src/vision/augment_dataset.py），
 # 推理端按帧平均亮度对齐该训练分布：

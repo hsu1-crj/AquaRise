@@ -94,6 +94,15 @@ async def _process_single_image(file: UploadFile, current_user: User, db: Sessio
     with open(file_path, "rb") as f:
         image_bytes = f.read()
 
+    # 海底素材校验：非海底画面（纯白/纯色/文档图等）直接 400 拒绝，删除已保存文件，不入库
+    reject_reason = detector.check_underwater_image(image_bytes)
+    if reject_reason:
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+        raise HTTPException(status_code=400, detail=reject_reason)
+
     # 调用检测服务（真实 YOLO 推理）：CPU/GPU 密集同步调用放进线程池，
     # 避免单帧推理数百 ms、批量最多 50 张时整帧卡死事件循环（登录/聊天/报告全部排队）
     payload = await asyncio.to_thread(detector.detect_image, image_bytes)
@@ -340,12 +349,22 @@ async def detect_video(
     current_user: User = Depends(require_permission("detection")),
     db: Session = Depends(get_db),
 ):
-    """视频检测：上传 → 创建任务 → 后台处理 → 立即返回 task_id"""
+    """视频检测：上传 → 海底素材校验 → 创建任务 → 后台处理 → 立即返回 task_id"""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_VIDEO:
         raise HTTPException(status_code=400, detail="不支持的视频格式，支持 mp4/avi/mov/mkv/webm")
 
     file_path = _save_upload(file, "videos")
+
+    # 海底素材校验（抽帧）：非海底画面直接 400 拒绝，删除已保存文件，不创建任务
+    reject_reason = await asyncio.to_thread(detector.check_underwater_video, file_path)
+    if reject_reason:
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+        raise HTTPException(status_code=400, detail=reject_reason)
+
     task = DetectionTask(
         user_id=current_user.id,
         task_type=TaskType.video,
