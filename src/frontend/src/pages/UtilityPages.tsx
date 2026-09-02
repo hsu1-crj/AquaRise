@@ -196,7 +196,7 @@ export function ProfilePage({ user, onUserUpdated }: { user?: UserInfo | null; o
             <label>账号<input value={displayName} readOnly /></label>
             <label>手机号<input type="tel" value={phoneNum} onChange={(event) => setPhoneNum(event.target.value)} placeholder="输入手机号（可用于登录）" /></label>
             <label>电子邮箱<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="输入常用邮箱" /></label>
-            <label>团队编号<input value="第 8 组" readOnly /></label>
+            <label>用户分组<input value={user?.group_name ?? '未分组'} readOnly /></label>
           </div>
           <header className="security-heading"><LockKeyhole /><div><h2>安全设置</h2><span>修改登录密码与会话安全配置</span></div></header>
           <div className="form-grid">
