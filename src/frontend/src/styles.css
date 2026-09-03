@@ -3325,3 +3325,83 @@
   cursor: not-allowed;
   opacity: 0.45;
 }
+
+/* ================= LLM 助手页 UI 升级（2026-09） ================= */
+/* 欢迎标题：海洋荧光渐变字 */
+.og-hero-title {
+  background: linear-gradient(100deg, #eafaff 8%, #7df2d8 55%, #43ccff 96%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+/* 欢迎光核：外圈慢速旋转虚线轨道 */
+.og-hero-orb::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 1px dashed rgba(56, 248, 212, 0.32);
+  animation: og-hero-orbit-dash 28s linear infinite;
+}
+@keyframes og-hero-orbit-dash { to { transform: rotate(1turn); } }
+
+/* 能力卡：错落浮入（expo-out）+ 顶部主题荧光 hairline */
+.og-hero-card {
+  position: relative;
+  overflow: hidden;
+  animation: og-card-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.og-hero-card:nth-child(1) { animation-delay: 0.05s; }
+.og-hero-card:nth-child(2) { animation-delay: 0.13s; }
+.og-hero-card:nth-child(3) { animation-delay: 0.21s; }
+.og-hero-card:nth-child(4) { animation-delay: 0.29s; }
+@keyframes og-card-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.985); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+.og-hero-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 14%; right: 14%; height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgba(var(--ac-rgb, 43, 220, 255), 0.75), transparent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.og-hero-card.accent-cyan { --ac-rgb: 43, 220, 255; }
+.og-hero-card.accent-green { --ac-rgb: 92, 242, 174; }
+.og-hero-card.accent-violet { --ac-rgb: 138, 125, 255; }
+.og-hero-card.accent-amber { --ac-rgb: 255, 189, 102; }
+.og-hero-card-icon { transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+.og-hero-card:hover:not(:disabled) .og-hero-card-icon { transform: scale(1.08); }
+
+/* 快捷话题：四色荧光圆点轮换 */
+.og-quick-chip { display: inline-flex; align-items: center; gap: 6px; }
+.og-quick-chip::before {
+  content: "";
+  width: 5px; height: 5px; border-radius: 50%; flex: none;
+  background: rgba(var(--qc, 56, 248, 212), 0.9);
+  box-shadow: 0 0 7px rgba(var(--qc, 56, 248, 212), 0.7);
+}
+.og-quick-chip:nth-child(4n + 1) { --qc: 56, 248, 212; }
+.og-quick-chip:nth-child(4n + 2) { --qc: 64, 190, 255; }
+.og-quick-chip:nth-child(4n + 3) { --qc: 255, 189, 102; }
+.og-quick-chip:nth-child(4n + 4) { --qc: 138, 125, 255; }
+
+/* 发送按钮：悬停流光扫过 */
+.og-send-btn { position: relative; overflow: hidden; }
+.og-send-btn::after {
+  content: "";
+  position: absolute; top: -4px; bottom: -4px; left: -45%; width: 34%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: skewX(-18deg);
+  transition: left 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+.og-send-btn:hover:not(:disabled)::after { left: 120%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .og-hero-card { animation: none; }
+  .og-hero-orb::before { animation: none; }
+  .og-send-btn::after { display: none; }
+}

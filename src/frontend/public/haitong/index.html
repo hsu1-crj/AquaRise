@@ -514,7 +514,7 @@
     border: 1px solid rgba(56, 248, 212, 0.32);
     backdrop-filter: blur(36px); -webkit-backdrop-filter: blur(36px);
     box-shadow: 0 36px 110px rgba(0, 0, 0, 0.85), 0 0 60px rgba(56, 248, 212, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-    opacity: 0; pointer-events: none; transition: all 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+    opacity: 0; pointer-events: none; transition: all 0.62s cubic-bezier(0.16, 1, 0.3, 1);
     z-index: 35;
   }
   #photoBox.transition-hidden {
@@ -541,7 +541,7 @@
     transition: opacity 2.5s cubic-bezier(0.2, 0.8, 0.2, 1), filter 2.5s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   #topNav, #filterHub, #speciesNav, #bottomBar, #preview, #depthScrubber {
-    transition: opacity 0.32s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1), filter 0.55s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   /* 鲸落四幕演替阶段胶囊 */
@@ -617,20 +617,30 @@
   #photoCredit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-dim); font-size: 11px; }
   
   .sound-tags { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 4px; }
+  /* 声音通道状态条：左侧通道色条 + 声纹波形；播放时波形跳动，非按钮观感 */
   .sound-tag {
-    min-width: 0; min-height: 42px; padding: 7px 10px 7px 12px;
-    display: grid; grid-template-columns: 11px minmax(0, 1fr); grid-template-rows: auto auto;
-    column-gap: 8px; align-items: center; text-align: left;
-    font: 11px/1.25 var(--font-mono); letter-spacing: 0.03em; color: #a4c9e4;
-    border: 1px solid rgba(135, 222, 255, 0.22); border-radius: 10px;
-    background: rgba(6, 28, 48, 0.6); pointer-events: none; user-select: none;
+    position: relative; min-width: 0; min-height: 32px; padding: 0 10px 0 13px;
+    display: flex; align-items: center; gap: 8px; text-align: left; overflow: hidden;
+    font: 600 9.5px/1 var(--font-mono); letter-spacing: .04em; color: #9fc3d6;
+    border: 1px solid rgba(135, 222, 255, 0.14); border-radius: 9px;
+    background: linear-gradient(180deg, rgba(11, 36, 56, 0.72), rgba(5, 20, 36, 0.55));
+    pointer-events: none; user-select: none;
   }
-  .sound-tag::before { content: ""; grid-row: 1 / span 2; width: 11px; height: 11px; border-radius: 50%; background: #557481; box-shadow: 0 0 0 3px rgba(85,116,129,.12); }
-  .sound-tag-label { display: block; min-width: 0; color: #d9fbff; font-weight: 700; }
-  .sound-tag-status { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #83aab7; font-size: 9px; }
-  .sound-tag[data-state="playing"] { border-color: rgba(56, 248, 212, 0.62); background: rgba(56, 248, 212, 0.14); }
-  .sound-tag[data-state="playing"]::before { background: var(--cyan); box-shadow: 0 0 0 3px rgba(56,248,212,.15), 0 0 10px rgba(56,248,212,.55); }
-  .sound-tag[data-state="paused"]::before { background: #ffd166; box-shadow: 0 0 0 3px rgba(255,209,102,.14); }
+  .sound-tag::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: rgba(135, 222, 255, 0.3); }
+  .sound-wave { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex: none; }
+  .sound-wave i { width: 2.5px; height: 35%; border-radius: 1.5px; background: #52768a; transition: background .25s ease; }
+  .sound-tag-label { display: block; min-width: 0; color: #c4e2ea; font-weight: 700; white-space: nowrap; }
+  .sound-tag-status { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #7d9fb0; font-size: 9px; font-weight: 500; margin-left: auto; }
+  .sound-tag[data-state="playing"] { border-color: rgba(56, 248, 212, 0.42); box-shadow: 0 0 16px rgba(56, 248, 212, 0.14), inset 0 0 14px rgba(56, 248, 212, 0.06); }
+  .sound-tag[data-state="playing"]::before { background: var(--cyan); box-shadow: 0 0 10px rgba(56, 248, 212, 0.8); }
+  .sound-tag[data-state="playing"] .sound-wave i { background: var(--cyan); animation: soundWaveBounce .9s ease-in-out infinite alternate; }
+  .sound-tag[data-state="playing"] .sound-wave i:nth-child(2) { animation-delay: .15s; }
+  .sound-tag[data-state="playing"] .sound-wave i:nth-child(3) { animation-delay: .3s; }
+  .sound-tag[data-state="playing"] .sound-wave i:nth-child(4) { animation-delay: .45s; }
+  .sound-tag[data-state="paused"] { border-color: rgba(255, 209, 102, 0.38); }
+  .sound-tag[data-state="paused"]::before { background: #ffd166; box-shadow: 0 0 8px rgba(255, 209, 102, 0.7); }
+  .sound-tag[data-state="paused"] .sound-wave i { background: #ffd166; height: 55%; }
+  @keyframes soundWaveBounce { from { height: 22%; } to { height: 100%; } }
 
   .voice-echo-link {
     grid-column: 1 / -1; justify-content: center; min-height: 40px; font-size: 13px; font-weight: 700;
@@ -807,8 +817,27 @@
     max-width: 100%; max-height: 84vh; object-fit: contain;
     border-radius: 14px; border: 1px solid rgba(56, 248, 212, 0.3);
     box-shadow: 0 30px 100px rgba(0, 0, 0, 0.9), 0 0 50px rgba(56, 248, 212, 0.15);
-    cursor: zoom-out;
+    cursor: grab; will-change: transform;
+    user-select: none; -webkit-user-drag: none;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
+  #lightboxImg.poster-panning { transition: none; cursor: grabbing; }
+  /* 海报缩放控制条：与观测地图缩放按钮同一套语言 */
+  .lightbox-zoom {
+    position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 7px; z-index: 2;
+  }
+  .lightbox-zoom button {
+    width: 34px; height: 34px; border-radius: 10px; border: 1px solid rgba(143, 207, 211, 0.26);
+    background: rgba(3, 16, 27, 0.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    color: #bfe4ea; font: 700 14px/1 var(--font-mono); cursor: pointer; display: grid; place-items: center;
+    transition: all 0.2s ease; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+  .lightbox-zoom button:hover, .lightbox-zoom button:focus-visible {
+    color: #03201b; border-color: transparent; background: linear-gradient(135deg, #3ef0d2, #22d3ee);
+    box-shadow: 0 0 18px rgba(56, 248, 212, 0.4); outline: none;
+  }
+  .lightbox-zoom .lightbox-zoom-level { min-width: 52px; text-align: center; font: 600 10.5px/1 var(--font-mono); color: #8fb6c4; letter-spacing: .04em; }
   .lightbox-hint {
     margin-top: 10px; font-size: 11.5px; color: var(--ink-dim); letter-spacing: 0.05em;
   }
@@ -1146,6 +1175,7 @@
  position: fixed; top: 78px; right: 28px; width: 170px; height: 128px; border-radius: 14px;
  overflow: hidden; border: 1px solid rgba(56, 248, 212, 0.35); background: #020710;
  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6); display: none; z-index: 45;
+ transition: left .5s cubic-bezier(.16,1,.3,1), right .5s cubic-bezier(.16,1,.3,1), top .5s cubic-bezier(.16,1,.3,1), bottom .5s cubic-bezier(.16,1,.3,1), width .5s cubic-bezier(.16,1,.3,1), height .5s cubic-bezier(.16,1,.3,1);
  }
  #preview.show { display: block; }
  #preview video, #preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
@@ -1261,16 +1291,42 @@
     .whale-fall-overlay.show::after { animation-duration: 1.4s; }
   }
 
+  /* 提示栏（toast）：顶部居中，玻璃拟态 + 类型化图标盘，info/success/warn/error 四种语义色 */
   #toast {
-    position: fixed; bottom: 124px; left: 50%; transform: translateX(-50%) translateY(10px);
-    padding: 9px 20px; border-radius: 999px; background: rgba(4, 18, 32, 0.92);
-    border: 1px solid rgba(56, 248, 212, 0.45); color: #fff; font-size: 13px;
-    letter-spacing: 0.06em; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 24px rgba(56, 248, 212, 0.25);
-    opacity: 0; pointer-events: none; transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-    z-index: 95; white-space: nowrap;
+    position: fixed; top: 66px; left: 50%; bottom: auto; transform: translateX(-50%) translateY(-14px) scale(0.97);
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 18px 10px 10px; border-radius: 14px; background: rgba(4, 18, 32, 0.9);
+    border: 1px solid rgba(56, 248, 212, 0.4); color: #eefcf9; font-size: 12.5px;
+    letter-spacing: 0.04em; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.62), 0 0 28px rgba(56, 248, 212, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    opacity: 0; pointer-events: none; transition: all 0.36s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 400; white-space: nowrap; max-width: min(72vw, 760px);
   }
-  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  .toast-icon {
+    flex: none; width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center;
+    font-size: 13px; font-weight: 700; color: #02131c;
+    background: linear-gradient(140deg, #3ef0d2, #1be7ff);
+    box-shadow: 0 0 12px rgba(56, 248, 212, 0.45);
+  }
+  .toast-icon svg { width: 17px; height: 17px; }
+  /* 手势提示的动态图标：小幅摆动 / 脉动，一眼对应当前手势 */
+  #toast.toast-gesture .toast-icon { background: linear-gradient(140deg, #5ff7dd, #43ccff); }
+  .toast-icon .tg-swing { animation: toastGestureSwing 1.15s ease-in-out infinite alternate; transform-origin: 70% 80%; }
+  @keyframes toastGestureSwing { from { transform: rotate(-10deg) translateX(-1px); } to { transform: rotate(10deg) translateX(1px); } }
+  .toast-icon .tg-pulse { animation: toastGesturePulse 1s ease-in-out infinite alternate; }
+  @keyframes toastGesturePulse { from { transform: scale(0.88); } to { transform: scale(1.08); } }
+  .toast-icon .tg-bounce { animation: toastGestureBounce 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) infinite alternate; }
+  @keyframes toastGestureBounce { from { transform: translateY(1.5px); } to { transform: translateY(-2px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .toast-icon .tg-swing, .toast-icon .tg-pulse, .toast-icon .tg-bounce { animation: none; }
+  }
+  #toast.toast-success { border-color: rgba(74, 222, 128, 0.45); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.6), 0 0 24px rgba(74, 222, 128, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+  #toast.toast-success .toast-icon { background: linear-gradient(140deg, #4ade80, #22d3a7); box-shadow: 0 0 12px rgba(74, 222, 128, 0.45); }
+  #toast.toast-warn { border-color: rgba(255, 209, 102, 0.45); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 209, 102, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+  #toast.toast-warn .toast-icon { background: linear-gradient(140deg, #ffd166, #ff9e64); box-shadow: 0 0 12px rgba(255, 209, 102, 0.45); }
+  #toast.toast-error { border-color: rgba(255, 117, 140, 0.5); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 117, 140, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+  #toast.toast-error .toast-icon { background: linear-gradient(140deg, #ff758c, #ff5470); box-shadow: 0 0 12px rgba(255, 117, 140, 0.45); }
 
   /* ================= 手势速查动态图鉴面板 (Gesture Guide Modal) ================= */
   #gestureGuide {
@@ -1491,13 +1547,19 @@
   }
 
   .g-info { flex: 1; min-width: 0; }
-  .g-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
-  .g-name { font-size: 14.5px; font-weight: 700; color: #fff; letter-spacing: 0.04em; }
+  .g-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+  .g-name { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 700; color: #fff; letter-spacing: 0.04em; }
   .g-code {
-    font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
-    color: var(--cyan); background: rgba(56, 248, 212, 0.14);
-    padding: 2px 7px; border-radius: 6px; border: 1px solid rgba(56, 248, 212, 0.35);
+    flex: none; font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.06em; white-space: nowrap; text-transform: lowercase;
+    padding: 3px 8px; border-radius: 6px;
   }
+  /* 代码 chip 按手势本身的配色点缀 */
+  .gesture-card .g-code { color: #6fe3d2; background: rgba(56, 248, 212, 0.12); border: 1px solid rgba(56, 248, 212, 0.32); }
+  .gesture-card[data-act="fist"] .g-code { color: #ffd166; background: rgba(255, 209, 102, 0.12); border-color: rgba(255, 209, 102, 0.36); }
+  .gesture-card[data-act="wave-left"] .g-code { color: #5cd7ff; background: rgba(27, 231, 255, 0.12); border-color: rgba(27, 231, 255, 0.34); }
+  .gesture-card[data-act="point"] .g-code { color: #93c5fd; background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.36); }
+  .gesture-card[data-act="call"] .g-code { color: #c4b5fd; background: rgba(167, 139, 250, 0.12); border-color: rgba(167, 139, 250, 0.36); }
   .g-desc { font-size: 12px; color: #d6ecf7; line-height: 1.5; margin-bottom: 5px; }
   .g-tip { font-size: 11px; color: var(--ink-dim); line-height: 1.4; }
 
@@ -1523,8 +1585,8 @@
  .dots-rail::-webkit-scrollbar { display: none; }
  .d { flex-shrink: 0; }
  #bottomHint { bottom: 100px; max-width: 92vw; flex-wrap: wrap; justify-content: center; text-align: center; }
- #toast { top: 112px; bottom: auto; left: 14px; max-width: calc(100vw - 174px); transform: translateY(10px); white-space: normal; }
- #toast.show { transform: translateY(0); }
+ #toast { top: 112px; bottom: auto; left: 14px; max-width: calc(100vw - 174px); transform: translateY(12px) scale(0.97); white-space: normal; }
+ #toast.show { transform: translateY(0) scale(1); }
  }
  @media (min-width: 901px) {
  #preview { left: 28px; right: auto; }
@@ -1576,29 +1638,45 @@
  .coach-steps{position:relative;list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
  /* 深度光柱：穿过两列卡片之间的中央缝隙，自上而下由亮渐暗，如海面沉入深海 */
  .coach-steps::before{content:"";position:absolute;top:14px;bottom:14px;left:50%;width:2px;transform:translateX(-50%);background:linear-gradient(180deg,rgba(56,248,212,.65) 0%,rgba(27,231,255,.4) 38%,rgba(27,231,255,.18) 68%,rgba(27,231,255,.04) 100%);box-shadow:0 0 12px rgba(56,248,212,.3);pointer-events:none}
- .coach-steps li{position:relative;display:flex;align-items:flex-start;gap:14px;min-height:96px;padding:16px 17px;border-radius:16px;background:linear-gradient(160deg,rgba(6,22,38,.85),rgba(3,13,24,.78));border:1px solid rgba(135,222,255,.15);box-shadow:0 6px 22px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.05);transition:border-color .26s ease,box-shadow .26s ease,transform .26s cubic-bezier(.2,.8,.2,1),background .26s ease;animation:coachRise .55s cubic-bezier(.22,.8,.36,1) both}
+ /* 每步专属主题色：01 选择=生物荧光青，02 下潜=深海蔚蓝，03 阅读=暖琥珀 */
+ .coach-steps li{--ac:56,248,212;--ac2:27,231,255}
+ .coach-steps li:nth-child(2){--ac:64,190,255;--ac2:96,140,255}
+ .coach-steps li:nth-child(3){--ac:255,209,102;--ac2:255,158,100}
+ .coach-steps li:nth-child(4){--ac:167,139,250;--ac2:96,140,255}
+ .coach-steps li{position:relative;display:flex;align-items:flex-start;gap:14px;min-height:96px;padding:16px 17px;border-radius:16px;background:linear-gradient(160deg,rgba(6,22,38,.85),rgba(3,13,24,.78));border:1px solid rgba(var(--ac),.2);box-shadow:0 6px 22px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.05);transition:border-color .26s ease,box-shadow .26s ease,transform .26s cubic-bezier(.2,.8,.2,1),background .26s ease;animation:coachRise .62s cubic-bezier(.16,1,.3,1) both}
  .coach-steps li:nth-child(1){animation-delay:.05s}
- .coach-steps li:nth-child(2){animation-delay:.14s}
- .coach-steps li:nth-child(3){animation-delay:.23s}
- .coach-steps li:nth-child(4){animation-delay:.32s}
- @keyframes coachRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
- .coach-steps li::after{content:"";position:absolute;inset:0;border-radius:16px;background:radial-gradient(circle at 24% 22%,rgba(56,248,212,.14),transparent 62%);opacity:0;transition:opacity .3s ease;pointer-events:none}
- .coach-steps li:hover{border-color:rgba(56,248,212,.5);background:linear-gradient(160deg,rgba(8,28,48,.92),rgba(4,17,30,.85));transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.5),0 0 24px rgba(56,248,212,.16)}
+ .coach-steps li:nth-child(2){animation-delay:.15s}
+ .coach-steps li:nth-child(3){animation-delay:.25s}
+ .coach-steps li:nth-child(4){animation-delay:.35s}
+ @keyframes coachRise{from{opacity:0;transform:translateY(18px) scale(.985);filter:blur(5px)}to{opacity:1;transform:none;filter:blur(0)}}
+ /* 卡顶主题色 hairline：像每张标本卡片的荧光封条 */
+ .coach-steps li::before{content:"";position:absolute;top:0;left:12%;right:12%;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,rgba(var(--ac),.85),transparent);opacity:.75;pointer-events:none}
+ .coach-steps li::after{content:"";position:absolute;inset:0;border-radius:16px;background:radial-gradient(circle at 24% 22%,rgba(var(--ac),.14),transparent 62%);opacity:0;transition:opacity .3s ease;pointer-events:none}
+ .coach-steps li:hover{border-color:rgba(var(--ac),.55);background:linear-gradient(160deg,rgba(8,28,48,.92),rgba(4,17,30,.85));transform:translateY(-3px);box-shadow:0 14px 34px rgba(0,0,0,.5),0 0 24px rgba(var(--ac),.18)}
  .coach-steps li:hover::after{opacity:1}
- .coach-steps li i{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-style:normal;font:700 11px/1 var(--font-mono);letter-spacing:.08em;color:#032028;background:linear-gradient(140deg,#4dffd9,#1be7ff);box-shadow:0 0 0 4px rgba(56,248,212,.14),0 0 18px rgba(56,248,212,.4),0 4px 12px rgba(0,0,0,.4);position:relative;z-index:1}
- .coach-steps li:hover i{box-shadow:0 0 0 5px rgba(56,248,212,.22),0 0 26px rgba(56,248,212,.6),0 4px 12px rgba(0,0,0,.4)}
+ .coach-steps li i{flex:none;width:44px;height:44px;border-radius:13px;display:grid;place-items:center;font-style:normal;background:linear-gradient(150deg,rgba(var(--ac),.2),rgba(var(--ac2),.06) 62%,rgba(10,37,64,.5));border:1px solid rgba(var(--ac),.45);box-shadow:0 0 18px rgba(var(--ac),.22),inset 0 0 14px rgba(var(--ac),.08);position:relative;z-index:1}
+ .coach-steps li i svg{width:24px;height:24px;fill:none;stroke:rgba(var(--ac),1);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 5px rgba(var(--ac),.55))}
+ .coach-steps li:hover i{box-shadow:0 0 0 4px rgba(var(--ac),.14),0 0 26px rgba(var(--ac),.5),inset 0 0 14px rgba(var(--ac),.08)}
  .coach-step-copy{min-width:0}
- .coach-steps li b{display:block;margin:2px 0 6px;font-size:13.5px;color:var(--ink);font-weight:600;letter-spacing:.02em}
+ .step-kicker{display:block;margin:1px 0 4px;font-style:normal;font:700 8.5px/1 var(--font-mono);letter-spacing:.32em;color:rgba(var(--ac),.92)}
+ .coach-steps li b{display:block;margin:0 0 6px;font-size:13.5px;color:#fff;font-weight:600;letter-spacing:.02em;text-shadow:0 0 14px rgba(var(--ac),.35)}
  .coach-steps li span{display:block;font-size:11px;line-height:1.65;color:var(--ink-dim)}
- .coach-steps li em{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-style:normal;font:600 9.5px/1.4 var(--font-mono);letter-spacing:.05em;color:rgba(92,229,255,.85);padding:4px 9px;border-radius:999px;border:1px solid rgba(92,229,255,.22);background:rgba(27,231,255,.07)}
+ .coach-steps li em{display:inline-flex;align-items:center;flex-wrap:wrap;gap:5px;margin-top:8px;font-style:normal;font:600 9.5px/1.5 var(--font-mono);letter-spacing:.04em;color:rgba(var(--ac),.92);padding:4px 9px;border-radius:8px;border:1px solid rgba(var(--ac),.3);background:rgba(var(--ac),.08)}
  .coach-more{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin-top:14px;padding:14px 17px;border-radius:16px;border:1px solid rgba(56,248,212,.2);background:linear-gradient(90deg,rgba(56,248,212,.08),rgba(27,231,255,.03) 70%);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
  .coach-more-title{font:700 10px/1.5 var(--font-mono);letter-spacing:.2em;color:var(--cyan);white-space:nowrap;text-shadow:0 0 10px rgba(56,248,212,.35)}
  .coach-more-list{display:flex;flex-wrap:wrap;gap:8px}
- .coach-more-list span{padding:6px 11px;border-radius:999px;border:1px solid rgba(135,222,255,.16);background:rgba(2,12,22,.55);font-size:10px;color:var(--ink-dim);transition:border-color .2s ease,color .2s ease,box-shadow .2s ease;cursor:default}
- .coach-more-list span:hover{border-color:rgba(56,248,212,.45);color:var(--ink);box-shadow:0 0 12px rgba(56,248,212,.15)}
+ .coach-more-list span{--c:56,248,212;display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;border:1px solid rgba(135,222,255,.16);background:rgba(2,12,22,.55);font-size:10px;color:var(--ink-dim);transition:border-color .2s ease,color .2s ease,box-shadow .2s ease;cursor:default}
+ .coach-more-list span:nth-child(2){--c:64,190,255}
+ .coach-more-list span:nth-child(3){--c:255,209,102}
+ .coach-more-list span:nth-child(4){--c:167,139,250}
+ .coach-more-list span::before{content:"";width:6px;height:6px;flex:none;border-radius:50%;background:rgba(var(--c),1);box-shadow:0 0 8px rgba(var(--c),.8)}
+ .coach-more-list span b{color:var(--ink);font-weight:600}
+ .coach-more-list span:hover{border-color:rgba(var(--c),.5);color:var(--ink);box-shadow:0 0 12px rgba(var(--c),.2)}
  .coach-actions{display:flex;align-items:center;gap:11px;margin-top:18px;padding-top:16px;border-top:1px solid rgba(135,222,255,.1);flex-wrap:wrap}
- .coach-actions .pill-btn.primary{background:linear-gradient(135deg,rgba(56,248,212,.28),rgba(27,231,255,.2));border-color:rgba(56,248,212,.6);color:#fff;font-weight:600;box-shadow:0 0 20px rgba(56,248,212,.2),inset 0 1px 0 rgba(255,255,255,.15)}
- .coach-actions .pill-btn.primary:hover{background:linear-gradient(135deg,rgba(56,248,212,.4),rgba(27,231,255,.3));box-shadow:0 0 28px rgba(56,248,212,.4)}
+ .coach-actions .pill-btn.primary{position:relative;overflow:hidden;background:linear-gradient(135deg,#3ef0d2,#22b8ee);border-color:transparent;color:#02131c;font-weight:700;box-shadow:0 6px 22px rgba(56,248,212,.32),inset 0 1px 0 rgba(255,255,255,.35)}
+ .coach-actions .pill-btn.primary::after{content:"";position:absolute;top:-4px;bottom:-4px;left:-45%;width:34%;background:linear-gradient(105deg,transparent,rgba(255,255,255,.55),transparent);transform:skewX(-18deg);transition:left .55s cubic-bezier(.2,.8,.2,1)}
+ .coach-actions .pill-btn.primary:hover{background:linear-gradient(135deg,#5ff7dd,#43ccff);box-shadow:0 8px 28px rgba(56,248,212,.45);color:#02131c}
+ .coach-actions .pill-btn.primary:hover::after{left:120%}
  .coach-reopen{margin:0 0 0 auto;font-size:9.5px;color:var(--ink-ghost)}
  @media(max-width:900px){.coach-panel{width:calc(100vw - 36px)}.coach-head{padding:22px 20px 16px}.coach-body{padding:18px 20px 22px}.coach-steps{grid-template-columns:1fr}.coach-steps::before{display:none}.coach-reopen{display:none}}
  @media (prefers-reduced-motion: reduce){#coachMarks,.coach-panel{transition:none}.coach-steps li{animation:none}.coach-emblem svg{animation:none}.gbif-toggle-emblem svg{animation:none}.anim-swipe .swipe-hand,.anim-swipe .swipe-arrow-l,.anim-swipe .swipe-arrow-r,.anim-swipe .swipe-streaks{animation:none}}
@@ -1632,26 +1710,39 @@
  .back-system-btn{min-height:34px;padding:0 12px;border-radius:10px;margin-right:2px;background:rgba(5,23,38,.72)}
 
  #exploreRail{
-  left:28px;top:138px;width:224px;z-index:36;pointer-events:auto;
-  padding:2px 0 2px 20px;border-left:1px solid rgba(56,248,212,.32);
-  transition:opacity .35s ease,transform .35s ease,visibility .35s;
+  left:28px;top:138px;width:238px;z-index:36;pointer-events:auto;
+  padding:18px 16px 16px 26px;border-radius:18px;
+  background:linear-gradient(168deg,rgba(6,26,44,.78),rgba(2,12,22,.68));
+  border:1px solid rgba(56,248,212,.2);
+  box-shadow:0 18px 44px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.06);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  transition:opacity .45s cubic-bezier(.16,1,.3,1),transform .45s cubic-bezier(.16,1,.3,1),visibility .45s;
  }
  .atlas-species-mode #exploreRail{opacity:0;visibility:hidden;pointer-events:none;transform:translateX(-18px)}
+ /* 摄像头小窗开启时，探索导航下移让位，不遮挡摄像头画面 */
+ body:has(#preview.show) #exploreRail{top:222px}
+ /* 档案模式：摄像头小窗缩窄泊位到左下（全屏按钮上方），不再压住档案照片与全屏按钮 */
+ .atlas-species-mode #preview.show{
+   left:16px!important; right:auto!important; top:auto!important; bottom:84px!important;
+   width:130px!important; height:92px!important;
+ }
  .explore-rail-kicker{display:block;margin-bottom:10px;font:700 9px/1 var(--font-mono);letter-spacing:.26em;color:var(--cyan)}
- #exploreRail h2{margin:0 0 25px;font:700 22px/1.2 var(--font-serif);letter-spacing:.07em;color:#f3faf7}
- .explore-steps{list-style:none;display:grid;gap:22px;margin:0;padding:0}
- .explore-steps li{position:relative;display:flex;gap:12px;align-items:flex-start;opacity:.43;transition:opacity .25s ease,transform .25s ease}
- .explore-steps li::before{content:"";position:absolute;left:-25px;top:8px;width:9px;height:9px;border-radius:50%;background:#213946;border:2px solid #07131d;box-shadow:0 0 0 1px rgba(117,198,208,.24)}
- .explore-steps li:not(:last-child)::after{content:"";position:absolute;left:-21px;top:18px;width:1px;height:49px;background:linear-gradient(rgba(75,183,187,.42),rgba(75,183,187,.05))}
+ #exploreRail h2{margin:0 0 20px;font:700 21px/1.2 var(--font-serif);letter-spacing:.07em;color:#f3faf7}
+ .explore-steps{list-style:none;display:grid;gap:18px;margin:0;padding:0}
+ .explore-steps li{position:relative;display:flex;gap:12px;align-items:flex-start;opacity:.4;transition:opacity .3s ease,transform .3s cubic-bezier(.16,1,.3,1)}
+ .explore-steps li::before{content:"";position:absolute;left:-24px;top:7px;width:9px;height:9px;border-radius:50%;background:#213946;border:2px solid #0a1b28;box-shadow:0 0 0 1px rgba(117,198,208,.24)}
+ .explore-steps li:not(:last-child)::after{content:"";position:absolute;left:-20px;top:19px;width:1px;height:42px;background:linear-gradient(rgba(75,183,187,.42),rgba(75,183,187,.05))}
  .explore-steps li.active,.explore-steps li.complete{opacity:1}
  .explore-steps li.active{transform:translateX(3px)}
- .explore-steps li.active::before{background:var(--cyan);box-shadow:0 0 0 3px rgba(56,248,212,.12),0 0 15px rgba(56,248,212,.7)}
+ .explore-steps li.active::before{background:var(--cyan);box-shadow:0 0 0 3px rgba(56,248,212,.14),0 0 15px rgba(56,248,212,.7)}
+ .explore-steps li.complete::before{background:rgba(56,248,212,.45);box-shadow:0 0 10px rgba(56,248,212,.3)}
  .explore-steps li i{font:700 9px/1.4 var(--font-mono);font-style:normal;color:var(--cyan);letter-spacing:.1em}
  .explore-steps li b{display:block;margin-bottom:4px;font-size:13px;font-weight:600;color:#edf7f4}
  .explore-steps li span{display:block;font-size:10.5px;line-height:1.45;color:var(--ink-dim)}
- .explore-rail-tools{display:grid;gap:7px;margin-top:27px}
- .rail-tool{width:max-content;padding:0;border:0;background:transparent;color:#7f9aa7;font:11px/1.6 var(--font-sans);cursor:pointer;text-align:left;border-bottom:1px solid transparent;transition:.2s ease}
- .rail-tool:hover,.rail-tool:focus-visible{color:var(--cyan);border-color:rgba(56,248,212,.45);outline:none}
+ .explore-rail-tools{display:grid;gap:8px;margin-top:20px;padding-top:14px;border-top:1px solid rgba(135,222,255,.12)}
+ .rail-tool{width:100%;min-height:34px;padding:0 12px;border-radius:10px;border:1px solid rgba(143,207,211,.2);background:rgba(10,36,52,.55);color:#cde6ea;font:600 11px/1 var(--font-sans);cursor:pointer;text-align:left;display:inline-flex;align-items:center;gap:8px;transition:all .2s ease}
+ .rail-tool::before{content:"›";color:#5adfc8;font-weight:700}
+ .rail-tool:hover,.rail-tool:focus-visible{color:#fff;border-color:rgba(56,248,212,.5);background:rgba(56,248,212,.1);outline:none}
 
  #filterHub.planet-mode{
   top:auto;bottom:22px;left:54%;width:min(790px,calc(100vw - 520px));transform:translateX(-50%);
@@ -1722,44 +1813,75 @@
  /* 卡脚阅读顺序：声音预载 → 操作区 → 图片来源脚注 */
  .card-footer{padding-top:12px;gap:11px}
  #soundTags{order:1;margin-bottom:0}
- .sound-tag{display:grid;align-items:center}
+ .sound-tag{display:flex}
  .card-actions{order:2}
  .credit-block{order:3;justify-content:flex-start;gap:8px;margin-top:1px}
  /* 操作区分组：讲述（主） / 助手·观测 / 海报·来源 / 返回（导航） */
  .card-actions{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"voice voice" "ask gbif" "poster source" "unlock unlock";column-gap:8px;row-gap:8px}
- .card-actions .card-link,.card-actions .card-unlock,.card-actions .gbif-toggle{width:100%;min-height:42px;padding:0 14px;border-radius:10px;font-size:11px}
- .card-actions .card-link{color:#d5e8ea;background:rgba(8,31,43,.62);border-color:rgba(143,207,211,.28);box-shadow:none}
- .card-actions .card-link.primary{color:#032019;background:#35e6cf;border-color:#35e6cf;box-shadow:none;min-height:48px;font-size:12.5px}
- .card-actions .ask-assistant-link{grid-column:auto;color:#d6edee;background:rgba(23,86,94,.28);border-color:rgba(85,213,210,.32)}
+ /* 统一按钮规格：同高、同圆角、同排版；层级只靠"填充 vs 幽灵"区分，不再各用一套配色 */
+ .card-actions .card-link,.card-actions .card-unlock,.card-actions .gbif-toggle{width:100%;min-height:42px;padding:0 13px;border-radius:11px;font-size:11.5px;font-weight:600;letter-spacing:.01em;justify-content:center;gap:8px;box-shadow:none;transform:none}
+ .card-actions .card-link,.card-actions .card-unlock{color:#cde6ea;background:rgba(10,36,52,.6);border-color:rgba(143,207,211,.22)}
+ .card-actions .card-link:hover,.card-actions .card-link:focus-visible,.card-actions .card-unlock:hover,.card-actions .card-unlock:focus-visible{color:#fff;background:rgba(56,248,212,.12);border-color:rgba(56,248,212,.55);box-shadow:0 0 14px rgba(56,248,212,.16)}
+ /* 图标统一淡水青色，视觉重量一致；主操作继承按钮文字色 */
+ .card-actions .action-icon{color:#5adfc8;opacity:1}
+ .card-actions .card-link.primary .action-icon,.card-actions .voice-echo-link.paused .action-icon{color:inherit}
+ /* 主操作：全卡唯一填充按钮 */
+ .card-actions .card-link.primary{min-height:44px;font-size:12.5px;font-weight:700;color:#032019;background:linear-gradient(135deg,#3ef0d2,#22d3ee);border-color:transparent;box-shadow:0 4px 18px rgba(56,248,212,.3)}
+ .card-actions .card-link.primary:hover,.card-actions .card-link.primary:focus-visible{color:#032019;background:linear-gradient(135deg,#5ff7dd,#43e4ff);box-shadow:0 6px 24px rgba(56,248,212,.42)}
+ .card-actions .voice-echo-link.paused{color:#2a1d04;background:linear-gradient(135deg,#ffe08a,#ffc56b);border-color:transparent;box-shadow:0 4px 16px rgba(255,209,102,.28)}
+ .card-actions .ask-assistant-link{grid-column:auto}
  #voiceEchoBtn{grid-area:voice}
  #askAssistantBtn{grid-area:ask}
  #gbifToggle{grid-area:gbif}
  #shareBtn{grid-area:poster}
  #sourceLink{grid-area:source}
  #unlockDetail{grid-area:unlock}
- .atlas-species-mode #infoCard .gbif-toggle{display:inline-flex;justify-content:center;background:rgba(8,31,43,.62);border-color:rgba(143,207,211,.28);box-shadow:none}
+ /* 返回地球：导航型操作，最弱层级但保持同一按钮规格 */
+ .card-actions #unlockDetail{color:#9db9c4;background:rgba(10,36,52,.38);border-color:rgba(143,207,211,.16);letter-spacing:.06em}
+ .card-actions #unlockDetail:hover,.card-actions #unlockDetail:focus-visible{color:#eaf6f3;background:rgba(56,248,212,.1);border-color:rgba(56,248,212,.4);box-shadow:none}
+ .atlas-species-mode #infoCard .gbif-toggle{display:inline-flex;justify-content:center;background:rgba(10,36,52,.6);border-color:rgba(143,207,211,.22);box-shadow:none}
  .atlas-species-mode #infoCard .gbif-toggle.on{color:#032019;background:#35e6cf;border-color:#35e6cf;box-shadow:0 0 16px rgba(53,230,207,.24)}
  #infoCard .gbif-toggle-emblem{width:16px;height:16px;border:0;background:transparent;box-shadow:none;border-radius:0}
  #infoCard .gbif-toggle-emblem svg{width:16px;height:16px}
- #infoCard .card-observation-link{color:#bcefee;background:rgba(16,92,99,.34);border-color:rgba(87,220,211,.46);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 0 14px rgba(56,248,212,.08)}
- #infoCard .card-observation-link:hover,#infoCard .card-observation-link:focus-visible{color:#f0fffd;background:rgba(33,145,145,.42);border-color:#62f4e1;box-shadow:0 0 20px rgba(56,248,212,.22)}
- #infoCard .card-observation-link .gbif-toggle-emblem{width:18px;height:18px}
- #infoCard .card-observation-link .gbif-toggle-emblem svg{width:18px;height:18px}
- #infoCard .gbif-toggle-copy small{display:block;font:600 9px/1 var(--font-mono);color:#83aab7;letter-spacing:.04em;white-space:nowrap}
- #infoCard .gbif-toggle-copy strong{font-size:11px;font-weight:600}
- /* GBIF 状态必须像地图图层开关：固定图标槽位，右侧状态点表达开关/加载。 */
- #infoCard .gbif-toggle{position:relative;gap:8px;justify-content:center}
- #infoCard .gbif-toggle::after{content:"";width:6px;height:6px;flex:none;border-radius:50%;background:#557481;box-shadow:0 0 0 3px rgba(85,116,129,.12);transition:background .2s ease,box-shadow .2s ease}
- #infoCard .gbif-toggle:hover::after,#infoCard .gbif-toggle:focus-visible::after{background:var(--cyan);box-shadow:0 0 0 3px rgba(56,248,212,.15),0 0 10px rgba(56,248,212,.55)}
- #infoCard .gbif-toggle.loading::after{background:#ffd166;box-shadow:0 0 0 3px rgba(255,209,102,.14),0 0 10px rgba(255,209,102,.42)}
- #infoCard .gbif-toggle.on::after{background:#032028;box-shadow:0 0 0 3px rgba(3,32,40,.14)}
- #infoCard .gbif-toggle.loading .gbif-toggle-copy small{color:#ffd166}
- #infoCard .gbif-toggle.on .gbif-toggle-copy small{color:rgba(3,26,27,.78)}
+ #infoCard .card-observation-link{color:#cde6ea}
+ #infoCard .card-observation-link:hover,#infoCard .card-observation-link:focus-visible{color:#fff;background:rgba(56,248,212,.12);border-color:rgba(56,248,212,.55);box-shadow:0 0 14px rgba(56,248,212,.16)}
+ /* 收成单行标签，与同级按钮同密度；右侧状态点表达 开/加载/关 */
+ #infoCard .gbif-toggle-copy small{display:none}
+ #infoCard .gbif-toggle-copy strong{font-size:11.5px;font-weight:600}
+ #infoCard .gbif-toggle{position:relative;gap:7px}
+ #infoCard .gbif-toggle::after{content:"";width:6px;height:6px;flex:none;border-radius:50%;background:#557481;box-shadow:0 0 0 2px rgba(85,116,129,.12);transition:background .2s ease,box-shadow .2s ease}
+ #infoCard .gbif-toggle:hover::after,#infoCard .gbif-toggle:focus-visible::after{background:var(--cyan);box-shadow:0 0 0 2px rgba(56,248,212,.15),0 0 10px rgba(56,248,212,.55)}
+ #infoCard .gbif-toggle.loading::after{background:#ffd166;box-shadow:0 0 0 2px rgba(255,209,102,.14),0 0 10px rgba(255,209,102,.42)}
+ #infoCard .gbif-toggle.on::after{background:#032028;box-shadow:0 0 0 2px rgba(3,32,40,.14)}
  #infoCard .gbif-toggle[aria-busy="true"]{cursor:wait}
+ /* 物种模式下深度滑条整体移到档案卡左侧，不再压住卡片右缘 */
+ .atlas-species-mode #depthScrubber{right:calc(min(416px,38vw) + 56px)}
+ /* 深度滑条只属于“下潜进行中”：默认向右滑出淡出，body.depth-active 时归位（expo-out 缓动） */
+ #depthScrubber{
+   opacity:0;pointer-events:none;
+   transform:translateY(-50%) translateX(46px);
+   transition:opacity .55s cubic-bezier(.16,1,.3,1),transform .55s cubic-bezier(.16,1,.3,1),right .55s cubic-bezier(.16,1,.3,1),filter .3s ease;
+ }
+ body.depth-active #depthScrubber{
+   opacity:1;pointer-events:auto;transform:translateY(-50%);
+ }
  /* ==================== 观测分布平面地图（替代原球面靶心 + 图例） ==================== */
  #gbifFlatMap{position:fixed;inset:0;z-index:88;display:grid;place-items:center;padding:22px;background:rgba(1,5,12,.82);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);opacity:0;pointer-events:none;transition:opacity .28s cubic-bezier(.2,.8,.2,1)}
  #gbifFlatMap.open{opacity:1;pointer-events:auto}
- .gbif-map-panel{width:min(1080px,96vw);height:min(660px,90vh);display:flex;flex-direction:column;border-radius:22px;border:1px solid rgba(56,248,212,.32);background:linear-gradient(170deg,rgba(5,24,42,.97),rgba(2,11,20,.96));box-shadow:0 36px 110px rgba(0,0,0,.85),0 0 60px rgba(56,248,212,.12);overflow:hidden}
+ .gbif-map-panel{width:min(1080px,96vw);height:min(660px,90vh);display:flex;flex-direction:column;border-radius:22px;border:1px solid rgba(56,248,212,.32);background:linear-gradient(170deg,rgba(5,24,42,.97),rgba(2,11,20,.96));box-shadow:0 36px 110px rgba(0,0,0,.85),0 0 60px rgba(56,248,212,.12);overflow:hidden;transform:translateY(14px) scale(.98);transition:transform .5s cubic-bezier(.16,1,.3,1)}
+ #gbifFlatMap.open .gbif-map-panel{transform:none}
+ /* 图例：说明每种标记的含义，随数据来源自动切换可见行 */
+ .gbif-map-legend{position:absolute;left:14px;bottom:14px;z-index:5;display:grid;gap:7px;padding:11px 14px;border-radius:12px;border:1px solid rgba(143,207,211,.2);background:rgba(3,14,24,.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 10px 26px rgba(0,0,0,.4);pointer-events:none;animation:gbifLegendIn .6s cubic-bezier(.16,1,.3,1) both .2s}
+ @keyframes gbifLegendIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+ .gml-row{display:flex;align-items:center;gap:8px;font:600 9.5px/1 var(--font-mono);color:#a9c9d4;letter-spacing:.05em}
+ .gml-swatch{width:10px;height:10px;border-radius:50%;flex:none}
+ .gml-gbif{background:radial-gradient(circle,#fff8e7 0%,#ffd166 40%,rgba(255,181,71,.3) 68%,transparent 76%);box-shadow:0 0 9px rgba(255,181,71,.85)}
+ .gml-ref{background:radial-gradient(circle,#fff 0%,#ffe9a8 42%,rgba(255,233,168,.24) 70%,transparent 78%);box-shadow:0 0 9px rgba(255,233,168,.8);border:1px dashed rgba(255,233,168,.65)}
+ .gml-note{color:#6d93a4;font-size:9px;letter-spacing:.03em}
+ #gbifMapLegend .gml-row[data-when="fallback"]{display:none}
+ #gbifMapLegend[data-source="fallback"] .gml-row[data-when="gbif"]{display:none}
+ #gbifMapLegend[data-source="fallback"] .gml-row[data-when="fallback"]{display:flex}
+ #gbifMapLegend[data-source="fallback"] .gml-note[data-when="gbif"]{display:none}
  .gbif-map-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px 20px 13px;border-bottom:1px solid rgba(126,164,177,.16)}
  .gbif-map-title-group{display:grid;gap:3px;min-width:0}
  .gbif-map-kicker{font:700 9px/1 var(--font-mono);letter-spacing:.22em;color:var(--cyan);text-transform:uppercase}
@@ -1774,14 +1896,20 @@
  .gbif-map-stage.dragging{cursor:grabbing}
  #gbifMapCanvas{position:absolute;inset:0;width:100%;height:100%;display:block}
  .gbif-map-tooltip{position:absolute;z-index:3;pointer-events:none;padding:7px 10px;border:1px solid rgba(255,209,102,.55);border-radius:9px;background:rgba(24,15,4,.94);color:#ffe8b0;font:600 10.5px/1.45 var(--font-mono);box-shadow:0 10px 26px rgba(0,0,0,.5),0 0 14px rgba(255,181,71,.2);white-space:nowrap}
- .gbif-map-tooltip strong{display:block;color:#fff3c7;font-size:11.5px;margin-bottom:1px}
+ .gbif-map-tooltip strong{display:block;color:#fff3c7;font-size:11.5px;margin-bottom:2px}
+ .gbif-map-tooltip em{display:block;font-style:normal;color:#9fc3d6;font-size:9.5px;margin-top:3px}
  .gbif-map-loading{position:absolute;inset:0;z-index:4;display:grid;place-items:center;background:rgba(2,10,18,.62);color:#9fe8dd;font:600 12px/1 var(--font-sans);letter-spacing:.06em}
  .gbif-map-loading[hidden]{display:none}
  .gbif-map-empty{position:absolute;inset:0;z-index:4;display:grid;place-items:center;color:#83aab7;font:600 12px/1.6 var(--font-sans);text-align:center;padding:20px}
  .gbif-map-empty[hidden]{display:none}
  .gbif-map-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 20px;border-top:1px solid rgba(126,164,177,.16);color:#c6e7ea;font:600 10.5px/1.3 var(--font-mono)}
  .gbif-map-stats b{color:#ffd166}
+ .gbif-map-coords{color:#6fe3d2;letter-spacing:.06em;font-variant-numeric:tabular-nums}
  .gbif-map-hint{color:#6d93a4;font-size:9.5px}
+ /* 缩放控制按钮组（Leaflet/Mapbox 惯例）：竖排玻璃按钮，悬停于地图右侧 */
+ .gbif-map-zoom{position:absolute;right:14px;top:14px;z-index:6;display:flex;flex-direction:column;gap:6px;animation:gbifLegendIn .6s cubic-bezier(.16,1,.3,1) both .1s}
+ .gbif-map-zoom button{width:34px;height:34px;border-radius:10px;border:1px solid rgba(143,207,211,.26);background:rgba(3,16,27,.82);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#bfe4ea;font:700 15px/1 var(--font-mono);cursor:pointer;display:grid;place-items:center;transition:all .2s ease;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+ .gbif-map-zoom button:hover,.gbif-map-zoom button:focus-visible{color:#03201b;border-color:transparent;background:linear-gradient(135deg,#3ef0d2,#22d3ee);box-shadow:0 0 18px rgba(56,248,212,.4);outline:none}
  @media(max-width:760px){
    #gbifFlatMap{padding:0}
    .gbif-map-panel{width:100vw;height:100vh;border-radius:0;border:0}
@@ -1819,10 +1947,7 @@
    .gbif-cluster-label.is-left{transform:translate(-12px,calc(-27px + var(--label-offset-y))) translateX(-100%)}
    .gbif-cluster-label strong{font-size:12px}
  }
- .card-actions #sourceLink{min-height:42px;background:rgba(8,31,43,.62);border-color:rgba(143,207,211,.28);color:#b3c8d0;box-shadow:none}
- .card-actions #sourceLink:hover{color:#eaf6f3;border-color:rgba(56,248,212,.45);background:rgba(56,248,212,.08);box-shadow:none;transform:translateY(-1px)}
- .card-actions #unlockDetail{min-height:38px;color:#a8c5d4;border-color:rgba(143,207,211,.22);background:rgba(8,31,43,.3);font-weight:600;letter-spacing:.05em}
- .card-actions #unlockDetail:hover{color:#fff;border-color:rgba(56,248,212,.5);background:rgba(56,248,212,.1);transform:translateY(-1px);box-shadow:0 0 12px rgba(56,248,212,.2)}
+ /* 来源/返回按钮已并入上方统一按钮规格，此处不再单独配色 */
 
  #speciesNav{bottom:19px;gap:9px;padding:5px 8px;border-radius:16px;background:rgba(2,11,19,.58);border:1px solid rgba(137,214,220,.11);backdrop-filter:blur(16px)}
  .dots-rail{padding:7px 12px;background:transparent;border:0;backdrop-filter:none}
@@ -2048,10 +2173,12 @@
       </div>
       <div id="soundTags" class="sound-tags" aria-label="声音资源状态">
         <div class="sound-tag" data-kind="voice" data-state="idle" role="status" aria-disabled="true" aria-label="动物独白状态">
+          <span class="sound-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           <span class="sound-tag-label">动物独白</span><small class="sound-tag-status">由“听它讲述”控制</small>
         </div>
         <div class="sound-tag" data-kind="ambience" data-state="idle" role="status" aria-disabled="true" aria-label="栖息地环境声状态">
-          <span class="sound-tag-label">栖息地环境声</span><small class="sound-tag-status">随物种档案淡入</small>
+          <span class="sound-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="sound-tag-label">栖息地环境声</span><small class="sound-tag-status">随档案自动淡入</small>
         </div>
       </div>
        <div class="card-actions">
@@ -2133,13 +2260,24 @@
       </header>
       <div class="gbif-map-stage">
         <canvas id="gbifMapCanvas"></canvas>
+        <div class="gbif-map-zoom" role="group" aria-label="地图缩放控制">
+          <button id="gbifMapZoomIn" type="button" aria-label="放大" title="放大">+</button>
+          <button id="gbifMapZoomOut" type="button" aria-label="缩小" title="缩小">−</button>
+          <button id="gbifMapReset" type="button" aria-label="复位视图" title="复位视图">⟲</button>
+        </div>
         <div class="gbif-map-tooltip" id="gbifMapTooltip" hidden></div>
+        <div class="gbif-map-legend" id="gbifMapLegend" aria-hidden="true">
+          <span class="gml-row" data-when="gbif"><i class="gml-swatch gml-gbif"></i>GBIF 观测记录 · 呼吸涟漪</span>
+          <span class="gml-row" data-when="fallback"><i class="gml-swatch gml-ref"></i>档案参考点 · 离线回退</span>
+          <span class="gml-row gml-note" data-when="gbif">同网格记录合并为聚集区</span>
+        </div>
         <div class="gbif-map-loading" id="gbifMapLoading" hidden>正在读取观测记录…</div>
         <div class="gbif-map-empty" id="gbifMapEmpty" hidden>暂无可显示的观测坐标<br><small>可稍后重试，或先浏览左侧物种档案</small></div>
       </div>
       <footer class="gbif-map-foot">
         <span class="gbif-map-stats" id="gbifMapStats">-- 个位置 · -- 个聚集区</span>
-        <span class="gbif-map-hint">拖拽平移 · 滚轮缩放 · 悬停查看坐标 · 双击复位 · Esc 关闭</span>
+        <span class="gbif-map-coords" id="gbifMapCoords">经纬 --</span>
+        <span class="gbif-map-hint">拖拽平移 · 滚轮/按钮缩放 · 悬停查看坐标 · 双击复位 · Esc 关闭</span>
       </footer>
     </div>
   </div>
@@ -2199,7 +2337,7 @@
   </div>
 
   <!-- 吐司提示 -->
-  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="toast" role="status" aria-live="polite"><span class="toast-icon" aria-hidden="true">✦</span><span class="toast-text"></span></div>
 
    <!-- 手势图鉴模态窗口 -->
   <div id="gestureGuide" aria-hidden="true">
@@ -2294,7 +2432,7 @@
             </svg>
           </div>
           <div class="g-info">
-            <div class="g-meta"><span class="g-name">OK 手势 · 固定档案</span><span class="g-code">ok / pinch</span></div>
+            <div class="g-meta"><span class="g-name">OK 手势 · 固定档案</span><span class="g-code">ok</span></div>
             <div class="g-desc">拇指与食指捏合成圈、其余三指自然伸开，锁定当前动物标本档案；再次比 OK 解除锁定。</div>
             <div class="g-tip">固定后可从容阅读故事与科考数据，左右挥掌不再误切；需在动物显影后使用。</div>
           </div>
@@ -2335,7 +2473,7 @@
             </svg>
           </div>
           <div class="g-info">
-            <div class="g-meta"><span class="g-name">巴掌左右挥 · 切换物种</span><span class="g-code">palm swipe</span></div>
+            <div class="g-meta"><span class="g-name">巴掌左右挥 · 切换物种</span><span class="g-code">swipe</span></div>
             <div class="g-desc">物种页面保持张掌：向左挥巴掌进入下一个物种，向右挥巴掌返回上一个物种。</div>
             <div class="g-tip">只在 species 模式生效；停稳后再做下一次左右挥掌。</div>
           </div>
@@ -2356,7 +2494,7 @@
             </svg>
           </div>
           <div class="g-info">
-            <div class="g-meta"><span class="g-name">单指移动 · 旋转地球</span><span class="g-code">one / point</span></div>
+            <div class="g-meta"><span class="g-name">单指移动 · 旋转地球</span><span class="g-code">point</span></div>
             <div class="g-desc">只伸出单根食指，连续确认后用食指尖在空中拖拽即可平滑旋转三维地球。</div>
             <div class="g-tip">只在 planet 模式生效；进入物种卡片后自动释放。</div>
           </div>
@@ -2504,8 +2642,14 @@
   <div id="posterLightbox" role="dialog" aria-modal="true" aria-hidden="true" aria-label="海报全屏预览">
     <button class="lightbox-close" id="closeLightbox" type="button" aria-label="关闭海报预览">×</button>
     <div class="lightbox-content">
-      <img id="lightboxImg" alt="当前物种生态海报全屏预览">
-      <div class="lightbox-hint">点击海报或空白处关闭 · ESC 返回</div>
+      <img id="lightboxImg" alt="当前物种生态海报全屏预览" draggable="false">
+      <div class="lightbox-zoom" role="group" aria-label="海报缩放控制">
+        <button id="lightboxZoomOut" type="button" aria-label="缩小" title="缩小">−</button>
+        <span class="lightbox-zoom-level" id="lightboxZoomLevel">100%</span>
+        <button id="lightboxZoomIn" type="button" aria-label="放大" title="放大">+</button>
+        <button id="lightboxZoomReset" type="button" aria-label="还原尺寸" title="还原尺寸">⟲</button>
+      </div>
+      <div class="lightbox-hint">滚轮缩放 · 拖拽平移 · 双击放大/还原 · ESC 或空白处关闭</div>
     </div>
   </div>
 
@@ -2535,11 +2679,11 @@
    <div class="coach-body">
     <p class="coach-lead"><strong>用鼠标就能完成全部核心浏览。</strong> 摄像头手势是可选体验，只有你主动开启时才会请求权限。</p>
     <ol class="coach-steps">
-     <li><i>01</i><div class="coach-step-copy"><b>选择物种</b><span>点击“开始探索”，按名称、学名或保护等级搜索。</span><em>按 / 也能直接打开搜索</em></div></li>
-     <li><i>02</i><div class="coach-step-copy"><b>下潜观察</b><span>滚动鼠标让物种显影；进入档案后可用左右箭头切换。</span><em>拖拽地球可改变观察方向</em></div></li>
-     <li><i>03</i><div class="coach-step-copy"><b>阅读档案</b><span>听物种讲述、问海瞳助手、看全球观测，或生成科普海报。</span><em>联网失败时会保留档案地点</em></div></li>
+     <li><i aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m15.8 15.8 4.2 4.2"/><path d="M11 8v6M8 11h6" opacity=".6"/></svg></i><div class="coach-step-copy"><em class="step-kicker">STEP 01</em><b>选择物种</b><span>点击“开始探索”，按名称、学名或保护等级搜索。</span><em class="step-tip">按 / 也能直接打开搜索</em></div></li>
+     <li><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7c2.5 0 2.5 2 5 2s2.5-2 5-2 2.5 2 5 2 2.5-2 5-2" opacity=".55"/><path d="M3 13c2.5 0 2.5 2 5 2s2.5-2 5-2 2.5 2 5 2 2.5-2 5-2"/><path d="M12 17v4m0 0-2.2-2.2M12 21l2.2-2.2"/></svg></i><div class="coach-step-copy"><em class="step-kicker">STEP 02</em><b>下潜观察</b><span>滚动鼠标让物种显影；进入档案后可用左右箭头切换。</span><em class="step-tip">拖拽地球可改变观察方向</em></div></li>
+     <li><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 20.5V5.5"/><path d="M9 8h7M9 12h5" opacity=".6"/></svg></i><div class="coach-step-copy"><em class="step-kicker">STEP 03</em><b>阅读档案</b><span>听物种讲述、问海瞳助手、看全球观测，或生成科普海报。</span><em class="step-tip">地图可拖拽缩放 · 悬停看坐标</em></div></li>
     </ol>
-    <div class="coach-more"><span class="coach-more-title">这些功能是什么？</span><div class="coach-more-list"><span>不知道看什么：点顶栏第一个按钮，系统会自动带你逛</span><span>手势控制：可选，用摄像头隔空操作</span><span>观测分布：联网获取 GBIF 公开记录</span><span>海瞳助手：围绕当前物种回答</span></div></div>
+    <div class="coach-more"><span class="coach-more-title">这些功能是什么？</span><div class="coach-more-list"><span><b>自动导览</b>不知道看什么？系统自动带你逛</span><span><b>手势控制</b>可选 · 摄像头隔空操作</span><span><b>观测分布</b>联网获取 GBIF 公开记录</span><span><b>海瞳助手</b>围绕当前物种持续问答</span></div></div>
     <div class="coach-actions">
      <button class="pill-btn primary" id="coachExplore" type="button">开始探索</button>
      <button class="pill-btn" id="coachOpenGesture" type="button">查看手势说明</button>
@@ -2573,13 +2717,50 @@ import { createGbifFlatMap } from "./assets/js/gbif-flat-map.mjs";
 
 const $ = s => document.querySelector(s);
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, type) {
  const el = $("#toast");
- el.textContent = msg;
+ // 未显式指定类型时按文案语义自动分型：错误/成功/普通提示
+ if (!type) {
+  if (/失败|错误|异常|离线|请重试|不可用|超时|已过期/.test(msg)) type = "error";
+  else if (/^已(复制|导出|下载|生成|保存|开启|切换|重置|退出|显示|锁定|定位|解除|恢复)|^成功/.test(msg)) type = "success";
+  else type = "info";
+ }
+ el.classList.remove("toast-success", "toast-warn", "toast-error");
+ if (type && type !== "info") el.classList.add(`toast-${type}`);
+ const iconEl = el.querySelector(".toast-icon");
+ // 手势相关提示：图标替换为对应手势的动态简笔图标
+ const gestureKey = /握拳|拳头/.test(msg) ? "fist"
+  : /挥|手掌/.test(msg) ? "swipe"
+  : /\bOK\b|捏合/.test(msg) ? "ok"
+  : /单指|旋转地球/.test(msg) ? "point"
+  : /电话|音乐|旋律/.test(msg) ? "call"
+  : /点赞|大拇指|拇指|鲸落/.test(msg) ? "like"
+  : /下潜/.test(msg) ? "palm"
+  : null;
+ if (gestureKey) {
+  el.classList.add("toast-gesture");
+  iconEl.innerHTML = TOAST_GESTURE_ICONS[gestureKey] || "";
+ } else {
+  el.classList.remove("toast-gesture");
+  const icons = { info: "✦", success: "✓", warn: "!", error: "✕" };
+  iconEl.innerHTML = icons[type] || icons.info;
+ }
+ el.querySelector(".toast-text").textContent = msg;
  el.classList.add("show");
  clearTimeout(toastTimer);
  toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
 }
+
+// 手势提示专用动态图标（24×24 简笔，配合 .toast-gesture 旋转/脉动动画）
+const TOAST_GESTURE_ICONS = {
+ swipe: '<svg class="tg-swing" viewBox="0 0 24 24"><path d="M10 17V7.2a1.6 1.6 0 0 1 3.2 0V15" fill="none" stroke="#02131c" stroke-width="1.9" stroke-linecap="round"/><path d="M13.2 15V8.4a1.6 1.6 0 0 1 3.2 0V16" fill="none" stroke="#02131c" stroke-width="1.9" stroke-linecap="round"/><path d="M7.4 20.5h9.2" stroke="#02131c" stroke-width="1.9" stroke-linecap="round"/><path d="M2.6 9.5h3M2 12.5h3.6" stroke="#02131c" stroke-width="1.7" stroke-linecap="round"/></svg>',
+ fist: '<svg class="tg-pulse" viewBox="0 0 24 24"><rect x="6" y="7.5" width="12" height="10.5" rx="3.4" fill="none" stroke="#02131c" stroke-width="1.9"/><path d="M9.4 8v3.6M12.7 8v3.6M16 8v3.6" stroke="#02131c" stroke-width="1.7" stroke-linecap="round"/></svg>',
+ ok: '<svg class="tg-swing" viewBox="0 0 24 24"><circle cx="9.5" cy="10.5" r="3.4" fill="none" stroke="#02131c" stroke-width="1.9"/><path d="M13.6 9.5V4.8a1.5 1.5 0 0 1 3 0v6.4M16.6 9.5V6.4a1.5 1.5 0 0 1 3 0v5.8c0 3.8-2.8 6.8-6.8 6.8-3.4 0-5.6-1.8-6.4-4.6" fill="none" stroke="#02131c" stroke-width="1.9" stroke-linecap="round"/></svg>',
+ point: '<svg class="tg-swing" viewBox="0 0 24 24"><path d="M11 13V4.6a1.7 1.7 0 0 1 3.4 0V13" fill="none" stroke="#02131c" stroke-width="1.9" stroke-linecap="round"/><rect x="8.6" y="13" width="9.4" height="7.4" rx="3" fill="none" stroke="#02131c" stroke-width="1.9"/><circle cx="12.7" cy="4" r="1.9" fill="none" stroke="#02131c" stroke-width="1.4" stroke-dasharray="1.6 1.2"/></svg>',
+ call: '<svg class="tg-swing" viewBox="0 0 24 24"><path d="M7.2 6.8 9.8 9.4l-1.6 1.7c.9 2 2.4 3.5 4.4 4.4l1.7-1.6 2.6 2.6-1.5 2.4c-4.3 1-9.2-3.9-8.2-8.2l2.4-1.5Z" fill="none" stroke="#02131c" stroke-width="1.8" stroke-linejoin="round"/><path d="M15.2 5.2a5.6 5.6 0 0 1 3.6 3.6" fill="none" stroke="#02131c" stroke-width="1.6" stroke-linecap="round"/></svg>',
+ like: '<svg class="tg-bounce" viewBox="0 0 24 24"><path d="M7.5 11.5 12 4.5c1.4 0 2.2.9 2 2.2l-.6 3.3h4.3c1.2 0 2 1.1 1.7 2.2l-1.4 5.2c-.3 1.1-1.2 1.8-2.3 1.8H7.5Z" fill="none" stroke="#02131c" stroke-width="1.8" stroke-linejoin="round"/><rect x="3.6" y="11.5" width="3.9" height="7.7" rx="1.2" fill="none" stroke="#02131c" stroke-width="1.8"/></svg>',
+ palm: '<svg class="tg-pulse" viewBox="0 0 24 24"><path d="M8.5 12V6.4a1.5 1.5 0 0 1 3 0V11M11.5 10.5V5.2a1.5 1.5 0 0 1 3 0V11M14.5 11V6.8a1.5 1.5 0 0 1 3 0V13" fill="none" stroke="#02131c" stroke-width="1.8" stroke-linecap="round"/><path d="M17.5 13v3.4c0 3.4-2.6 6-6.2 6-3.2 0-5.3-1.9-5.8-5.2l-.7-4a1.5 1.5 0 0 1 2.9-.8" fill="none" stroke="#02131c" stroke-width="1.8" stroke-linecap="round"/></svg>',
+};
 
 const CONFIG = {
  atlasChat: true,
@@ -3311,7 +3492,13 @@ const SPECIES_GEO = [
 
 /* ==================== GBIF 全球观测分布层 ==================== */
 let gbifStorage = null;
-try { gbifStorage = window.localStorage; } catch (error) { /* 隐私模式下直接使用会话数据。 */ }
+try {
+  gbifStorage = window.localStorage;
+  // 缓存升级 v1→v2 的一次性清理：v1 键没有元数据，留着只会占用空间
+  for (const key of Object.keys(window.localStorage)) {
+    if (key.startsWith("haitong-gbif-v1:")) window.localStorage.removeItem(key);
+  }
+} catch (error) { /* 隐私模式下直接使用会话数据。 */ }
 const gbifClient = CONFIG.gbifLayer.enabled ? createGbifClient({
  fetchImpl: (...args) => window.fetch(...args),
  storage: gbifStorage,
@@ -3334,6 +3521,8 @@ let gbifLegendSpeciesIndex = 0;
 const gbifClusterLabels = $("#gbifClusterLabels");
 // 观测点原始坐标（每物种 ≤100 个），供平面地图渲染与悬停命中测试使用。
 let gbifRawPoints = [];
+// 与 gbifRawPoints 逐条对齐的观测元数据（日期/记录类型/地点），供悬停提示展示。
+let gbifRecordMeta = null;
 // 观测分布平面地图：点击“查看观测分布/观测模式”时全屏打开，不再把靶心画在球面上。
 const gbifFlatMap = createGbifFlatMap({
  root: $("#gbifFlatMap"),
@@ -3344,7 +3533,12 @@ const gbifFlatMap = createGbifFlatMap({
  speciesEl: $("#gbifMapSpecies"),
  sourceEl: $("#gbifMapSource"),
  statsEl: $("#gbifMapStats"),
+ coordsEl: $("#gbifMapCoords"),
  closeBtn: $("#gbifMapClose"),
+ legendEl: $("#gbifMapLegend"),
+ zoomInBtn: $("#gbifMapZoomIn"),
+ zoomOutBtn: $("#gbifMapZoomOut"),
+ resetViewBtn: $("#gbifMapReset"),
  getMaskBytes: getEarthMaskBytes,
  onClose: () => {
   // 通过 ×/Esc/点击遮罩关闭时，与图层开关保持同一状态口径。
@@ -3368,6 +3562,7 @@ function syncGbifFlatMap() {
    : "档案参考点";
  gbifFlatMap.setData({
   points: gbifLayerLoading ? [] : gbifRawPoints,
+  records: gbifLayerLoading ? null : gbifRecordMeta,
   species: `${species.cn || "当前物种"}${species.la ? ` · ${species.la}` : ""}`,
   source: sourceLabel,
   loading: gbifLayerLoading,
@@ -3594,6 +3789,7 @@ async function loadGbifForCurrentSpecies({ force = false } = {}) {
  gbifLayerLoading = true;
  gbifLayerClusterCount = 0;
  gbifClusters = [];
+ gbifRecordMeta = null;
  syncGbifClusterLabels();
  updateGbifUi();
  const result = await gbifClient.loadSpecies({
@@ -3603,6 +3799,7 @@ async function loadGbifForCurrentSpecies({ force = false } = {}) {
  });
  if (requestToken !== gbifRequestToken || !gbifLayerEnabled || requestedSpeciesIndex !== speciesIdx) return;
  gbifLayerPointCount = updateGbifPointPositions(result.points);
+ gbifRecordMeta = Array.isArray(result.meta) ? result.meta : null;
  gbifLayerSource = result.source;
  gbifLayerStale = !!result.stale;
  gbifLoadedSpeciesIndex = requestedSpeciesIndex;
@@ -4427,6 +4624,9 @@ function syncUiState() {
   } else if (uiState === "whaleFall" && speciesTransition.preset === "idle") {
     endWhaleFall(false);
   }
+  // 深度滑条在“下潜”与“档案”两个阶段常驻（显示当前深度），
+  // 返回地球/星球待机时随转场向右滑出淡出
+  document.body.classList.toggle("depth-active", uiState === "diving" || uiState === "species");
   syncExplorationGuidance();
 }
 let speciesSoundRevealedFor = -1;
@@ -6065,49 +6265,91 @@ const POSTER_STYLE_NAMES = {
   gallery: "当代画廊策展"
 };
 
+// 海报日期取实时系统时间，不再硬编码
+const _posterNow = new Date();
+const POSTER_DATE_Y = String(_posterNow.getFullYear());
+const POSTER_DATE_M = String(_posterNow.getMonth() + 1).padStart(2, "0");
+const POSTER_DATE_D = String(_posterNow.getDate()).padStart(2, "0");
+const POSTER_MONTH_EN = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"][_posterNow.getMonth()];
+
 // 官方海瞳平台统一专属【海洋生物荧光蓝】Logo 渲染函数
+// 徽记几何与 favicon.svg（浏览器标签栏图标）完全同源，确保印刷物料与站点品牌一致
+// (x, y) 为徽记圆心；文字在徽记右侧两行堆叠（主标海瞳 HAITONG / 副标海洋全域智守平台）
 function drawHaitongOfficialLogo(ctx, x, y, size = 36, showText = true) {
+  const TAU = Math.PI * 2;
   ctx.save();
-  ctx.translate(x, y);
+  // ---- 徽记：按 favicon.svg viewBox 32 等比复刻，圆心对齐调用点 (x, y) ----
+  ctx.translate(x - size / 2, y - size / 2);
+  const u = size / 32;
+  ctx.scale(u, u);
 
-  const pri = "#38f8d4"; // 标志性海洋生物荧光青
-  const sec = "#1be7ff"; // 深海电光天青
+  // 1. 深空底圆 + 荧光描边
+  const bgGrad = ctx.createRadialGradient(16, 16, 2, 16, 16, 15);
+  bgGrad.addColorStop(0, "#062b44");
+  bgGrad.addColorStop(1, "#020e18");
+  ctx.beginPath(); ctx.arc(16, 16, 15, 0, TAU);
+  ctx.fillStyle = bgGrad; ctx.fill();
+  ctx.strokeStyle = "#38f8d4"; ctx.lineWidth = 1.2; ctx.stroke();
 
-  // 1. 外部天体运行环与轨道节点
-  ctx.strokeStyle = pri;
-  ctx.lineWidth = Math.max(1.5, size * 0.06);
-  ctx.beginPath(); ctx.arc(0, 0, size * 0.48, 0, Math.PI * 2); ctx.stroke();
+  // 2. 轨道虚线与两极节点
+  ctx.beginPath(); ctx.arc(16, 16, 12, 0, TAU);
+  ctx.strokeStyle = "rgba(56, 248, 212, 0.45)"; ctx.lineWidth = 0.8;
+  ctx.setLineDash([2, 1.5]); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = "#1be7ff";
+  ctx.beginPath(); ctx.arc(24.5, 7.5, 1.2, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#38f8d4";
+  ctx.beginPath(); ctx.arc(7.5, 24.5, 1.2, 0, TAU); ctx.fill();
 
-  // 轨道两极节点
-  ctx.fillStyle = sec;
-  ctx.beginPath(); ctx.arc(size * 0.48 * Math.cos(0.7), size * 0.48 * Math.sin(0.7), size * 0.08, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(size * 0.48 * Math.cos(3.8), size * 0.48 * Math.sin(3.8), size * 0.08, 0, Math.PI * 2); ctx.fill();
+  // 3. 海瞳眼睛流线外轮廓（双贝塞尔弧）
+  const eyeGrad = ctx.createLinearGradient(4, 8, 28, 24);
+  eyeGrad.addColorStop(0, "#38f8d4");
+  eyeGrad.addColorStop(1, "#1be7ff");
+  ctx.beginPath();
+  ctx.moveTo(4, 16);
+  ctx.bezierCurveTo(8, 8, 24, 8, 28, 16);
+  ctx.bezierCurveTo(24, 24, 8, 24, 4, 16);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(56, 248, 212, 0.18)"; ctx.fill();
+  ctx.strokeStyle = eyeGrad; ctx.lineWidth = 1.8; ctx.lineJoin = "round"; ctx.stroke();
 
-  // 2. 海瞳外层生物虹膜
-  ctx.fillStyle = "rgba(56, 248, 212, 0.16)";
-  ctx.beginPath(); ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = sec; ctx.lineWidth = Math.max(1, size * 0.04);
-  ctx.beginPath(); ctx.arc(0, 0, size * 0.36, 0, Math.PI * 2); ctx.stroke();
-
-  // 3. 生命核心瞳孔与高光
-  ctx.fillStyle = pri;
-  ctx.beginPath(); ctx.arc(0, 0, size * 0.22, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#ffffff";
-  ctx.beginPath(); ctx.arc(-size * 0.07, -size * 0.07, size * 0.07, 0, Math.PI * 2); ctx.fill();
-
-  // 4. 品牌文字排版
-  if (showText) {
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#38f8d4";
-    ctx.font = "bold " + Math.round(size * 0.72) + "px 'Cinzel', 'Noto Serif SC', serif";
-    ctx.fillText("海瞳 · HAITONG", size * 0.65, size * 0.1);
-
-    ctx.fillStyle = "#87deff";
-    ctx.font = "600 " + Math.round(size * 0.34) + "px 'JetBrains Mono', monospace";
-    ctx.fillText("BIOLUMINESCENT MARINE ATLAS", size * 0.65, size * 0.42);
-  }
+  // 4. 虹膜环 + 生命核心瞳孔与高光
+  ctx.beginPath(); ctx.arc(16, 16, 5.5, 0, TAU);
+  ctx.fillStyle = "rgba(4, 28, 44, 0.92)"; ctx.fill();
+  ctx.strokeStyle = "#1be7ff"; ctx.lineWidth = 1.2; ctx.stroke();
+  const coreGrad = ctx.createLinearGradient(13, 13, 19, 19);
+  coreGrad.addColorStop(0, "#5cf2ae");
+  coreGrad.addColorStop(1, "#00e5ff");
+  ctx.beginPath(); ctx.arc(16, 16, 3.2, 0, TAU);
+  ctx.fillStyle = coreGrad; ctx.fill();
+  ctx.beginPath(); ctx.arc(14.8, 14.8, 1.1, 0, TAU);
+  ctx.fillStyle = "#ffffff"; ctx.fill();
 
   ctx.restore();
+
+  // ---- 品牌文字：徽记右侧两行堆叠，垂直居中于徽记圆心 ----
+  if (showText) {
+    const textX = x + size / 2 + Math.max(10, size * 0.2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+
+    const primaryY = y - size * 0.08;
+    const subY = y + size * 0.52;
+
+    ctx.font = "800 " + Math.round(size * 0.58) + "px 'Noto Serif SC', serif";
+    ctx.fillStyle = "#eafcf7";
+    ctx.shadowColor = "rgba(56, 248, 212, 0.55)";
+    ctx.shadowBlur = size * 0.26;
+    ctx.fillText("海瞳", textX, primaryY);
+    const haiWidth = ctx.measureText("海瞳").width;
+    ctx.shadowBlur = 0;
+    ctx.font = "700 " + Math.round(size * 0.34) + "px 'JetBrains Mono', monospace";
+    ctx.fillStyle = "#38f8d4";
+    ctx.fillText("HAITONG", textX + haiWidth + size * 0.14, primaryY);
+
+    ctx.font = "600 " + Math.round(size * 0.28) + "px 'JetBrains Mono', monospace";
+    ctx.fillStyle = "rgba(145, 168, 180, 0.95)";
+    ctx.fillText("海 洋 全 域 智 守 平 台", textX, subY);
+  }
 }
 
 // 工具函数：文本自动换行排版
@@ -6188,7 +6430,7 @@ function renderStyleCyber(ctx, W, H, species, img) {
 
   ctx.textAlign = "right";
   ctx.fillStyle = "#38f8d4"; ctx.font = "bold 13px 'JetBrains Mono', monospace";
-  ctx.fillText("REC ● 2026.08.17  |  SPECIMEN NO. " + String(speciesIdx + 1).padStart(2, "0"), W - 70, 88);
+  ctx.fillText("REC ● " + POSTER_DATE_Y + "." + POSTER_DATE_M + "." + POSTER_DATE_D + "  |  SPECIMEN NO. " + String(speciesIdx + 1).padStart(2, "0"), W - 70, 88);
   ctx.textAlign = "left";
 
   ctx.strokeStyle = "rgba(56, 248, 212, 0.25)"; ctx.lineWidth = 1;
@@ -6562,7 +6804,7 @@ function renderStyleNatgeo(ctx, W, H, species, img) {
   ctx.fillText("海瞳大洋自然地理  ·  全球濒危海洋物种特刊", W * 0.5, 180);
 
   ctx.fillStyle = "rgba(255, 255, 255, 0.85)"; ctx.font = "600 11px 'JetBrains Mono', monospace";
-  ctx.fillText("AUGUST 2026  ·  SPECIAL CONSERVATION COLLECTOR'S EDITION", W * 0.5, 202);
+  ctx.fillText(POSTER_MONTH_EN + " " + POSTER_DATE_Y + "  ·  SPECIAL CONSERVATION COLLECTOR'S EDITION", W * 0.5, 202);
   ctx.textAlign = "left";
 
   // 右上角海瞳官方徽章
@@ -6597,7 +6839,7 @@ function renderStyleNatgeo(ctx, W, H, species, img) {
   ctx.textAlign = "right";
   ctx.fillStyle = "#ffffff"; ctx.font = "12px 'JetBrains Mono', monospace";
   ctx.fillText("COVER PHOTO: " + (species.credit || "NOAA FISHERIES"), W - 85, H - 105);
-  ctx.fillText("HAITONG.NATGEO.ORG  ·  VOL. 2026 NO. 8", W - 85, H - 85);
+  ctx.fillText("HAITONG.NATGEO.ORG  ·  VOL. " + POSTER_DATE_Y + " NO. " + (_posterNow.getMonth() + 1), W - 85, H - 85);
   ctx.textAlign = "left";
 }
 
@@ -6645,7 +6887,7 @@ function renderStylePolaroid(ctx, W, H, species, img) {
   }
 
   ctx.fillStyle = "#1a1a1a"; ctx.font = "bold 34px 'Noto Serif SC', cursive, sans-serif";
-  ctx.fillText(species.cn + " · 2026.08", photoX + 10, photoY + photoH + 65);
+  ctx.fillText(species.cn + " · " + POSTER_DATE_Y + "." + POSTER_DATE_M, photoX + 10, photoY + photoH + 65);
   ctx.fillStyle = "#666666"; ctx.font = "italic 18px 'Cinzel', serif";
   ctx.fillText(species.en + " (" + species.la + ")", photoX + 10, photoY + photoH + 105);
 
@@ -7011,29 +7253,134 @@ shareModal.addEventListener("pointerdown", e => { if (e.target === shareModal) c
 
 
 
-// ================= Lightbox 海报全屏放大预览 =================
+// ================= Lightbox 海报全屏放大预览（滚轮缩放 · 拖拽平移 · 双击放大） =================
 const posterLightbox = $("#posterLightbox");
 const lightboxImg = $("#lightboxImg");
 const closeLightboxBtn = $("#closeLightbox");
+const lightboxZoomInBtn = $("#lightboxZoomIn");
+const lightboxZoomOutBtn = $("#lightboxZoomOut");
+const lightboxZoomResetBtn = $("#lightboxZoomReset");
+const lightboxZoomLevelEl = $("#lightboxZoomLevel");
+const POSTER_ZOOM_MIN = 1, POSTER_ZOOM_MAX = 5;
+const posterView = { scale: 1, x: 0, y: 0 };
+let posterBaseRect = null;
+let posterPanning = false;
+let posterPanPointer = null;
+let posterPanLast = null;
+
+function clampPosterPan() {
+  // 平移范围按缩放后的溢出量夹紧；1× 时保留少量弹性余量，保证拖拽始终有反馈
+  if (!posterBaseRect) return;
+  const overflowX = (posterBaseRect.width * (posterView.scale - 1)) / 2;
+  const overflowY = (posterBaseRect.height * (posterView.scale - 1)) / 2;
+  const slack = Math.max(0, 18 * (2 - posterView.scale));
+  posterView.x = Math.max(-overflowX - slack, Math.min(overflowX + slack, posterView.x));
+  posterView.y = Math.max(-overflowY - slack, Math.min(overflowY + slack, posterView.y));
+}
+
+function applyPosterTransform() {
+  clampPosterPan();
+  lightboxImg.style.transform = `translate(${posterView.x}px, ${posterView.y}px) scale(${posterView.scale})`;
+  if (lightboxZoomLevelEl) lightboxZoomLevelEl.textContent = `${Math.round(posterView.scale * 100)}%`;
+}
+
+function setPosterZoom(nextScale, anchorX = null, anchorY = null) {
+  const scale = Math.max(POSTER_ZOOM_MIN, Math.min(POSTER_ZOOM_MAX, nextScale));
+  if (!posterBaseRect) {
+    posterView.scale = scale;
+    applyPosterTransform();
+    return;
+  }
+  // 以光标（或画布中心）为锚点缩放：保持光标下的海报内容不动
+  if (anchorX !== null && anchorY !== null && posterView.scale !== scale) {
+    const ratio = scale / posterView.scale;
+    const cx = posterBaseRect.left + posterBaseRect.width / 2;
+    const cy = posterBaseRect.top + posterBaseRect.height / 2;
+    posterView.x = anchorX - (anchorX - posterView.x) * ratio;
+    posterView.y = anchorY - (anchorY - posterView.y) * ratio;
+  }
+  posterView.scale = scale;
+  applyPosterTransform();
+}
+
+function resetPosterZoom() {
+  posterView.scale = 1;
+  posterView.x = 0;
+  posterView.y = 0;
+  applyPosterTransform();
+}
 
 function openPosterLightbox() {
   if (!currentPosterCanvas) return;
   lightboxImg.src = currentPosterCanvas.toDataURL("image/png");
   posterLightbox.classList.add("open");
   posterLightbox.setAttribute("aria-hidden", "false");
+  // 以 1× 基准尺寸记录包围盒，作为平移夹紧与锚点缩放的参照（测量期间禁用过渡）
+  posterView.scale = 1;
+  posterView.x = 0;
+  posterView.y = 0;
+  lightboxImg.classList.add("poster-panning");
+  lightboxImg.style.transform = "";
+  requestAnimationFrame(() => {
+    posterBaseRect = lightboxImg.getBoundingClientRect();
+    applyPosterTransform();
+    requestAnimationFrame(() => lightboxImg.classList.remove("poster-panning"));
+  });
 }
+
 function closePosterLightbox() {
   posterLightbox.classList.remove("open");
   posterLightbox.setAttribute("aria-hidden", "true");
+  posterPanning = false;
+  posterPanPointer = null;
+  resetPosterZoom();
 }
 
 shareCanvasContainer.addEventListener("click", openPosterLightbox);
 if (closeLightboxBtn) closeLightboxBtn.addEventListener("click", closePosterLightbox);
+// 只有空白处/关闭按钮关闭；海报本体留给缩放与平移交互
 posterLightbox.addEventListener("click", (e) => {
-  if (e.target === posterLightbox || e.target === lightboxImg || e.target.classList.contains("lightbox-backdrop") || e.target.classList.contains("lightbox-content")) {
+  if (e.target === posterLightbox || e.target.classList.contains("lightbox-content")) {
     closePosterLightbox();
   }
 });
+lightboxImg.addEventListener("wheel", (e) => {
+  if (!posterLightbox.classList.contains("open")) return;
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY * 0.0016);
+  setPosterZoom(posterView.scale * factor, e.clientX, e.clientY);
+}, { passive: false });
+lightboxImg.addEventListener("dragstart", e => e.preventDefault());
+lightboxImg.addEventListener("pointerdown", (e) => {
+  if (!posterLightbox.classList.contains("open")) return;
+  posterPanning = true;
+  posterPanPointer = e.pointerId;
+  posterPanLast = { x: e.clientX, y: e.clientY };
+  lightboxImg.classList.add("poster-panning");
+  try { lightboxImg.setPointerCapture?.(e.pointerId); } catch { /* 指针已失效时忽略 */ }
+});
+lightboxImg.addEventListener("pointermove", (e) => {
+  if (!posterPanning || (posterPanPointer !== null && e.pointerId !== posterPanPointer)) return;
+  posterView.x += e.clientX - posterPanLast.x;
+  posterView.y += e.clientY - posterPanLast.y;
+  posterPanLast = { x: e.clientX, y: e.clientY };
+  applyPosterTransform();
+});
+const endPosterPan = (e) => {
+  if (posterPanPointer !== null && e && e.pointerId !== posterPanPointer) return;
+  posterPanning = false;
+  posterPanPointer = null;
+  lightboxImg.classList.remove("poster-panning");
+};
+lightboxImg.addEventListener("pointerup", endPosterPan);
+lightboxImg.addEventListener("pointercancel", endPosterPan);
+lightboxImg.addEventListener("dblclick", (e) => {
+  // 双击在 1× 与 2.5× 之间切换，以双击位置为锚点
+  setPosterZoom(posterView.scale > 1.01 ? 1 : 2.5, e.clientX, e.clientY);
+});
+lightboxZoomInBtn?.addEventListener("click", () => setPosterZoom(posterView.scale * 1.4));
+lightboxZoomOutBtn?.addEventListener("click", () => setPosterZoom(posterView.scale / 1.4));
+lightboxZoomResetBtn?.addEventListener("click", resetPosterZoom);
 
 // ================= 分组式海报样式选项卡切换 (Segmented Category Tabs) =================
 document.querySelectorAll(".style-tab-btn").forEach(tab => {
@@ -7448,8 +7795,8 @@ function renderSoundTags() {
   tag.dataset.state = state;
   const status = tag.querySelector(".sound-tag-status");
   if (status) status.textContent = kind === "voice"
-   ? (state === "playing" ? "播放中 · 点击主按钮暂停" : state === "paused" ? "已暂停 · 可继续" : "由“听它讲述”控制")
-   : (state === "playing" ? "随档案淡入 · 播放中" : "随物种档案自动淡入");
+   ? (state === "playing" ? "播放中 · 可暂停" : state === "paused" ? "已暂停" : "由“听它讲述”控制")
+   : (state === "playing" ? "随档案淡入中" : "随档案自动淡入");
  }
 }
 function onSoundscapeStatus() {
