@@ -78,6 +78,19 @@ def _validate_username(raw: str) -> str:
         raise HTTPException(status_code=400, detail="用户名仅支持字母、数字、下划线或中文")
     return username
 
+def _ensure_email_available(db: Session, raw: str | None) -> None:
+    """注册邮箱唯一性：一个邮箱只能绑定一个账号（大小写不敏感；空邮箱不校验）。"""
+    email = (raw or "").strip()
+    if not email:
+        return
+    exists = (
+        db.query(User)
+        .filter(func.lower(User.email) == email.lower())
+        .first()
+    )
+    if exists:
+        raise HTTPException(status_code=400, detail="该邮箱已被注册，请更换邮箱或直接登录")
+
 
 def user_to_response(db: Session, user: User) -> UserResponse:
     """User ORM → UserResponse：补齐所属用户组与功能模块权限。"""
@@ -158,7 +171,7 @@ async def register_form(
     phone: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
-    """表单注册：校验 → 查重 → 写入。错误返回 JSON。"""
+    """表单注册：校验 → 查重（用户名 + 邮箱）→ 写入。错误返回 JSON。"""
     username = _validate_username(username)
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="密码至少需要 6 位")
@@ -166,6 +179,7 @@ async def register_form(
         raise HTTPException(status_code=400, detail="两次输入的密码不一致")
     if db.query(User).filter(User.username == username).first():
         raise HTTPException(status_code=400, detail="用户名已存在，请换一个")
+    _ensure_email_available(db, email)
 
     db.add(
         User(
@@ -213,6 +227,7 @@ async def api_register(body: RegisterRequest, db: Session = Depends(get_db)):
     username = _validate_username(body.username)
     if db.query(User).filter(User.username == username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
+    _ensure_email_available(db, body.email)
     user = User(
         username=username,
         password_hash=hash_password(body.password),
@@ -229,9 +244,10 @@ async def api_register(body: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/api/v1/auth/reset-password", response_model=MessageResponse)
 async def api_reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
-    """忘记密码：用户名 + 手机号 + 邮箱 三要素匹配后重置密码（无需登录）。
+    """忘记密码：用户名 + 邮箱 双要素匹配后重置密码（无需登录）。
 
-    三要素任一不匹配统一报"账号信息不匹配"，避免枚举用户名是否存在。
+    注册仅强制绑定邮箱（手机号选填），手机号不参与校验。
+    要素不匹配统一报"账号信息不匹配"，避免枚举用户名是否存在。
     新密码与确认密码一致性在服务端强制校验。
     """
     username = _validate_username(body.username)
@@ -241,8 +257,6 @@ async def api_reset_password(body: ResetPasswordRequest, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="密码至少需要 6 位")
     user = db.query(User).filter(User.username == username).first()
     if not user:
-        raise HTTPException(status_code=400, detail="账号信息不匹配，请重新确认")
-    if (user.phone_num or "") != body.phone.strip():
         raise HTTPException(status_code=400, detail="账号信息不匹配，请重新确认")
     if (user.email or "") != body.email.strip():
         raise HTTPException(status_code=400, detail="账号信息不匹配，请重新确认")

@@ -28,10 +28,11 @@ class RegisterRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    """忘记密码：用户名 + 手机号 + 邮箱 三要素验证通过后重置密码（无需登录）"""
+    """忘记密码：用户名 + 邮箱 双要素验证通过后重置密码（无需登录）。
+    注册仅强制绑定邮箱，手机号为选填，故不参与校验；phone 字段保留兼容旧客户端。"""
     username: str = Field(min_length=1, max_length=50)
-    phone: str = Field(min_length=1, max_length=20)
     email: str = Field(min_length=1, max_length=100)
+    phone: str = Field(default="", max_length=20)  # 已不参与校验，保留字段兼容
     new_password: str = Field(min_length=6, max_length=64)
     confirm_password: str = Field(min_length=6)
 
@@ -190,6 +191,7 @@ class FaceInfo(BaseModel):
     id: int
     name: str
     created_at: Optional[datetime]
+    hasPhoto: bool = False  # 是否有可回看的录入照片（历史记录为 False）
 
     model_config = {"from_attributes": True}
 

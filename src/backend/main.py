@@ -44,6 +44,7 @@ from database import (  # noqa: E402
     ensure_notification_type_enum,
     ensure_sea_areas_area_km2_column,
     ensure_reports_sea_area_column,
+    ensure_face_records_photo_path_column,
     ensure_users_group_column,
 )
 from routers import (  # noqa: E402
@@ -176,6 +177,7 @@ async def lifespan(app: FastAPI):
     ensure_monitoring_sites_sea_area_column()
     ensure_sea_areas_area_km2_column()
     ensure_reports_sea_area_column()
+    ensure_face_records_photo_path_column()
     ensure_users_group_column()
     ensure_notification_type_enum()
 

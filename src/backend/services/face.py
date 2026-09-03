@@ -123,27 +123,19 @@ def create_face_record(db, user: User, descriptor: np.ndarray, name: str = "人�
     return record
 
 
-def match_face(db, probe: np.ndarray) -> User | None:
-    """根据探针嵌入识别账号：遍历库内所有人脸求最小欧氏距离，小于阈值返回对应用户。仅做 DB 操作。
+def verify_user_face(db, user: User, probe: np.ndarray) -> bool:
+    """校验探针人脸是否属于指定账号：只与该账号已录入的人脸比对（一张脸可录多个账号，
+    登录必须先输入账号限定范围，避免"刷脸登进最近录入的同脸账号"）。仅做 DB 操作。
 
     probe 为已提取的探针嵌入（由路由层在线程池中调用 extract_feature 得到）。
-    无人录入 / 无命中返回 None。
     """
-    candidates = db.query(FaceRecord).all()
+    candidates = db.query(FaceRecord).filter(FaceRecord.user_id == user.id).all()
     if not candidates:
-        return None
-
-    best_user: User | None = None
-    best_dist = float("inf")
+        return False
     for rec in candidates:
         stored = _restore_descriptor(rec.descriptor)
         if stored.shape != probe.shape:
             continue
-        dist = float(np.linalg.norm(stored - probe))
-        if dist < best_dist:
-            best_dist = dist
-            best_user = db.query(User).filter(User.id == rec.user_id).first()
-
-    if best_user is None or best_dist > config.FACE_EMBEDDING_THRESHOLD:
-        return None
-    return best_user
+        if float(np.linalg.norm(stored - probe)) <= config.FACE_EMBEDDING_THRESHOLD:
+            return True
+    return False

@@ -3326,6 +3326,37 @@
   opacity: 0.45;
 }
 
+/* --- 个人中心：已录入人脸照片回看 --- */
+
+.face-record-item {
+  flex-wrap: wrap;
+}
+
+.face-record-view {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid rgba(92, 218, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(43, 220, 249, 0.08);
+  color: var(--cyan);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.face-record-view:hover {
+  background: rgba(43, 220, 249, 0.18);
+}
+
+.face-record-photo {
+  flex-basis: 100%;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border: 1px solid rgba(73, 220, 249, 0.16);
+  border-radius: 10px;
+  background: #02131d;
+}
+
 /* ================= LLM 助手页 UI 升级（2026-09） ================= */
 /* 欢迎标题：海洋荧光渐变字 */
 .og-hero-title {

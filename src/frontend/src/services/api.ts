@@ -464,12 +464,14 @@ export const api = {
     });
   },
 
-  /** 录入人脸（个人中心）：multipart 上传照片，一个账号最多 3 张 */
+  /** 录入人脸（个人中心）：multipart 上传照片，一个账号最多 3 张。
+   * 超时放宽到 120s：服务端 InsightFace 首次调用含模型加载（可达数十秒），
+   * 15s 默认超时会在"实际已录入成功"后误报请求超时。 */
   async enrollFace(file: File, name?: string): Promise<FaceInfo> {
     const form = new FormData();
     form.append('file', file);
     if (name?.trim()) form.append('name', name.trim());
-    return request<FaceInfo>('/api/v1/auth/face/enroll', { method: 'POST', body: form });
+    return request<FaceInfo>('/api/v1/auth/face/enroll', { method: 'POST', body: form, timeoutMs: 120000 });
   },
 
   /** 当前账号已录入人脸列表 */
@@ -478,16 +480,23 @@ export const api = {
     return payload.items;
   },
 
-  /** 删除某张已录入人脸 */
+  /** 删除某条已录入人脸 */
   async deleteFace(id: number): Promise<{ message: string }> {
     return request<{ message: string }>(`/api/v1/auth/face/${id}`, { method: 'DELETE' });
   },
 
-  /** 人脸识别登录：multipart 上传摄像头照片，成功返回 JWT + 识别账号 */
-  async faceLogin(file: File): Promise<FaceLoginResult> {
+  /** 回看已录入的人脸照片（仅本人，返回 data URL） */
+  async getFacePhoto(faceId: number): Promise<string> {
+    const payload = await request<{ dataUrl: string }>(`/api/v1/auth/face/${faceId}/photo`);
+    return payload.dataUrl;
+  },
+
+  /** 人脸识别登录：账号（用户名/手机号/邮箱）+ 人脸双因子；超时同录入放宽 */
+  async faceLogin(file: File, account: string): Promise<FaceLoginResult> {
     const form = new FormData();
     form.append('file', file);
-    return request<FaceLoginResult>('/api/v1/auth/face/login', { method: 'POST', body: form });
+    form.append('account', account.trim());
+    return request<FaceLoginResult>('/api/v1/auth/face/login', { method: 'POST', body: form, timeoutMs: 120000 });
   },
 
   /** 上传文档到 RAG 知识库（海洋守护者「导入质量分析报告」），返回入库后的文档记录 */

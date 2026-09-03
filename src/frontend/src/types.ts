@@ -366,6 +366,7 @@ export interface FaceInfo {
   id: number;
   name: string;
   created_at?: string;
+  hasPhoto?: boolean; // 是否有可回看的录入照片（历史记录为 false）
 }
 
 export interface FaceLoginResult {

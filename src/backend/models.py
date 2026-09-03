@@ -229,11 +229,11 @@ class FaceRecord(Base):
     """
 
     __tablename__ = "face_records"
-
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(30), nullable=False, default="人脸")  # 展示名
-    descriptor = Column(LargeBinary, nullable=False)  # np.float32 特征向量 tobytes()
+    descriptor = Column(LargeBinary, nullable=False)  # np.float32 归一化特征向量 tobytes()
+    photo_path = Column(String(500), nullable=True)  # 录入照片路径（uploads/faces/，供本人回看）
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.now)
 
     user = relationship("User")

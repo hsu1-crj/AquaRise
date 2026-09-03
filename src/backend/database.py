@@ -229,3 +229,24 @@ def ensure_reports_sea_area_column() -> None:
                 text("ALTER TABLE reports ADD COLUMN sea_area_id INT NULL")
             )
             conn.commit()
+
+def ensure_face_records_photo_path_column() -> None:
+    """
+    幂等迁移：为 face_records 增加 photo_path 列（录入照片路径，供本人回看）。
+    create_all 只建新表、不会 ALTER 旧表，因此启动时手动补列（MySQL 专用写法）。
+    缺省 NULL：历史录入无照片，前端「查看照片」按钮对旧记录不展示。
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = :db AND TABLE_NAME = 'face_records' "
+                "AND COLUMN_NAME = 'photo_path'"
+            ),
+            {"db": DB_NAME},
+        ).scalar()
+        if not exists:
+            conn.execute(
+                text("ALTER TABLE face_records ADD COLUMN photo_path VARCHAR(500) NULL")
+            )
+            conn.commit()

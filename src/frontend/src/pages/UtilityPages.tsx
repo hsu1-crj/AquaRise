@@ -68,6 +68,8 @@ export function ProfilePage({ user, onUserUpdated }: { user?: UserInfo | null; o
   const [faceBusy, setFaceBusy] = useState(false);
   const [faceError, setFaceError] = useState('');
   const [faceSaved, setFaceSaved] = useState(false);
+  // 已加载的录入照片（faceId → data URL），点「查看照片」时按需拉取
+  const [facePhotos, setFacePhotos] = useState<Record<number, string>>({});
   const faceCam = useCamera();
 
   const loadFaces = () => {
@@ -105,10 +107,33 @@ export function ProfilePage({ user, onUserUpdated }: { user?: UserInfo | null; o
       window.setTimeout(() => setFaceSaved(false), 2500);
     }
   };
+  /** 查看某条已录入的人脸照片（再次点击收起） */
+  const toggleFacePhoto = async (id: number) => {
+    setFaceError('');
+    if (facePhotos[id] != null) {
+      setFacePhotos((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
+    try {
+      const dataUrl = await api.getFacePhoto(id);
+      setFacePhotos((prev) => ({ ...prev, [id]: dataUrl }));
+    } catch (reason) {
+      setFaceError(reason instanceof Error ? reason.message : '照片加载失败');
+    }
+  };
   const removeFace = async (id: number) => {
     setFaceError('');
     try {
       await api.deleteFace(id);
+      setFacePhotos((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       loadFaces();
     } catch (reason) {
       setFaceError(reason instanceof Error ? reason.message : '删除失败，请重试');
@@ -124,7 +149,9 @@ export function ProfilePage({ user, onUserUpdated }: { user?: UserInfo | null; o
         <article key={item.id} className="face-record-item">
           <div className="face-record-avatar"><ScanFace /></div>
           <div><strong>{item.name}</strong><span>{item.created_at ? `录入于 ${item.created_at.slice(0, 10)}` : '已录入'}</span></div>
+          {item.hasPhoto && <button className="face-record-view" onClick={() => void toggleFacePhoto(item.id)}>{facePhotos[item.id] ? '收起照片' : '查看照片'}</button>}
           <button className="face-record-delete" onClick={() => removeFace(item.id)} aria-label={`删除人脸 ${item.name}`}><Trash2 /></button>
+          {facePhotos[item.id] && <img className="face-record-photo" src={facePhotos[item.id]} alt={`已录入人脸照片 ${item.name}`} />}
         </article>
       ))}</div>
   );
