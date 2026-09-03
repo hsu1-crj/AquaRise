@@ -309,10 +309,12 @@ export class EarthGlobe {
   private latLngToVec3(lat: number, lng: number, radius: number): THREE.Vector3 {
     const phi = THREE.MathUtils.degToRad(90 - lat);
     const theta = THREE.MathUtils.degToRad(lng);
+    // z 取负：与 three.js SphereGeometry 的等距圆柱贴图经度方向对齐
+    // （u=0 ↔ 西经180°；若用 +sin 会把东经镜像到西半球，中国站点落到北美西海岸）
     return new THREE.Vector3(
       radius * Math.sin(phi) * Math.cos(theta),
       radius * Math.cos(phi),
-      radius * Math.sin(phi) * Math.sin(theta),
+      -radius * Math.sin(phi) * Math.sin(theta),
     );
   }
 

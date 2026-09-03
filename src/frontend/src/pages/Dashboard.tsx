@@ -118,14 +118,13 @@ export function Dashboard({ onNavigate, user }: { onNavigate: (page: PageKey) =>
           <TrendChart data={trend} />
         </article>
         <article className="panel glass map-panel">
-          <PanelTitle icon={Radio} title="实时监测网络" subtitle="渤海近岸点位状态" action="指挥大屏" onAction={() => onNavigate('screen')} />
+          <PanelTitle icon={Radio} title="实时监测网络" subtitle="全域监测网络运行状态" action="指挥大屏" onAction={() => onNavigate('screen')} />
           <div className="sonar-map">
             <div className="sonar-rings"><i /><i /><i /></div>
             <span className="coast coast-a">秦皇岛</span><span className="coast coast-b">北戴河</span><span className="coast coast-c">渤海湾</span>
-            <button className="map-point point-a" title="监测点 A-07" onClick={() => onNavigate('screen')}><i /><b>A-07</b></button>
-            <button className="map-point point-b" title="监测点 B-12" onClick={() => onNavigate('screen')}><i /><b>B-12</b></button>
-            <button className="map-point point-c" title="监测点 C-03" onClick={() => onNavigate('screen')}><i /><b>C-03</b></button>
-            <button className="map-point point-d" title="监测点 D-09" onClick={() => onNavigate('screen')}><i /><b>D-09</b></button>
+            <button className="map-point point-a" title="北戴河 · A-01 滨海近岸监测点" onClick={() => onNavigate('screen')}><i /><b>A-01</b></button>
+            <button className="map-point point-b" title="秦皇岛 · B-01 海港区近岸监测点" onClick={() => onNavigate('screen')}><i /><b>B-01</b></button>
+            <button className="map-point point-c" title="渤海湾 · C-01 曹妃甸近岸监测点" onClick={() => onNavigate('screen')}><i /><b>C-01</b></button>
             <div className="map-sweep" />
           </div>
           <div className="map-legend"><span><i className="normal" />运行正常</span><span><i className="warning" />需要关注</span><span><i className="danger" />严重预警</span></div>
