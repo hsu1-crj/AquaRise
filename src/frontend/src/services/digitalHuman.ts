@@ -94,6 +94,10 @@ export class OceanDigitalHuman {
   private sdk: XmovInstance | null = null;
   private listeners: Record<string, EventCallback[]> = {};
   private speechQueue: Array<{ text: string; opts: SpeakOptions }> = [];
+  /** 首条语音已发出但还没收到 voice_start：期间续传片段必须排队，防止被 SDK 当作新会话打断 */
+  private awaitingVoiceStart = false;
+  /** 用户主动静音：SDK 的 visibilitychange 会无条件恢复音量，这里强制覆盖回 0 */
+  private userMuted = false;
 
   constructor(config: DigitalHumanConfig) {
     this.appId = config.appId;
@@ -112,34 +116,47 @@ export class OceanDigitalHuman {
       );
     }
 
-    const self = this;
-    return new Promise((resolve, reject) => {
-      try {
-        self.sdk = new XmovAvatar({
-          containerId: '#' + self.containerId,
-          appId: self.appId,
-          appSecret: self.appSecret,
-          gatewayServer: self.gatewayServer,
+        const self = this;
+        return new Promise((resolve, reject) => {
+          try {
+            const avatar = new XmovAvatar({
+              containerId: '#' + self.containerId,
+              appId: self.appId,
+              appSecret: self.appSecret,
+              gatewayServer: self.gatewayServer,
 
-          onMessage(message: XmovMessage) {
-            console.log('[XmovAvatar] 消息:', message);
-            if (message && message.code && message.code >= 10000) {
-              console.error('[XmovAvatar] SDK错误 ' + message.code + ':', message.message || message);
-              self.emit('error', message);
-            }
-          },
+              onMessage(message: XmovMessage) {
+                console.log('[XmovAvatar] 消息:', message);
+                if (message && message.code && message.code >= 10000) {
+                  console.error('[XmovAvatar] SDK错误 ' + message.code + ':', message.message || message);
+                  self.emit('error', message);
+                }
+              },
 
-          onVoiceStateChange(status: string) {
-            if (status === 'voice_start' || status === 'start') {
-              self.isSpeaking = true;
-              self.emit('speakStart');
-            } else if (status === 'voice_end' || status === 'end') {
-              self.isSpeaking = false;
-              self.emit('speakEnd');
-              self.processQueue();
+              onVoiceStateChange(status: string) {
+                if (status === 'voice_start' || status === 'start') {
+                  self.isSpeaking = true;
+                  self.awaitingVoiceStart = false;
+                  self.emit('speakStart');
+                  // 首句等待出声期间缓存的续传片段，此刻立即补发，保证流式语音不断档
+                  self.processQueue();
+                } else if (status === 'voice_end' || status === 'end') {
+                  self.isSpeaking = false;
+                  self.awaitingVoiceStart = false;
+                  self.emit('speakEnd');
+                  self.processQueue();
+                }
+              },
+            });
+
+            // SDK 在切回前台时会无条件 setVolume(1)（visibilitychange 处理），
+            // 包一层强制用户静音优先，避免静音状态被 SDK 内部逻辑悄悄解除。
+            const sdkRecord = avatar as unknown as Record<string, unknown>;
+            if (typeof sdkRecord.setVolume === 'function') {
+              const originalSetVolume = (sdkRecord.setVolume as (v: number) => void).bind(avatar);
+              sdkRecord.setVolume = (v: number) => originalSetVolume(self.userMuted ? Math.min(v, 0) : v);
             }
-          },
-        });
+            self.sdk = avatar;
 
         (self.sdk as XmovInstance)
           .init({
@@ -161,30 +178,37 @@ export class OceanDigitalHuman {
     });
   }
 
-  /** 驱动数字人说话 */
+  /** 当前是否有语音会话（已出声或已发出首句等待出声） */
+  get speechActive(): boolean {
+    return this.isSpeaking || this.awaitingVoiceStart;
+  }
+
+  /** 驱动数字人说话。isStart=false 的续传片段在会话内直接追加，不排队不打断 */
   speak(text: string, opts: SpeakOptions = {}): void {
     if (!this.isReady || !this.sdk) {
       this.speechQueue.push({ text, opts });
       return;
     }
 
-    if (this.isSpeaking && !opts.interrupt) {
+    const wantsNewSession = opts.isStart !== false;
+    const active = this.isSpeaking || this.awaitingVoiceStart;
+    if (wantsNewSession && active && !opts.interrupt) {
       this.speechQueue.push({ text, opts });
       return;
     }
-
-    // 仅在确实播报中才发打断指令——空闲态下调 interactiveIdle 会让部分 SDK 版本抛错/发错误消息
-    if (opts.interrupt && this.isSpeaking) {
-      this.interactiveIdle();
+    if (wantsNewSession && opts.interrupt && active) {
+      this.stopSpeaking();
     }
-
-    const isStart = opts.isStart !== false;
+    // 续传片段到达时会话已结束（如句间被云端提前收尾）：升级为新会话起点，避免被 SDK 丢弃
+    const isStart = wantsNewSession || !active;
+    if (isStart) this.awaitingVoiceStart = true;
     const isEnd = opts.isEnd !== false;
     try {
       this.sdk.speak(text, isStart, isEnd);
     } catch {
       // 瞬时播报失败(打断竞态等)不致命: 复位状态, 后续播报照常
       this.isSpeaking = false;
+      this.awaitingVoiceStart = false;
     }
   }
 
@@ -195,19 +219,42 @@ export class OceanDigitalHuman {
     this.speak(text, opts);
   }
 
+  /** 立刻打断当前播报并清空队列。优先用 SDK 的 interrupt（掐断已缓冲音频），再退 interactiveidle/idle */
+  stopSpeaking(): void {
+    try {
+      const sdk = this.sdk as unknown as Record<string, unknown> | null;
+      if (typeof sdk?.interrupt === 'function') {
+        // "new_speak_start" 是 SDK 内部打断当前语音时使用的标准 reason 值，
+        // 会清空音频缓存队列并暂停渲染器，立即掐断已缓冲语音。
+        (sdk.interrupt as (reason?: string) => void).call(sdk, 'new_speak_start');
+      } else if (typeof sdk?.interactiveidle === 'function') {
+        (sdk.interactiveidle as () => void).call(sdk);
+      } else if (typeof sdk?.interactiveIdle === 'function') {
+        (sdk.interactiveIdle as () => void).call(sdk);
+      } else if (typeof sdk?.idle === 'function') {
+        (sdk.idle as () => void).call(sdk);
+      }
+    } catch { /* SDK 不支持打断时忽略 */ }
+    this.isSpeaking = false;
+    this.awaitingVoiceStart = false;
+    this.speechQueue.length = 0;
+  }
+
   /** 待机状态 */
   idle(): void {
     try { this.sdk?.idle?.(); } catch { /* SDK 版本不支持时忽略, 不影响页面 */ }
   }
 
-  /** 互动待机（可打断当前播报）; 部分SDK版本无此方法, 必须兜底否则停止播报按钮整体失效 */
+  /** 互动待机（可打断当前播报）; 兼容 SDK 小写 interactiveidle 与旧版 idle */
   interactiveIdle(): void {
     try {
       const sdk = this.sdk as unknown as Record<string, unknown> | null;
-      if (typeof sdk?.interactiveIdle === 'function') (sdk.interactiveIdle as () => void).call(sdk);
+      if (typeof sdk?.interactiveidle === 'function') (sdk.interactiveidle as () => void).call(sdk);
+      else if (typeof sdk?.interactiveIdle === 'function') (sdk.interactiveIdle as () => void).call(sdk);
       else if (typeof sdk?.idle === 'function') (sdk.idle as () => void).call(sdk);
     } catch { /* SDK 不支持打断时忽略, 浏览器语音已由 stopSpeaking 清空 */ }
     this.isSpeaking = false;
+    this.awaitingVoiceStart = false;
     this.speechQueue.length = 0;
   }
 
@@ -216,9 +263,17 @@ export class OceanDigitalHuman {
     try { this.sdk?.think?.(); } catch { /* SDK 版本不支持时忽略 */ }
   }
 
+  /** 用户静音开关：静音期间 SDK 内部的音量恢复（如切回前台）也会被强制压回 0 */
+  setMuted(muted: boolean): void {
+    this.userMuted = muted;
+    this.setVolume(muted ? 0 : 1);
+  }
+
   /** 设置音量 0-1 */
   setVolume(v: number): void {
-    this.sdk?.setVolume(Math.max(0, Math.min(1, v)));
+    const clamped = Math.max(0, Math.min(1, v));
+    const forced = this.userMuted ? Math.min(clamped, 0) : clamped;
+    try { this.sdk?.setVolume(forced); } catch { /* SDK 版本不支持时忽略 */ }
   }
 
   // ======================== 事件系统 ========================
@@ -252,6 +307,8 @@ export class OceanDigitalHuman {
     this.speechQueue = [];
     this.isReady = false;
     this.isSpeaking = false;
+    this.awaitingVoiceStart = false;
+    this.userMuted = false;
     this.listeners = {};
     this.sdk?.destroy();
     this.sdk = null;

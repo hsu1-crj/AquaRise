@@ -40,7 +40,7 @@ import {
   OceanDigitalHuman,
   type DigitalHumanStatus,
 } from '../services/digitalHuman';
-import type { KnowledgeDocInfo, Report, UserInfo } from '../types';
+import type { KnowledgeDocInfo, Report, ReportAnalysis, UserInfo } from '../types';
 import { DigitalHumanIcon } from '../components/DigitalHumanIcon';
 
 // ---------- helpers & interfaces ----------
@@ -188,6 +188,55 @@ function splitIntoLines(text: string, maxChars = 30): string[] {
   }
   if (rest) lines.push(rest);
   return lines;
+}
+
+/** 流式播报切分：句末标点或换行都视为可朗读边界（换行让无句号的列表项也能即时开口） */
+function splitSpeakable(text: string): string[] {
+  if (!text) return [];
+  return text.split(/(?<=[。！？；!?;\n])/).filter((s) => s.length > 0);
+}
+
+/** 朗读文本清理：去 markdown 标记与列表符号，压平空白，避免 TTS 念出符号 */
+function cleanSpeechText(text: string): string {
+  return text
+    .replace(/[*#`_~[\]()]/g, '')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 把报告元数据 + 后端结构化分析快照拼成导入知识库的 Markdown。
+ * 小节标签（关键发现/可能来源/处置方案/后续监测）与后端报告简报解析口径一致，
+ * 这样导入后的回答能给出完整的"结论-发现-来源-方案-监测"结构，而不只是一个污染等级。
+ */
+function buildReportImportMarkdown(report: Report, analysis: ReportAnalysis | null): string {
+  const lines = [
+    `# 质量分析报告 ${report.id}`,
+    `- 报告 ID：${report.id}`,
+    `- 报告标题：${report.title}`,
+    `- 生成时间：${report.createdAt}`,
+    `- 检测海域：${report.area}`,
+    `- 污染等级：${report.level}`,
+    `- 评分：${report.score}`,
+    `- 目标数量：${report.objectCount} 件`,
+    `- 状态：${report.status}`,
+    `- 分析摘要：${analysis?.summary || report.summary}`,
+  ];
+  if (analysis) {
+    lines.push('', '## 关键发现', '');
+    (analysis.key_findings || []).forEach((item) => lines.push(`- ${item}`));
+    lines.push('', '## 可能来源', '');
+    (analysis.possible_causes || []).forEach((item) => lines.push(`- ${item}`));
+    lines.push('', '## 处置方案', '');
+    (analysis.solutions || []).forEach((s) => {
+      const owner = s.owner ? `（责任：${s.owner}${s.deadline ? `；时限：${s.deadline}` : ''}）` : '';
+      lines.push(`- ${s.priority}：${s.action}${owner}`);
+    });
+    lines.push('', '## 后续监测', '');
+    (analysis.follow_up_monitoring || []).forEach((item) => lines.push(`- ${item}`));
+  }
+  return lines.join('\n');
 }
 
 // 保持提示词库原版内容
@@ -808,29 +857,33 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const dhLoadStartedAt = useRef(Date.now());
   const dhRef = useRef<OceanDigitalHuman | null>(null);
   const sdkContainerRef = useRef<HTMLDivElement>(null);
+  // 静音状态的同步副本：流式 chunk 回调里不能依赖可能过期的 state 闭包
+  const dhMutedRef = useRef(false);
+  // 本轮回答已送入语音队列的字符游标：流式生成期间逐句推进，收尾时只补残句
+  const spokenCursorRef = useRef(0);
 
   const userName = user?.username ?? '海洋卫士';
   const userInitial = userName.slice(0, 1).toUpperCase();
 
-  // 逐句推进字幕队列
-  const startSubtitleQueue = useCallback((sentences: string[]) => {
-    if (subtitleTimer.current) clearTimeout(subtitleTimer.current);
-    let index = 0;
-    setDhSubtitle(sentences[0] || '');
-    const step = () => {
-      if (index >= sentences.length - 1) {
-        subtitleTimer.current = null;
-        return;
-      }
-      const current = sentences[index];
-      const duration = Math.max(900, Math.min(6000, current.length * 230));
-      subtitleTimer.current = setTimeout(() => {
-        index += 1;
-        setDhSubtitle(sentences[index] || '');
-        step();
-      }, duration);
-    };
-    step();
+  // --- 字幕计划（SDK 原生字幕已禁用，字幕完全由我们自己的 HUD 呈现） ---
+  // 行内容随流式播报动态追加：先送进语音队列的行先显示，按行字数估算推进节奏，
+  // 不再等整段回答生成完后一次性排满（那是字幕与语音错位的根源）。
+  const subtitlePlanRef = useRef<string[]>([]);
+  const subtitlePosRef = useRef(0);
+
+  const subtitleStep = useCallback(() => {
+    const plan = subtitlePlanRef.current;
+    if (subtitlePosRef.current >= plan.length - 1) {
+      subtitleTimer.current = null;
+      return;
+    }
+    const current = plan[subtitlePosRef.current];
+    const duration = Math.max(900, Math.min(6000, current.length * 230));
+    subtitleTimer.current = setTimeout(() => {
+      subtitlePosRef.current += 1;
+      setDhSubtitle(subtitlePlanRef.current[subtitlePosRef.current] || '');
+      subtitleStep();
+    }, duration);
   }, []);
 
   const stopSubtitleQueue = useCallback(() => {
@@ -840,8 +893,27 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     }
   }, []);
 
+  /** 清空字幕计划并停表（停止播报/静音/手动换播报内容时调用） */
+  const resetSubtitleQueue = useCallback(() => {
+    stopSubtitleQueue();
+    subtitlePlanRef.current = [];
+    subtitlePosRef.current = 0;
+  }, [stopSubtitleQueue]);
+
+  /** 追加字幕行：首次追加立即显示第一行并启动推进；队列走空后再追加则从当前位置续走 */
+  const pushSubtitleLines = useCallback((lines: string[]) => {
+    if (!lines.length) return;
+    const plan = subtitlePlanRef.current;
+    const wasEmpty = plan.length === 0;
+    plan.push(...lines);
+    if (subtitleTimer.current === null) {
+      if (wasEmpty) setDhSubtitle(plan[0] || '');
+      subtitleStep();
+    }
+  }, [subtitleStep]);
+
   // ===== 舞台打字机字幕（纯文本/拟态模式）：与流式回答同步逐字揭示 =====
-  // 真数字人模式仍走 startSubtitleQueue 队列；此路径让没有云端数字人时舞台也能"开口说话"。
+  // 真数字人模式字幕与流式语音同源（pushSubtitleLines 队列）；此路径让没有云端数字人时舞台也能"开口说话"。
   const stageTextRef = useRef('');
   const stageShownRef = useRef(0);
   const stageDoneRef = useRef(true);
@@ -1135,8 +1207,11 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         dh.on('speakEnd', () => {
           if (!cancelled) {
             setDhStatus('idle');
-            stopSubtitleQueue();
-            setDhSubtitle('');
+            // 字幕计划还没走完（生成中途会话被云端提前收尾，后面还有新句）：保留字幕继续推进
+            if (subtitlePosRef.current >= subtitlePlanRef.current.length - 1) {
+              stopSubtitleQueue();
+              setDhSubtitle('');
+            }
           }
         });
         dh.on('error', () => {
@@ -1177,20 +1252,56 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     };
   }, []);
 
+  // 流式逐句驱动数字人：不等整段回答生成完，句子一完整就送进 SDK 开口，
+  // 字幕行同步追加到同一队列（字幕节奏与语音同源，不再各走各的）。
+  // final=true 时把末尾残句一并送入并结束本轮语音会话。
+  const dispatchStreamingSpeech = useCallback(
+    (fullText: string, final: boolean) => {
+      const dh = dhRef.current;
+      if (!dh || !dh.isReady || dhMutedRef.current) return;
+      const pending = fullText.slice(spokenCursorRef.current);
+      if (!pending.trim()) return;
+      const parts = splitSpeakable(pending);
+      const ready: string[] = [];
+      let consumed = 0;
+      if (parts.length > 1) {
+        for (let i = 0; i < parts.length - 1; i += 1) {
+          ready.push(parts[i]);
+          consumed += parts[i].length;
+        }
+      }
+      if (final && parts.length > 0) {
+        const tail = parts[parts.length - 1];
+        if (tail.trim()) {
+          ready.push(tail);
+          consumed += tail.length;
+        }
+      }
+      if (!ready.length) return;
+      spokenCursorRef.current += consumed;
+      const cleaned = ready.map(cleanSpeechText).filter(Boolean);
+      if (!cleaned.length) return;
+      cleaned.forEach((sentence, index) => {
+        dh.speak(sentence, {
+          isStart: !dh.speechActive,
+          isEnd: final && index === cleaned.length - 1,
+        });
+      });
+      pushSubtitleLines(cleaned.flatMap((sentence) => splitIntoLines(sentence)));
+    },
+    [pushSubtitleLines],
+  );
+
   // 驱动数字人或浏览器播报
   const speakText = useCallback(
     (text: string) => {
-      const cleanText = text.replace(/[*#`_~[\]()]/g, '').trim();
+      const cleanText = cleanSpeechText(text);
       if (!cleanText) return;
 
       if (dhOn && dhReady && dhRef.current && !dhMuted) {
         setDhStatus('speaking');
-        const lines = splitIntoSentences(cleanText).flatMap((s) => splitIntoLines(s));
-        if (lines.length > 1) {
-          startSubtitleQueue(lines);
-        } else {
-          setDhSubtitle(cleanText);
-        }
+        resetSubtitleQueue();
+        pushSubtitleLines(splitIntoSentences(cleanText).flatMap((s) => splitIntoLines(s)));
         dhRef.current.speak(cleanText, { isStart: true, isEnd: true });
       } else if (typeof window !== 'undefined' && 'speechSynthesis' in window && !dhMuted) {
         window.speechSynthesis.cancel();
@@ -1200,7 +1311,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         window.speechSynthesis.speak(utterance);
       }
     },
-    [dhOn, dhReady, dhMuted, startSubtitleQueue],
+    [dhOn, dhReady, dhMuted, resetSubtitleQueue, pushSubtitleLines],
   );
 
   // --- 发送提问逻辑 ---
@@ -1218,6 +1329,8 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
       setError('');
       setAnswerComplete(false);
       setDhSubtitle('');
+      spokenCursorRef.current = 0;
+      resetSubtitleQueue();
       stickToBottomRef.current = true;
 
       const currentTime = formatCurrentTime();
@@ -1297,12 +1410,9 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               ),
             );
 
-            // 流式字幕（仅组件仍挂载时驱动；卸载后由重挂载页面的订阅恢复展示）
+            // 流式播报：真数字人模式逐句开口 + 字幕跟随；纯文本/拟态模式走舞台打字机
             if (dhOn && dhReady) {
-              const parts = splitIntoSentences(fullContent);
-              const last = parts.length ? parts[parts.length - 1] : fullContent;
-              const lines = splitIntoLines(last);
-              setDhSubtitle(lines[lines.length - 1]);
+              dispatchStreamingSpeech(fullContent, false);
             } else {
               pushStageChunk(chunk);
               if (!stageTyperRef.current) runStageTyper();
@@ -1320,20 +1430,22 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         if (!fullContent.trim()) throw new Error('AI 助手未返回有效内容');
         setAnswerComplete(true);
 
-        // 生成结束播报
-        if (dhOn && dhReady && dhRef.current && fullContent && !dhMuted) {
-          setDhStatus('speaking');
-          const lines = splitIntoSentences(fullContent).flatMap((s) => splitIntoLines(s));
-          if (lines.length > 1) {
-            startSubtitleQueue(lines);
+        // 收尾播报：把末尾残句送入 SDK 并结束本轮语音会话；此前逐句开口已在进行，
+        // 不再整段重播。静音/离线时只清理状态。
+        if (dhOn && dhReady && dhRef.current && fullContent && !dhMutedRef.current) {
+          dispatchStreamingSpeech(fullContent, true);
+          if (dhRef.current.speechActive) {
+            setDhStatus('speaking');
           } else {
-            setDhSubtitle(fullContent);
+            setDhStatus('idle');
+            setDhSubtitle('');
           }
-          dhRef.current.speak(fullContent, { isStart: true, isEnd: true });
+        } else if (dhOn && dhReady) {
+          setDhStatus('idle');
+          setDhSubtitle('');
         } else {
-          setDhStatus(dhOn && dhReady ? 'idle' : 'offline');
-          if (dhOn && dhReady) setDhSubtitle('');
-          else endStageStream();
+          setDhStatus('offline');
+          endStageStream();
         }
       } catch (reason) {
         // A stopped request can finish after a newer request has started. Do not
@@ -1369,7 +1481,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         if (!ae || ae === document.body) textareaRef.current?.focus();
       }
     },
-    [busy, messages, dhOn, dhReady, dhMuted, sessionId, activeReportContext, startSubtitleQueue, pushStageChunk, runStageTyper, endStageStream, stopStageSubtitle],
+    [busy, messages, dhOn, dhReady, dhMuted, sessionId, activeReportContext, dispatchStreamingSpeech, resetSubtitleQueue, pushStageChunk, runStageTyper, endStageStream, stopStageSubtitle],
   );
 
   const submit = (event: FormEvent) => {
@@ -1500,22 +1612,22 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         setImportError('报告编号无效，无法绑定对话上下文');
         return;
       }
-      const md = [
-        `# 质量分析报告 ${report.id}`,
-        `- 报告标题：${report.title}`,
-        `- 监测海域：${report.area}`,
-        `- 生成时间：${report.createdAt}`,
-        `- 污染等级：${report.level}`,
-        `- 质量评分：${report.score}`,
-        `- 识别目标：${report.objectCount} 件`,
-        `- 状态：${report.status}`,
-        '',
-        '## 评估摘要',
-        '',
-        report.summary,
-      ].join('\n');
-      const file = new File([md], `质量报告_${report.id}.md`, { type: 'text/markdown' });
-      void doImport(file, { reportId, title: report.title, summary: report.summary });
+      void (async () => {
+        setImportBusy(true);
+        setImportError('');
+        // 先触发后端结构化分析（POST /reports/{id}/analyze）：没有分析快照的报告
+        // 导入后上下文里只有等级/评分等头部元数据，AI 只能答出"污染等级：良"。
+        // 分析接口失败时回退到元数据简报，不阻塞导入。
+        let analysis: ReportAnalysis | null = null;
+        try {
+          analysis = await api.analyzeReport(reportId);
+        } catch {
+          analysis = null;
+        }
+        const md = buildReportImportMarkdown(report, analysis);
+        const file = new File([md], `质量报告_${report.id}.md`, { type: 'text/markdown' });
+        await doImport(file, { reportId, title: report.title, summary: analysis?.summary || report.summary });
+      })();
     },
     [doImport],
   );
@@ -1533,6 +1645,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     controller.current?.abort();
     stopSubtitleQueue();
     stopStageSubtitle();
+    resetSubtitleQueue();
     setAnswerComplete(false);
     const activeAssistantId = activeAssistantIdRef.current;
     if (activeAssistantId) {
@@ -1543,8 +1656,9 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     busyRef.current = false;
     setBusy(false);
     setDhSubtitle('');
+    spokenCursorRef.current = 0;
     if (dhRef.current) {
-      dhRef.current.interactiveIdle();
+      dhRef.current.stopSpeaking();
       setDhStatus(dhReady ? 'idle' : 'offline');
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -1556,7 +1670,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     const next = !dhOn;
     setDhOn(next);
     if (!next) {
-      dhRef.current?.interactiveIdle();
+      dhRef.current?.stopSpeaking();
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
@@ -1570,8 +1684,21 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   const toggleMute = () => {
     const next = !dhMuted;
     setDhMuted(next);
+    dhMutedRef.current = next;
     if (dhRef.current) {
-      dhRef.current.setVolume(next ? 0 : 1);
+      if (next) {
+        // 静音语义 = 立刻打断当前播报并清空待播队列（停止生成后听筒是唯一音频控制点）；
+        // setMuted 先落标记，SDK 切回前台时的音量自恢复也会被压回 0。
+        dhRef.current.setMuted(true);
+        dhRef.current.stopSpeaking();
+      } else {
+        dhRef.current.setMuted(false);
+      }
+    }
+    if (next) {
+      resetSubtitleQueue();
+      setDhSubtitle('');
+      setDhStatus((prev) => (prev === 'speaking' ? 'idle' : prev));
     }
     if (next && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -1734,7 +1861,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
             <button
               className={`og-icon-action-btn ${dhMuted ? 'muted' : ''}`}
               onClick={toggleMute}
-              title={dhMuted ? '已静音（点击开启声音）' : '声音正常（点击静音）'}
+              title={dhMuted ? '已停止播报并静音（点击恢复声音）' : '停止播报并静音'}
             >
               {dhMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
             </button>
