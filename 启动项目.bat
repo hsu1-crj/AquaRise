@@ -11,6 +11,13 @@ set "PY=python"
 for /f "delims=" %%i in ('conda info --base 2^>nul') do (
   if exist "%%i\envs\xa_code\python.exe" set "PY=%%i\envs\xa_code\python.exe"
 )
+REM 首次运行(或 node_modules 被清理后)自动安装前端依赖
+if not exist "%~dp0src\frontend\node_modules\" (
+  echo [0/3] 检测到前端依赖缺失, 自动执行 npm install (约1-3分钟)...
+  cd /d "%~dp0src\frontend"
+  call npm install
+  cd /d "%~dp0"
+)
 echo [1/3] 启动后端 (端口8000, 解释器: %PY%)...
 start "haitong-backend" cmd /k "cd /d %~dp0src\backend && %PY% -m uvicorn main:app --port 8000"
 echo [2/3] 启动前端 (端口5173, 首次编译约10-20秒)...
