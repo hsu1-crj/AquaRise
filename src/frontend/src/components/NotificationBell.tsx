@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import type { PageKey } from '../types';
 import {
+  ADMIN_FOCUS_EVENT,
+  ADMIN_FOCUS_TAB_KEY,
   deleteNotif,
   deleteReadNotifs,
   DETECTION_REFRESH_EVENT,
@@ -135,6 +137,12 @@ export function NotificationBell({
     setOpen(false);
     // 换组申请类通知直达对应页面（管理员 → 后台审批，申请人 → 个人中心看结果）
     if ((item.linkPage === 'admin' || item.linkPage === 'profile') && onNavigate) {
+      // 换组申请：直达后台「换组审批」标签页。后台页可能尚未挂载（先存 sessionStorage，
+      // 由 AdminPage 初始读取消费）或已打开（window 事件即时切换）。
+      if (item.linkPage === 'admin' && item.type === 'group_change_request') {
+        window.sessionStorage.setItem(ADMIN_FOCUS_TAB_KEY, 'requests');
+        window.dispatchEvent(new CustomEvent(ADMIN_FOCUS_EVENT));
+      }
       onNavigate(item.linkPage);
       return;
     }
