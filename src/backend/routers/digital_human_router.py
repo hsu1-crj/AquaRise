@@ -18,10 +18,12 @@ from schemas import DigitalHumanConfig
 
 router = APIRouter(prefix="/api/v1", tags=["digital-human"])
 
-_TICKET_TTL_SECONDS = 300
+# 短期凭证 TTL。数字人会话随聊天页长存，固定 5 分钟会让正常聊天中途被网关 401
+# 掉线（SDK 报错后前端此前无恢复路径）。现改为：验签成功即滑动续期——
+# 活跃使用的凭证一直有效，闲置超过 TTL 才真正失效。
+_TICKET_TTL_SECONDS = 600
 _tickets: dict[str, tuple[int, float]] = {}
 _PROXY_GATEWAY = "/api/v1/digital-human/gateway"
-
 
 def _canonical_json(value: Any) -> str:
     """Match XmovAvatar's sorted-key, compact JSON signature payload."""
@@ -50,9 +52,11 @@ def _resolve_ticket(app_id: str, supplied_signature: str, method: str, body: Any
         return None
     if abs(int(time.time()) - ts) > 60:
         return None
-    for ticket in _tickets:
+    for ticket, (user_id, _expires) in _tickets.items():
         expected = _xmov_signature(_PROXY_GATEWAY, method, body, ticket, timestamp)
         if hmac.compare_digest(expected, supplied_signature):
+            # 滑动续期：验签成功即刷新有效期，正常聊天中的数字人会话不会被中途踢掉
+            _tickets[ticket] = (user_id, time.time() + _TICKET_TTL_SECONDS)
             return ticket
     return None
 
