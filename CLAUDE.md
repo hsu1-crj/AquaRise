@@ -12,85 +12,44 @@
 
 ## 使用口径
 
-- 本文件描述目标架构与开发约定，不代表对应模块已经实现。当前仓库仍处于规划阶段：`src/` 仅有占位文件，`README.md` 仍为 GitLab 默认模板。
+- 本文件描述架构与开发约定。项目已按规划完成开发并通过结项验收；文件与代码不一致时，以代码为准并回改本文件。
 - 执行命令或引用路径前必须先确认对应文件真实存在；不得把规划中的目录、接口或测试结果表述为已完成。
-- 信息冲突时，以仓库实际内容和已评审的需求/设计文档为准，并同步修正文档。`项目规划文档.md` 用于范围与排期；Git 协作规范（待创建 `规范提交代码与开发流程.md`）以本文件"常用命令→Git协作"章节为准。
+- 信息冲突时，以仓库实际内容和已评审的需求/设计文档为准，并同步修正文档。`doc/10.计划书/项目规划文档.md` 用于范围与排期；Git 协作规范见 `doc/10.计划书/规范提交代码与开发流程.md`。
 - Token、密码、私钥和平台 `appSecret` 只能通过服务端环境变量或密钥管理注入，不得写入仓库、浏览器代码、页面配置或日志。
 
-## 目标仓库结构（规划）
+## 仓库结构
 
 ```
 issedu_ysu2026_7439/
-├── README.md                          # 项目入口说明（当前为GitLab默认模板，待更新）
-├── 成员同步仓库配置指南.md              # 团队Git配置说明
-├── 规范提交代码与开发流程.md            # Git提交规范与协作流程
+├── README.md                          # 项目入口说明
 ├── CLAUDE.md                          # 本文件 — AI开发指导
-├── 项目规划文档.md                     # 详细项目规划
-├── src/                               # 规划中的源代码目录（当前仅含占位文件）
-│   ├── vision/                        # 计算机视觉模块
-│   │   ├── train.py                   # YOLO模型训练
-│   │   ├── detect.py                  # 目标检测推理
-│   │   ├── video_process.py           # 视频逐帧处理
-│   │   └── preprocess.py              # 水下图像预处理
-│   ├── llm/                           # 大语言模型模块
-│   │   ├── fine_tune/                 # LLaMA Factory微调配置
-│   │   ├── deploy/                    # Ollama部署配置(Modelfile)
-│   │   ├── chat_api.py                # LLM对话API
-│   │   ├── rag/                       # RAG知识库模块
-│   │   └── digital_human/             # 数字人交互模块
-│   │       ├── sdk_integration.js      # 数字人API平台JS SDK集成(init/speak/状态控制)
-│   │       ├── pipeline.py             # LLM→SDK文本驱动对接(断句+SSML注入)
-│   │       └── config.yaml             # SDK配置(appId/avatarId/voiceId等)
-│   ├── backend/                       # 后端服务（FastAPI 单服务）
-│   │   ├── main.py                    # FastAPI主应用（ASGI入口）
-│   │   ├── config.py                  # 配置管理
-│   │   ├── models/                    # SQLAlchemy数据模型
-│   │   ├── api/                       # API路由（/api/v1/*）与页面路由
-│   │   ├── services/                  # 业务逻辑层
-│   │   └── templates/                 # Jinja2模板（管理页面SSR）
-│   └── frontend/                      # 前端静态资源
-│       ├── static/css/                # 样式文件
-│       ├── static/js/                 # JS脚本（ECharts配置等）
-│       └── static/img/                # 图片资源
-├── dataset/                           # 数据集（不纳入Git，独立存放）
-│   ├── dataset/                        # TrashCan 1.0 原始数据
-│   │   ├── instance_version/           # COCO格式-实例版本（22类）
-│   │   ├── material_version/           # COCO格式-材质版本（16类）
-│   │   ├── original_data/              # Supervisely原始标注
-│   │   └── scripts/                    # 原始转换脚本
-│   ├── yolo_dataset/                   # YOLO格式数据集（已完成转换）
-│   │   ├── data.yaml                   # YOLO训练配置（22类）
-│   │   ├── class_reference.md          # 类别参考文档
-│   │   ├── images/train/               # 训练集 5,048张
-│   │   ├── images/val/                 # 验证集 1,442张
-│   │   ├── images/test/                # 测试集 722张
-│   │   ├── labels/train/               # YOLO标注（训练集）
-│   │   ├── labels/val/                 # YOLO标注（验证集）
-│   │   └── labels/test/                # YOLO标注（测试集）
-│   ├── convert_coco_to_yolo.py         # COCO->YOLO转换脚本（可复用）
-│   └── 数据集处理进度报告.md            # 数据处理进度报告
-├── data/                              # 其他数据（Git忽略大文件）
-│   └── knowledge/                     # RAG知识库文档
-├── models/                            # 模型权重（Git忽略）
-│   ├── yolo/                          # YOLO训练权重
-│   └── llm/                           # 微调后LLM（GGUF格式）
-├── tests/                             # 测试用例
-│   ├── test_vision.py
-│   ├── test_api.py
-│   └── test_llm.py
-└── doc/                               # 项目文档（按实训规范组织）
-    ├── 01.需求说明书/                  # 需求规格说明书
-    ├── 02.设计说明书/                  # 详细设计文档（含ER图、架构图）
-    ├── 03.测试用例/                    # 测试用例清单
-    ├── 04.检视意见/                    # 代码检视记录
-    ├── 05.问题列表/                    # Bug跟踪表
-    ├── 06.用户手册/                    # 用户操作手册
-    ├── 07.会议记录/                    # 每周会议纪要
-    ├── 08.参考资料/                    # 参考论文、API文档链接
-    ├── 09.文档模板/                    # 实训提供的10个模板文件
-    ├── 10.计划书/                      # 迭代开发计划
-    ├── 11.过程参考/                    # 过程参考文档
-    └── 12.自检结果/                    # 自检结果记录
+├── requirements.txt                   # Python 依赖清单（后端+视觉+LLM）
+├── 启动项目.bat                        # Windows 一键启动（首次运行自动 npm install）
+├── src/
+│   ├── vision/                        # 计算机视觉：train/detect/video_process、数据集构建与评估脚本、best.pt 权重
+│   ├── LLM/                           # 大语言模型模块
+│   │   ├── fine_tune/                 # LoRA 微调脚本与海洋QA数据集
+│   │   ├── deploy/                    # Ollama Modelfile 与 GGUF 转换
+│   │   ├── chat_api.py                # LLM 对话 API
+│   │   ├── rag/                       # RAG：向量+词法检索、知识库构建
+│   │   └── digital_human/             # 数字人对接（config.yaml）
+│   ├── backend/                       # 后端服务（FastAPI 单服务，端口8000）
+│   │   ├── main.py                    # ASGI 入口（建表/内置组播种/静态托管）
+│   │   ├── config.py                  # 配置中心（.env 注入）
+│   │   ├── database.py / models.py / schemas.py / auth.py / captcha.py
+│   │   ├── routers/                   # /api/v1/* 路由：auth/detect/chat/stats/reports/admin/face/digital_human
+│   │   └── services/                  # detector / llm / face 业务逻辑
+│   ├── frontend/                      # React 18 + TypeScript + Vite 6 SPA
+│   │   ├── src/pages/                 # Dashboard/Detection/History/Analysis/CommandScreen/Ocean3D/Reports/Assistant/Admin 等
+│   │   └── public/haitong/            # 海瞳生命图谱（独立 3D 应用，iframe 集成）
+│   └── mobile/                        # 移动端 H5 观察端（原生 JS）
+├── data/
+│   └── knowledge/                     # RAG 知识库文档（入库）
+├── models/                            # 模型权重（Git 忽略：yolo/ 与 llm/ GGUF）
+├── dataset/                           # TrashCan 数据集与 YOLO 转换产物（Git 忽略，本地存放）
+├── tests/                             # pytest + vitest 测试
+└── doc/                               # 项目文档（按实训规范组织 01–12）
+    └── 10.计划书/                      # 项目规划文档 / Git协作规范 / 仓库配置指南 / 迭代与风险表
 ```
 
 ## 技术栈
@@ -144,9 +103,9 @@ issedu_ysu2026_7439/
 
 ## 常用命令
 
-> 下列命令是目标用法。运行前先确认依赖、配置和对应脚本已经落地；规划阶段不应假定命令可直接执行。
+> 下列命令以仓库当前实现为准；运行前先确认依赖与配置已就绪。
 
-### Git协作（遵循 规范提交代码与开发流程.md）
+### Git协作（遵循 doc/10.计划书/规范提交代码与开发流程.md）
 
 ```bash
 # 开发前拉取最新代码
@@ -265,10 +224,10 @@ pytest tests/test_llm.py -v
 - Canvas检测框按原始媒体尺寸保存坐标，并根据实际渲染尺寸及 `devicePixelRatio` 换算，避免缩放后标注偏移。
 - 交互控件应支持键盘操作并具备可见焦点；表单控件必须关联标签。页面至少验证 Chrome/Edge 最新稳定版，以及 1366×768、1920×1080 两档分辨率。
 
-> 前端页面清单、路由规划和验收基线详见 `项目规划文档.md` 第六章（6.5.2节）和第十一章。前端开发任务分解与工时估算见 `项目规划文档.md` 第八章（8.4节）。
+> 前端页面清单、路由规划和验收基线详见 `doc/10.计划书/项目规划文档.md` 第六章（6.5.2节）和第十一章。前端开发任务分解与工时估算见同文档第八章（8.4节）。
 
 ### Git提交规范
-- **提交格式**: `<type>: <简短说明>`（详见 `规范提交代码与开发流程.md`）
+- **提交格式**: `<type>: <简短说明>`（详见 `doc/10.计划书/规范提交代码与开发流程.md`）
 - **常用type**: `feat`(新功能) `fix`(修复) `docs`(文档) `refactor`(重构) `test`(测试) `chore`(配置)
 - 提交前必须执行 `git status` + `git diff --check` 检查
 - 不提交 Token、密码、私钥、临时文件、构建产物
@@ -282,7 +241,7 @@ pytest tests/test_llm.py -v
 
 ## 团队分工
 
-> 团队共5人；项目经理/组长由其中一名成员兼任（多见于后端或LLM工程师兼任，最终由团队协商确定）。详细分工与工时估算见 `项目规划文档.md` 第八章。
+> 团队共5人；项目经理/组长由其中一名成员兼任（多见于后端或LLM工程师兼任，最终由团队协商确定）。详细分工与工时估算见 `doc/10.计划书/项目规划文档.md` 第八章。
 
 | 角色 | 职责范围 | 主要产出 |
 |------|----------|----------|
@@ -308,8 +267,8 @@ pytest tests/test_llm.py -v
 
 ## 参考文档
 
-- 详细项目规划（需求、分工、排期、API概要、考核标准）: `项目规划文档.md`
-- Git协作规范（待创建）: `规范提交代码与开发流程.md`
-- 仓库配置指南（待创建）: `成员同步仓库配置指南.md`
-- 数据集处理进度: `dataset/数据集处理进度报告.md`
-- 类别参考: `dataset/yolo_dataset/class_reference.md`
+- 详细项目规划（需求、分工、排期、API概要、考核标准）: `doc/10.计划书/项目规划文档.md`
+- Git协作规范: `doc/10.计划书/规范提交代码与开发流程.md`
+- 仓库配置指南: `doc/10.计划书/成员同步仓库配置指南.md`
+- 数据集处理进度（本地）: `dataset/数据集处理进度报告.md`
+- 类别参考（本地）: `dataset/yolo_dataset/class_reference.md`
