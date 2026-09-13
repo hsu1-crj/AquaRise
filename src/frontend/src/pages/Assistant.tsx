@@ -15,9 +15,11 @@ import {
   FileJson,
   FileText,
   FileUp,
+  History,
   LoaderCircle,
   MessagesSquare,
   Mic,
+  Plus,
   Recycle,
   RotateCcw,
   Scale,
@@ -71,6 +73,49 @@ const SYSTEM_PROMPT: ChatMessagePayload = {
 };
 
 const SESSION_KEY = 'aquarise-chat-session';
+
+/** 历史会话索引（localStorage）：新建会话不再丢弃旧记录，服务端按 sessionId 全量落库，
+ *  本地只登记“会话卡”（id/标题/条数/时间）用于列表展示、切换与导出。 */
+const SESSIONS_INDEX_KEY = 'aquarise-chat-sessions-v1';
+const SESSIONS_INDEX_MAX = 30;
+
+interface StoredSessionMeta {
+  id: string;
+  title: string;
+  count: number;
+  updatedAt: number;
+}
+
+function loadSessionIndex(): StoredSessionMeta[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SESSIONS_INDEX_KEY) ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is StoredSessionMeta =>
+        Boolean(s) && typeof s.id === 'string' && typeof s.title === 'string' && typeof s.updatedAt === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+function upsertSessionMeta(list: StoredSessionMeta[], meta: StoredSessionMeta): StoredSessionMeta[] {
+  const next = [meta, ...list.filter((s) => s.id !== meta.id)]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, SESSIONS_INDEX_MAX);
+  try {
+    window.localStorage.setItem(SESSIONS_INDEX_KEY, JSON.stringify(next));
+  } catch {
+    /* 隐私模式/配额已满：索引仅保留在本次内存中 */
+  }
+  return next;
+}
+
+function formatSessionTime(ts: number): string {
+  const d = new Date(ts);
+  const hm = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  return d.toDateString() === new Date().toDateString() ? `今天 ${hm}` : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
 
 /**
  * 在途对话流（模块级）。切页卸载时请求不中断，仍在后台生成：
@@ -158,6 +203,19 @@ function downloadExport(content: string, fileName: string, type: string): void {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** 单条消息 → Markdown 转写段（「导出记录」菜单的 Markdown 格式使用）。 */
+function markdownTranscriptLine(
+  m: { role: 'user' | 'assistant'; content: string; timestamp?: string; attachment?: { label: string; meta?: string } },
+  authorName: string,
+): string {
+  const author = m.role === 'assistant' ? '海洋守护者 AI' : authorName;
+  const time = m.timestamp ? ` [${m.timestamp}]` : '';
+  const attachment = m.attachment
+    ? `\n> 关联质量报告：${m.attachment.label}${m.attachment.meta ? `\n> 报告摘要：${m.attachment.meta.replace(/\r?\n/g, ' ')}` : ''}\n`
+    : '';
+  return `### ${author}${time}${attachment}\n${m.content}\n`;
 }
 
 function getOrCreateSessionId(): string {
@@ -817,6 +875,9 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
   // 切回页面时仍在后台生成的那条回答气泡 id：用于给它打上流式占位/光标
   const [inflightBubbleId, setInflightBubbleId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  // --- 历史会话（本地索引 + 抽屉开关；导出统一走切回会话后的“导出记录”菜单） ---
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [sessionIndex, setSessionIndex] = useState<StoredSessionMeta[]>(() => loadSessionIndex());
 
   // --- 语音识别输入（Web Speech API，Chrome/Edge） ---
   const [listening, setListening] = useState(false);
@@ -1117,6 +1178,21 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     };
   }, [sessionId]);
 
+  // 会话归档：当前会话出现过用户提问（回答完成、非流式中）即登记/刷新本地索引，
+  // “新建会话”只开启空白会话，旧记录留在索引里可随时切回与导出。
+  useEffect(() => {
+    if (busy) return; // 流式期间不写 localStorage，回答收尾后统一登记
+    const firstUser = messages.find((m) => m.role === 'user');
+    if (!firstUser) return;
+    const title = firstUser.content.trim().replace(/\s+/g, ' ').slice(0, 24) || '新会话';
+    setSessionIndex((prev) => upsertSessionMeta(prev, {
+      id: sessionId,
+      title,
+      count: messages.length,
+      updatedAt: Date.now(),
+    }));
+  }, [messages, sessionId, busy]);
+
   // 隐藏 SDK 原生字幕元素
   useEffect(() => {
     const container = sdkContainerRef.current;
@@ -1151,12 +1227,44 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     };
   }, [dhReady]);
 
-  // 初始化数字人
+  // 初始化数字人（带自动重连）：网关短期凭证闲置过期、网关/上游抖动都会让 SDK
+  // 中途报错掉线。此前一次 error 就永久降级全息模式；现在销毁旧实例、重取凭证
+  // 重建连接，最多重试 3 次（成功后计数清零），全部失败才降级。
   useEffect(() => {
     dhLoadStartedAt.current = Date.now();
     let cancelled = false;
     const container = sdkContainerRef.current;
     if (!container) return;
+    let retryCount = 0;
+    let reconnectTimer = 0;
+    let reconnecting = false;
+    let currentDh: OceanDigitalHuman | null = null;
+
+    const degrade = (text: string) => {
+      setDhStatus('offline');
+      setDhReady(false);
+      setDhLoadingText(text);
+    };
+
+    const scheduleReconnect = (reason: string) => {
+      if (cancelled || reconnecting) return;
+      reconnecting = true;
+      retryCount += 1;
+      try { currentDh?.destroy(); } catch { /* 半初始化实例释放失败可忽略 */ }
+      currentDh = null;
+      dhRef.current = null;
+      setDhReady(false);
+      if (retryCount > 3) {
+        reconnecting = false;
+        degrade('数字人服务多次连接失败，已激活全息 AI 模式');
+        return;
+      }
+      setDhLoadingText(`数字人连接中断（${reason}），正在重连 ${retryCount}/3…`);
+      reconnectTimer = window.setTimeout(() => {
+        reconnecting = false;
+        void boot();
+      }, retryCount === 1 ? 2000 : 6000);
+    };
 
     async function boot() {
       let dh: OceanDigitalHuman | null = null;
@@ -1172,11 +1280,13 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         const appId = credential?.app_id || publicConfig?.app_id || '';
         const appSecret = credential?.credential || '';
         if (!appId || !appSecret) {
-          console.warn('[数字人] 服务端短期凭证不可用，已开启全息拟态模式');
-          if (!cancelled) {
-            setDhStatus('offline');
-            setDhLoadingText('数字人未配置，已激活全息 AI 模式');
+          if (publicConfig && publicConfig.enabled === false) {
+            // 服务端明确未配置数字人：直接降级，不浪费重试
+            if (!cancelled) degrade('数字人未配置，已激活全息 AI 模式');
+            return;
           }
+          // 配置存在但凭证签发失败：可能是瞬时故障，走重连
+          scheduleReconnect('凭证不可用');
           return;
         }
         dh = new OceanDigitalHuman({
@@ -1191,6 +1301,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
         });
         dh.on('ready', () => {
           if (!cancelled) {
+            retryCount = 0;
             const remaining = Math.max(0, 420 - (Date.now() - dhLoadStartedAt.current));
             window.setTimeout(() => {
               if (cancelled) return;
@@ -1215,14 +1326,11 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           }
         });
         dh.on('error', () => {
-          if (!cancelled) {
-            setDhStatus('offline');
-            setDhReady(false);
-            setDhLoadingText('数字人服务离线，已激活全息 AI 模式');
-          }
+          // 会话中途掉线（凭证过期/网关抖动）：自动重连而不是永久降级
+          scheduleReconnect('服务中断');
         });
 
-        // 网关挂起时 init 可能永不返回，必须限时降级到全息 AI 模式，避免 HUD 永久卡在加载。
+        // 网关挂起时 init 可能永不返回，必须限时转入重连，避免 HUD 永久卡在加载。
         let initTimer = 0;
         try {
           await Promise.race([
@@ -1235,20 +1343,19 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
           window.clearTimeout(initTimer);
         }
         if (cancelled) dh.destroy();
-        else dhRef.current = dh;
-      } catch {
-        if (!cancelled) {
-          setDhStatus('offline');
-          setDhReady(false);
-          setDhLoadingText('数字人服务离线，已激活全息 AI 模式');
+        else {
+          dhRef.current = dh;
+          currentDh = dh;
         }
-        try { dh?.destroy(); } catch { /* 半初始化实例释放失败可忽略 */ }
+      } catch {
+        scheduleReconnect('初始化失败');
       }
     }
 
     boot().catch(() => {});
     return () => {
       cancelled = true;
+      window.clearTimeout(reconnectTimer);
     };
   }, []);
 
@@ -1705,6 +1812,7 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     }
   };
 
+  /** 新建会话：旧会话记录已在本地索引+服务端保留（见归档 effect），这里只开启空白会话。 */
   const clearMessages = () => {
     if (busy) stop();
     const fresh = uuid();
@@ -1714,17 +1822,26 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
     setError('');
     setAnswerComplete(false);
     setDhSubtitle('');
+    setHistoryOpen(false);
+  };
+
+  /** 切回历史会话：sessionId 变化触发的 effect 会重拉服务端记录渲染。 */
+  const switchSession = (id: string) => {
+    if (busy || id === sessionId) {
+      setHistoryOpen(false);
+      return;
+    }
+    window.sessionStorage.setItem(SESSION_KEY, id);
+    setSessionId(id);
+    setMessages([]);
+    setError('');
+    setAnswerComplete(false);
+    setDhSubtitle('');
+    setHistoryOpen(false);
   };
 
   const exportChatMarkdown = () => {
-    const lines = messages.map((m) => {
-      const author = m.role === 'assistant' ? '海洋守护者 AI' : userName;
-      const time = m.timestamp ? ` [${m.timestamp}]` : '';
-      const attachment = m.attachment
-        ? `\n> 关联质量报告：${m.attachment.label}${m.attachment.meta ? `\n> 报告摘要：${m.attachment.meta.replace(/\r?\n/g, ' ')}` : ''}\n`
-        : '';
-      return `### ${author}${time}${attachment}\n${m.content}\n`;
-    });
+    const lines = messages.map((m) => markdownTranscriptLine(m, userName));
     const boundReport = activeReportContext
       ? `\n当前绑定质量报告：${activeReportContext.title}${activeReportContext.summary ? `\n报告摘要：${activeReportContext.summary.replace(/\r?\n/g, ' ')}` : ''}\n`
       : '';
@@ -1974,12 +2091,54 @@ export function AssistantPage({ user }: { user: UserInfo | null }) {
               )}
             </div>
 
+            <div className="og-export-wrap">
+              <button
+                className={`og-topbar-btn ${historyOpen ? 'active' : ''}`}
+                onClick={() => { setHistoryOpen((open) => !open); setExportOpen(false); }}
+                title="查看、切换与导出之前的会话记录"
+                aria-haspopup="menu"
+                aria-expanded={historyOpen}
+                disabled={busy}
+              >
+                <History size={13} />
+                <span>历史会话</span>
+              </button>
+              {historyOpen && (
+                <div className="og-export-menu og-history-menu" role="menu">
+                  {sessionIndex.length === 0 && (
+                    <p className="og-history-empty">暂无历史会话：开始提问后会自动归档，新建会话不会丢失记录</p>
+                  )}
+                  {sessionIndex.map((s) => (
+                    <div
+                      key={s.id}
+                      className="og-history-item"
+                      role="menuitem"
+                      tabIndex={0}
+                      onClick={() => switchSession(s.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          switchSession(s.id);
+                        }
+                      }}
+                      title="点击查看该会话；导出请先切回该会话再用顶部「导出记录」"
+                    >
+                      <span className="og-history-item-main">
+                        <strong>{s.title}</strong>
+                        <small>{s.count} 条消息 · {formatSessionTime(s.updatedAt)}</small>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button
-              className="og-topbar-btn danger"
+              className="og-topbar-btn"
               onClick={clearMessages}
-              title="清空记录并开启新会话"
+              title="开启新的空白会话；之前的记录保留在“历史会话”中，可随时切回或导出"
             >
-              <Trash2 size={13} />
+              <Plus size={13} />
               <span>新建会话</span>
             </button>
           </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeftRight, Camera, CheckCircle2, LoaderCircle, LockKeyhole, Save, ScanFace, Trash2, UserRound } from 'lucide-react';
+import { ArrowLeftRight, Camera, CheckCircle2, Clock, LoaderCircle, LockKeyhole, Save, ScanFace, Trash2, UserRound } from 'lucide-react';
 import { api } from '../services/api';
 import { useCamera } from '../services/camera';
 import type { FaceInfo, GroupOption, GroupSwitchRequestInfo, ProfileStats, UserInfo } from '../types';
@@ -248,7 +248,7 @@ export function ProfilePage({ user, onUserUpdated }: { user?: UserInfo | null; o
                     <p className="group-switch-current">当前用户组：<strong>{user?.group_name ?? '未分组'}</strong></p>
                     {pendingRequest ? (
                       <div className="admin-notice">
-                        <LoaderCircle size={14} className="spin" />
+                        <Clock size={14} />
                         换组申请审批中：申请加入「{pendingRequest.to_group_name ?? '目标用户组'}」，最高管理员处理后会通过铃铛通知你
                       </div>
                     ) : (

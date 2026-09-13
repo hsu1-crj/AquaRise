@@ -21,6 +21,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { ADMIN_FOCUS_EVENT, ADMIN_FOCUS_TAB_KEY } from '../services/notifications';
 import { adminApi, clearStoredAuth } from '../services/api';
 import type { AdminGroup, AdminOverview, AdminUserRow, GroupSwitchRequestInfo, ModuleMeta, UserInfo } from '../types';
 
@@ -149,9 +150,19 @@ interface AdminPageProps {
   user?: UserInfo | null;
 }
 
-
 export function AdminPage({ user }: AdminPageProps) {
   const [tab, setTab] = useState<AdminTab>('overview');
+  // 换组申请通知的聚焦意图：铃铛点击后写入 sessionStorage 再导航过来（后台页
+  // 尚未挂载），或已挂载时直接派发事件。intent 在 effect 中消费——StrictMode
+  // 会双调用 useState 初始化器，在那里删 key 会让第二次初始化读到空值而丢失意图。
+  useEffect(() => {
+    const focusRequests = () => setTab('requests');
+    const focused = window.sessionStorage.getItem(ADMIN_FOCUS_TAB_KEY);
+    window.sessionStorage.removeItem(ADMIN_FOCUS_TAB_KEY);
+    if (focused === 'requests') focusRequests();
+    window.addEventListener(ADMIN_FOCUS_EVENT, focusRequests);
+    return () => window.removeEventListener(ADMIN_FOCUS_EVENT, focusRequests);
+  }, []);
 
   const tabs: Array<{ id: AdminTab; label: string; icon: typeof LayoutGrid }> = [
     { id: 'overview', label: '概览', icon: LayoutGrid },

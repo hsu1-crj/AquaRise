@@ -28,6 +28,11 @@ export const PERMISSIONS_CHANGED_EVENT = 'auth:permissions-changed';
 /** 检测任务完成/失败时，铃铛的 SSE 订阅把瞬时事件转成 window 事件，检测历史页监听后实时刷新列表 */
 export const DETECTION_REFRESH_EVENT = 'detection:refresh';
 
+/** 换组申请通知点击 → 后台「换组审批」标签页的跨页聚焦意图：
+ *  后台页未挂载时由 AdminPage 初始读取 sessionStorage 消费；已挂载时监听即时事件切换。 */
+export const ADMIN_FOCUS_TAB_KEY = 'aquarise-admin-focus-tab';
+export const ADMIN_FOCUS_EVENT = 'admin:focus-tab';
+
 export interface NotifSnapshot {
   items: NotifItem[];
   unreadCount: number;

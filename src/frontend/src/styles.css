@@ -710,6 +710,62 @@
   font-size: 10px;
 }
 
+/* ===== 海洋守护者 · 历史会话抽屉（复用导出菜单的浮层骨架） ===== */
+.og-history-menu {
+  width: 272px;
+  max-height: 322px;
+  overflow-y: auto;
+}
+
+.og-history-empty {
+  margin: 0;
+  padding: 16px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.og-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.og-history-item:hover {
+  background: rgba(89, 230, 239, 0.11);
+}
+
+.og-history-item:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.og-history-item-main {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.og-history-item-main strong {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(220, 242, 249, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.og-history-item-main small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .og-topbar-btn {
   display: inline-flex;
   align-items: center;

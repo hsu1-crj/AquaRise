@@ -2714,6 +2714,7 @@ import { createFpsFuse } from "./assets/js/bloom-policy.mjs";
 import { createGbifClient } from "./assets/js/gbif-client.mjs";
 import { createAtlasGuideVisitTracker, getDemoControlCopy, getExplorationGuidance, getSoundControlCopy, resolveAtlasShortcut, resolveDemoNarrationBudget } from "./assets/js/atlas-guide.mjs";
 import { createGbifFlatMap } from "./assets/js/gbif-flat-map.mjs";
+import { createPalmWaveTracker } from "./assets/js/palm-wave.mjs";
 
 const $ = s => document.querySelector(s);
 let toastTimer = null;
@@ -7810,9 +7811,17 @@ let gestureStream = null, gestureRunning = false, gestureTimer = null;
 // 后台隐藏时递增：在途的手势检测迭代发现令牌失效后不再续跑，避免复活循环
 let gestureLoopToken = 0;
 let gestureManualChoice = false;
-// 手势不是视频检测：识别频率不需要追上渲染帧率。降低同步 WASM/GPU 调用频率，
-// 避免它和 2.6 万粒子地球争用主线程与显卡，摄像头预览仍由浏览器按原生帧率播放。
+// 手势不是视频检测：识别频率不需要追上渲染帧率。GESTURE_DETECT_INTERVAL_MS 是
+// “目标检测周期”而非固定睡眠时长：循环按本轮推理实际耗时扣减睡眠（见 startLandmarkLoop），
+// 快机器维持 ~84ms 周期不与 2.6 万粒子地球争用主线程；慢机器（CPU 委托/弱核）推理本身
+// 已超过目标周期时不再叠加 84ms 惩罚，按其可持续的最快速率连续采样——
+// 慢机器的有效检测帧率显著提升，挥掌采样点更密，灵敏度向快机器看齐。
 const GESTURE_DETECT_INTERVAL_MS = 84;
+// 有效检测帧间隔EMA（含 WASM 推理耗时）。所有“按帧计数”的防抖阈值都参照它自适应放宽，
+// 保证不同性能机器手势手感一致。
+let landmarkFrameMs = 90, lastLandmarkTs = 0;
+const palmGapResetMs = () => Math.max(260, landmarkFrameMs * 2.5);
+const palmGraceMs = () => Math.max(PALM_GLITCH_GRACE_MS, landmarkFrameMs * 2.5);
 let lastGestureActionTime = 0;
 let handLandmarker = null, handLandmarkerError = "";
 
@@ -7876,7 +7885,7 @@ async function toggleGesture() {
  return;
  }
  gestureStream = await navigator.mediaDevices.getUserMedia({
- video: { width: { ideal: 640, max: 640 }, height: { ideal: 480, max: 480 }, frameRate: { ideal: 15, max: 20 }, facingMode: "user" }
+ video: { width: { ideal: 640, max: 640 }, height: { ideal: 480, max: 480 }, frameRate: { ideal: 30, max: 30 }, facingMode: "user" }
  });
  video.srcObject = gestureStream;
  await video.play();
@@ -7925,6 +7934,55 @@ function updateGestureUi(active) {
  if (hintGestureBtn) hintGestureBtn.textContent = active ? "关闭手势控制" : "开启手势控制";
 }
 
+// ---------- 手势诊断 HUD（页面左下角，不遮挡摄像头预览；D 键收起/展开） ----------
+// 定位“挥掌不灵敏”卡在哪一环：检测帧率（WASM 推理后实际生效）/ 相机帧率 /
+// 手势识别稳定性 / palm 确认 / 模式门槛（species + zoom≥0.90）/ 挥掌位移·速度·手宽阈值。
+const gestureDiagEl = document.createElement("div");
+gestureDiagEl.id = "gestureDiag";
+gestureDiagEl.style.cssText = [
+ "position:fixed", "left:10px", "bottom:10px", "z-index:9999",
+ "font:11px/1.7 Consolas,monospace", "color:#38f8d4",
+ "background:rgba(2,19,28,.85)", "padding:4px 9px", "border-radius:6px",
+ "pointer-events:none", "white-space:pre-line", "max-width:300px"
+].join(";");
+document.body.appendChild(gestureDiagEl);
+let gestureDiagExpanded = false; // 默认单行摘要，按 D 展开/收起详情
+let diagLastWave = null;
+window.addEventListener("keydown", (e) => {
+ if (!gestureRunning) return;
+ if (e.key === "d" || e.key === "D") {
+  gestureDiagExpanded = !gestureDiagExpanded;
+  renderGestureDiag();
+ }
+});
+function renderGestureDiag() {
+ if (!gestureRunning) { gestureDiagEl.style.display = "none"; return; }
+ gestureDiagEl.style.display = "";
+ const track = gestureStream?.getVideoTracks?.()[0];
+ const camFps = track ? Math.round(track.getSettings().frameRate ?? 0) || "?" : "-";
+ const detectFps = landmarkFrameMs > 0 ? Math.round(1000 / landmarkFrameMs) : "?";
+ const last = window.__HAND?.last;
+ const confirmTxt = palmConfirmed ? "确认✓"
+  : `确认${Math.min(palmCandidateFrames, PALM_CONFIRM_FRAMES)}/${PALM_CONFIRM_FRAMES}`;
+ const gateOk = uiState === "species" && targetZoom >= 0.90;
+ const summary = `🖐 ${detectFps}fps·${camFps}cam · ${last ? last.name : "-"} · palm${confirmTxt} · 门槛${gateOk ? "✓" : "✗"}`;
+ if (!gestureDiagExpanded) {
+  gestureDiagEl.textContent = summary + "（D详情）";
+  return;
+ }
+ const st = palmWave.state();
+ const handW = last?.box ? Math.round(last.box[2] - last.box[0]) : null;
+ const waveTxt = diagLastWave
+  ? `挥掌 ${Math.abs(diagLastWave.travel).toFixed(0)}/${diagLastWave.threshold.toFixed(0)}px · ${Math.round(diagLastWave.speed)}px/s`
+   + (st.armed ? "" : " · 锁定待回位")
+  : `挥掌 -/${st.threshold.toFixed(0)}px`;
+ gestureDiagEl.textContent =
+  summary + "\n" +
+  `手势置信 ${last ? `${Math.round((last.score ?? 0) * 100)}%` : "-"} · 手宽 ${handW ?? "-"}px${detailLocked ? " · 档案锁定" : ""}\n` +
+  `门槛 ${gateOk ? "满足" : `未满足(${uiState} z=${targetZoom.toFixed(2)})`}\n` +
+  waveTxt;
+}
+
 gestureBtn.addEventListener("click", toggleGesture);
 $("#resetGestureBtn")?.addEventListener("click", () => {
  resetPalmHold();
@@ -7956,6 +8014,7 @@ window.__HAND = {
  lm: HAND_LM,
  ready: () => Boolean(handLandmarker),
  error: () => handLandmarkerError,
+ fps: () => (landmarkFrameMs > 0 ? Math.round(1000 / landmarkFrameMs) : 0),
  init: () => initHandLandmarker(),
  last: null
 };
@@ -7963,28 +8022,41 @@ window.__HAND = {
 function startLandmarkLoop() {
  if (!gestureRunning || !handLandmarker) return;
  const loopToken = gestureLoopToken;
- let lastTs = 0;
+ let lastTs = 0, inferMs = 0;
  async function loop() {
  if (!gestureRunning || gestureLoopToken !== loopToken) return;
  try {
  const ts = performance.now();
  if (video.readyState >= 2 && video.videoWidth > 0 && ts > lastTs) {
  lastTs = ts;
+   if (lastLandmarkTs > 0) {
+    const gap = ts - lastLandmarkTs;
+    if (gap > 0 && gap < 2000) landmarkFrameMs = landmarkFrameMs * 0.8 + gap * 0.2;
+   }
+   lastLandmarkTs = ts;
+ const inferStart = performance.now();
  const result = handLandmarker.detectForVideo(video, ts);
+ inferMs = performance.now() - inferStart;
  const hands = result && result.landmarks ? result.landmarks : [];
  if (hands.length) {
  const { cls, box, pinchPoint, indexPoint } = landmarksToDetection(hands[0]);
  window.__HAND.last = { name: cls.name, score: cls.score, metrics: cls.metrics, box, pinchPoint, indexPoint };
  handleServerGesture({ detections: [{ name: cls.name, conf: cls.score, box, pinchPoint, indexPoint }] });
+  renderGestureDiag();
  } else {
  window.__HAND.last = null;
  handleServerGesture({ detections: [], wrists: [] });
+ renderGestureDiag();
  }
  }
  } catch (err) {
  // 单帧跟踪失败忽略
  }
- if (gestureRunning && gestureLoopToken === loopToken) gestureTimer = setTimeout(loop, GESTURE_DETECT_INTERVAL_MS);
+ // 自适应节流：目标周期 84ms 已被推理占用的部分不再重复等待（慢机器周期=纯推理耗时，
+ // 快机器仍保持 84ms 上限），两类机器的挥掌采样密度差距显著收窄。
+ if (gestureRunning && gestureLoopToken === loopToken) {
+  gestureTimer = setTimeout(loop, Math.max(0, GESTURE_DETECT_INTERVAL_MS - inferMs));
+ }
  }
  loop();
 }
@@ -7995,10 +8067,9 @@ const DISCRETE_HOLD_MS = 300;
 let lastFiredGesture = null, emptyStreak = 0;
 let discreteGestureName = null, discreteGestureStartedAt = 0, discreteGestureLastSeenAt = 0;
 let palmStartedAt = null, palmLastSeenAt = 0, palmCueShown = false, palmStartZoom = 0;
-let palmWaveStartX = null, palmWaveStartAt = 0;
-let palmWaveArmed = true, palmWaveSettledAt = 0, palmWaveLastX = null;
-let palmWavePendingDirection = 0, palmWavePendingAt = 0;
+let palmWave = createPalmWaveTracker();
 const PALM_CONFIRM_FRAMES = 3;
+const PALM_CONFIRM_MS = 300; // 低帧率兜底：帧计数确认慢于该时长时改按时间确认
 const PALM_GLITCH_GRACE_MS = 220;
 let palmCandidateFrames = 0, palmCandidateStartedAt = null, palmCandidateLastSeenAt = 0, palmConfirmed = false;
 function resetPalmHold() {
@@ -8010,16 +8081,11 @@ function resetPalmHold() {
  palmCandidateStartedAt = null;
  palmCandidateLastSeenAt = 0;
  palmConfirmed = false;
- palmWaveStartX = null;
- palmWaveStartAt = 0;
- palmWaveSettledAt = 0;
- palmWaveLastX = null;
- palmWavePendingDirection = 0;
- palmWavePendingAt = 0;
+ palmWave.reset();
 }
 function updatePalmCandidate(name, now) {
  if (name === "palm") {
-  if (palmCandidateStartedAt === null || now - palmCandidateLastSeenAt > 260) {
+ if (palmCandidateStartedAt === null || now - palmCandidateLastSeenAt > palmGapResetMs()) {
    palmCandidateStartedAt = now;
    palmCandidateFrames = 0;
    palmConfirmed = false;
@@ -8027,14 +8093,19 @@ function updatePalmCandidate(name, now) {
   }
   palmCandidateFrames += 1;
   palmCandidateLastSeenAt = now;
-  if (palmCandidateFrames >= PALM_CONFIRM_FRAMES) {
+  if (palmCandidateFrames >= PALM_CONFIRM_FRAMES || now - palmCandidateStartedAt >= PALM_CONFIRM_MS) {
    palmConfirmed = true;
    if (palmStartedAt === null) palmStartedAt = palmCandidateStartedAt;
   }
   return;
  }
+ // 挥掌进行中（palm 已确认、在物种档案页、未锁定档案）：挥动带来的运动模糊
+ // 常让分类在 palm/four/peace 间抖动甚至丢帧，若因此重置确认，用户就必须
+ // “先停住重新确认才能再挥”，主观感受就是不灵敏。700ms 内的抖动不重置。
+ if (palmConfirmed && uiState === "species" && targetZoom >= 0.90
+  && now - palmCandidateLastSeenAt <= 700) return;
  // MediaPipe 偶尔会把一帧张开掌抖成 four；短暂保留 palm 候选，不清空显影计时。
- if (palmCandidateStartedAt !== null && now - palmCandidateLastSeenAt <= PALM_GLITCH_GRACE_MS) return;
+ if (palmCandidateStartedAt !== null && now - palmCandidateLastSeenAt <= palmGraceMs()) return;
  resetPalmHold();
 }
 const PINCH_ROTATE_CONFIRM_FRAMES = 3;
@@ -8207,8 +8278,14 @@ function handleServerGesture(data) {
  // 1. 持续张开手掌：只看持续时长，不读取掌宽或前后距离。
  // planet → diving → species 全程持续推进；只有鲸落期间锁定。
  const palmGraceFrame = name === "four" && palmCandidateStartedAt !== null
-  && now - palmCandidateLastSeenAt <= PALM_GLITCH_GRACE_MS;
- const palmActive = name === "palm" || (name === "four" && palmConfirmed && palmGraceFrame);
+ && now - palmCandidateLastSeenAt <= palmGraceMs();
+ // 挥掌锁存：palm 已确认且在物种翻页态时，非 fist/ok 的分类抖动帧继续按
+ // palm 处理（喂挥掌跟踪器），握拳（回地球）与 OK（固定档案）优先级不受影响。
+ const waveLatchActive = palmConfirmed && uiState === "species" && targetZoom >= 0.90
+  && !detailLocked && name !== "fist" && name !== "ok"
+  && now - palmCandidateLastSeenAt <= 700;
+ const palmActive = name === "palm" || (name === "four" && palmConfirmed && palmGraceFrame)
+  || waveLatchActive;
  if (palmActive) {
  if (uiState === "whaleFall") {
   $("#gestureReadout").textContent = `palm (${conf}%) · 鲸落播放中`;
@@ -8226,38 +8303,22 @@ function handleServerGesture(data) {
   return;
   }
   const rawPalmCenterX = (x1 + x2) / 2;
-  // 使用低通滤波后的掌心位置，降低检测框抖动对挥掌距离的影响。
-  const palmCenterX = palmWaveLastX === null
-    ? rawPalmCenterX
-    : palmWaveLastX + (rawPalmCenterX - palmWaveLastX) * 0.42;
-  palmWaveLastX = palmCenterX;
-  if (palmWaveStartX === null || now - palmWaveStartAt > 1400) {
-   palmWaveStartX = palmCenterX;
-   palmWaveStartAt = now;
-   palmWavePendingDirection = 0;
-  }
-  // 摄像头预览水平镜像，换算成用户看到的左右方向。一次有效挥动后
-  // 立即以当前掌心重新起算，不再要求回到固定中央区域才能再次挥动。
-  const screenTravel = -(palmCenterX - palmWaveStartX);
-  const pendingDirection = screenTravel < 0 ? 1 : -1;
-  const swipeReady = Math.abs(screenTravel) > 28
-    && now - palmWaveStartAt > 90
-    && now - lastGestureActionTime > 420;
-  if (swipeReady) {
-   switchSpecies(pendingDirection);
-   toast(pendingDirection > 0 ? "手掌向左挥：下一物种" : "手掌向右挥：上一物种");
+  // 挥掌跟踪收敛到 palm-wave 模块：低通滤波按实测帧间隔做时间补偿，
+  // 检测帧率低的机器（慢 CPU / 相机 15fps 上限）与高帧率机器手感一致；
+  // 触发后模块自动锁定，掌心回到基线附近才重新武装（一次挥动只翻一页）。
+  // direction>0 = 向左挥 = 下一物种（镜像换算在模块内完成）。
+  const wave = palmWave.update(rawPalmCenterX, now, boxW);
+  diagLastWave = wave;
+  if (wave.fired && now - lastGestureActionTime > 360) {
+   switchSpecies(wave.direction);
+   toast(wave.direction > 0 ? "手掌向左挥：下一物种" : "手掌向右挥：上一物种");
    lastGestureActionTime = now;
-   palmWaveStartX = palmCenterX;
-   palmWaveStartAt = now;
-   palmWavePendingDirection = 0;
-  } else {
-   palmWavePendingDirection = Math.abs(screenTravel) > 18 ? pendingDirection : 0;
   }
-  const waveHint = palmWavePendingDirection > 0
-    ? "左挥确认中 · 下一物种"
-    : palmWavePendingDirection < 0
-      ? "右挥确认中 · 上一物种"
-      : "左挥下一物种 · 右挥上一物种";
+  const waveHint = wave.pending > 0
+   ? "左挥确认中 · 下一物种"
+   : wave.pending < 0
+     ? "右挥确认中 · 上一物种"
+     : "左挥下一物种 · 右挥上一物种";
   $("#gestureReadout").textContent = `palm (${conf}%) · ${waveHint}`;
   return;
  }
