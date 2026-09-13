@@ -142,3 +142,22 @@ AQUARISE Ocean Conservation Super-App (Community)/
 # ==============================
 data/marine_now.json
 data/marine_*.json
+
+# ==============================
+# 运行时产物（服务自动生成，不入库）
+# ==============================
+reports/
+_report_shots/
+src/backend/reports/
+src/backend/uploads/
+
+# ==============================
+# 个人答辩与工作记录（仅本地保留，不公开）
+# ==============================
+答辩背诵手册_*
+前端项目答辩代码深挖手册_*
+介绍_*.md
+介绍_*.html
+day39.md
+软件工程6班-*.docx
+tools/render_defense_manual.py
