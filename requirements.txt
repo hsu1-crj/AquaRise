@@ -1,0 +1,51 @@
+# 海洋守护者（AquaRise）Python 依赖
+# 安装：pip install -r requirements.txt
+# 建议使用独立虚拟环境：conda create -n underwater python=3.10
+
+# ============ Web 服务（FastAPI 后端） ============
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+python-multipart>=0.0.9        # 登录表单 / 文件上传
+python-dotenv>=1.0             # 读取项目根目录 .env
+aiohttp>=3.9                   # 数字人网关代理 / 异步请求
+
+# ============ 数据库（MySQL） ============
+sqlalchemy>=2.0
+pymysql>=1.1                   # mysql+pymysql 驱动
+cryptography>=42               # MySQL caching_sha2_password 认证
+
+# ============ 认证与安全 ============
+PyJWT>=2.8                     # 签发 / 校验 JWT
+bcrypt>=4.1                    # 密码哈希
+
+# ============ 计算机视觉（YOLO 检测） ============
+ultralytics>=8.3               # YOLO11 训练与推理
+opencv-python>=4.9             # 图像 / 视频处理
+numpy>=1.26
+pillow>=10                     # 验证码图片绘制
+matplotlib>=3.8                # 训练可视化
+tqdm>=4.66
+imageio-ffmpeg>=0.5            # 视频抽帧依赖的 ffmpeg
+
+# ============ 人脸识别登录 ============
+insightface>=0.7               # buffalo_l 检测+对齐+512维嵌入
+onnxruntime>=1.17
+
+# ============ LLM / RAG（Ollama + LangChain + ChromaDB） ============
+langchain-core>=0.3
+langchain-community>=0.3
+langchain-chroma>=0.1
+langchain-huggingface>=0.1     # BGE 中文嵌入
+langchain-text-splitters>=0.3
+chromadb>=0.5                  # 向量知识库
+transformers>=4.44             # LoRA 微调链路
+torch>=2.3                     # 模型训练底层框架
+peft>=0.12                     # LoRA / PEFT
+datasets>=2.20
+safetensors>=0.4
+gguf                           # GGUF 格式转换
+pypdf>=4                       # 知识库 PDF 导入
+
+# ============ 测试 ============
+pytest>=8
