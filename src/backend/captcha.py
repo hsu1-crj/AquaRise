@@ -11,7 +11,7 @@
 """
 
 import hashlib
-import hmac
+import os
 import random
 import secrets
 import time
@@ -19,8 +19,8 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFont
 
-# 签名密钥：生产环境务必改成随机长字符串
-SECRET_KEY = "fastapi-learning-captcha-secret"
+# 签名密钥：优先从环境变量/.env 注入；未配置时使用开发默认值，生产环境必须设置随机长字符串
+SECRET_KEY = os.getenv("CAPTCHA_SECRET_KEY", "fastapi-learning-captcha-secret-change-me")
 
 # 验证码有效期（秒），过期后即使填对也要重新获取
 CAPTCHA_MAX_AGE = 300
